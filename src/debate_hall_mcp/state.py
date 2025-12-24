@@ -94,7 +94,7 @@ class DebateRoom(BaseModel):
     max_rounds: int = Field(default=4, description="Maximum rounds allowed (I3)")
     turns: list[Turn] = Field(default_factory=list, description="Turn history")
     synthesis: str | None = Field(
-        None, description="Final Door synthesis (if status=SYNTHESIS)"
+        default=None, description="Final Door synthesis (if status=SYNTHESIS)"
     )
 
 
