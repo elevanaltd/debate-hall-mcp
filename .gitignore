@@ -85,3 +85,7 @@ dmypy.json
 
 # ruff
 .ruff_cache/
+
+# Git worktrees (Crystal)
+/worktrees/
+/worktree-*/
