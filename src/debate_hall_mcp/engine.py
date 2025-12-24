@@ -11,7 +11,7 @@ Immutables Compliance:
 - I5 (SOVEREIGN_SAFETY_OVERRIDE): Force close capability
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from debate_hall_mcp.state import DebateMode, DebateRoom, DebateStatus, Turn
@@ -81,10 +81,7 @@ def is_debate_exhausted(room: DebateRoom) -> bool:
 
     # Check max_rounds limit (3 turns per round)
     complete_rounds = turn_count // 3
-    if complete_rounds >= room.max_rounds:
-        return True
-
-    return False
+    return complete_rounds >= room.max_rounds
 
 
 def can_add_turn(room: DebateRoom) -> bool:
@@ -103,10 +100,7 @@ def can_add_turn(room: DebateRoom) -> bool:
     if room.status != DebateStatus.ACTIVE:
         return False
 
-    if is_debate_exhausted(room):
-        return False
-
-    return True
+    return not is_debate_exhausted(room)
 
 
 class DebateEngine:
@@ -160,7 +154,7 @@ class DebateEngine:
         turn = Turn(
             role=role,
             content=content,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=previous_hash,
         )
 

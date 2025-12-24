@@ -8,16 +8,16 @@ Tests cover:
 - Next speaker determination
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from debate_hall_mcp.engine import (
     DebateEngine,
     TerminationReason,
+    can_add_turn,
     get_next_speaker,
     is_debate_exhausted,
-    can_add_turn,
 )
 from debate_hall_mcp.state import DebateMode, DebateRoom, DebateStatus, Turn
 
@@ -46,7 +46,7 @@ class TestGetNextSpeaker:
         room.turns.append(Turn(
             role="Wind",
             content="Test",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         ))
         assert get_next_speaker(room) == "Wall"
@@ -55,7 +55,7 @@ class TestGetNextSpeaker:
         room.turns.append(Turn(
             role="Wall",
             content="Test",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=room.turns[-1].hash,
         ))
         assert get_next_speaker(room) == "Door"
@@ -64,7 +64,7 @@ class TestGetNextSpeaker:
         room.turns.append(Turn(
             role="Door",
             content="Test",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=room.turns[-1].hash,
         ))
         assert get_next_speaker(room) == "Wind"
@@ -110,7 +110,7 @@ class TestIsDebateExhausted:
             room.turns.append(Turn(
                 role=role,
                 content=f"Turn {i}",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 previous_hash=prev_hash,
             ))
 
@@ -133,7 +133,7 @@ class TestIsDebateExhausted:
             room.turns.append(Turn(
                 role=role,
                 content=f"Turn {i}",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 previous_hash=prev_hash,
             ))
 
@@ -165,7 +165,7 @@ class TestCanAddTurn:
         room.turns.append(Turn(
             role="Wind",
             content="Only turn",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         ))
 

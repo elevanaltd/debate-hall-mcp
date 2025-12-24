@@ -7,9 +7,8 @@ Tests cover:
 - Transport configuration
 """
 
-import pytest
 
-from debate_hall_mcp.server import create_server, SERVER_NAME, SERVER_VERSION
+from debate_hall_mcp.server import SERVER_NAME, SERVER_VERSION, create_server
 
 
 class TestServerInitialization:

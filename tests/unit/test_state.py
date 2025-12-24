@@ -8,11 +8,9 @@ Tests cover:
 - State persistence to JSON with hash chain (I4 compliance)
 """
 
-import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -21,9 +19,9 @@ from debate_hall_mcp.state import (
     DebateRoom,
     DebateStatus,
     Turn,
-    save_debate_state,
-    load_debate_state,
     calculate_turn_hash,
+    load_debate_state,
+    save_debate_state,
 )
 
 
@@ -56,7 +54,7 @@ class TestTurn:
         turn = Turn(
             role="Wind",
             content="Test content",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         )
         assert turn.role == "Wind"
@@ -69,7 +67,7 @@ class TestTurn:
         turn = Turn(
             role="Wall",
             content="Test content",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         )
         # Hash should be deterministic based on role, content, timestamp, previous_hash
@@ -83,13 +81,13 @@ class TestTurn:
         turn1 = Turn(
             role="Wind",
             content="First",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         )
         turn2 = Turn(
             role="Wall",
             content="Second",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=turn1.hash,
         )
         assert turn2.previous_hash == turn1.hash
@@ -138,7 +136,7 @@ class TestDebateRoom:
         turn1 = Turn(
             role="Wind",
             content="First turn",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         )
         room.turns.append(turn1)
@@ -146,7 +144,7 @@ class TestDebateRoom:
         turn2 = Turn(
             role="Wall",
             content="Second turn",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=turn1.hash,
         )
         room.turns.append(turn2)
@@ -167,7 +165,7 @@ class TestDebateRoom:
         room.turns.append(Turn(
             role="Wind",
             content="Turn 1",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         ))
 
@@ -188,7 +186,7 @@ class TestStatePersistence:
         turn = Turn(
             role="Wind",
             content="Test turn",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         )
         room.turns.append(turn)
@@ -224,7 +222,7 @@ class TestStatePersistence:
         turn = Turn(
             role="Wall",
             content="Loaded turn",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         )
         room.turns.append(turn)
@@ -263,7 +261,7 @@ class TestStatePersistence:
         turn1 = Turn(
             role="Wind",
             content="First",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=None,
         )
         room.turns.append(turn1)
@@ -271,7 +269,7 @@ class TestStatePersistence:
         turn2 = Turn(
             role="Wall",
             content="Second",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=turn1.hash,
         )
         room.turns.append(turn2)
@@ -279,7 +277,7 @@ class TestStatePersistence:
         turn3 = Turn(
             role="Door",
             content="Third",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             previous_hash=turn2.hash,
         )
         room.turns.append(turn3)
@@ -300,21 +298,21 @@ class TestCalculateTurnHash:
 
     def test_hash_deterministic(self) -> None:
         """Hash is deterministic for same inputs."""
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         hash1 = calculate_turn_hash("Wind", "Content", timestamp, None)
         hash2 = calculate_turn_hash("Wind", "Content", timestamp, None)
         assert hash1 == hash2
 
     def test_hash_different_content(self) -> None:
         """Hash changes with different content."""
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         hash1 = calculate_turn_hash("Wind", "Content1", timestamp, None)
         hash2 = calculate_turn_hash("Wind", "Content2", timestamp, None)
         assert hash1 != hash2
 
     def test_hash_includes_previous(self) -> None:
         """Hash changes when previous_hash is different."""
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         hash1 = calculate_turn_hash("Wind", "Content", timestamp, None)
         hash2 = calculate_turn_hash("Wind", "Content", timestamp, "previous-hash")
         assert hash1 != hash2

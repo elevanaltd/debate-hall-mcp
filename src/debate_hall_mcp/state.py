@@ -13,7 +13,7 @@ Immutables Compliance:
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -69,7 +69,7 @@ class Turn(BaseModel):
             return datetime.fromisoformat(v.replace("Z", "+00:00"))
         if v.tzinfo is None:
             # Assume UTC if no timezone
-            return v.replace(tzinfo=timezone.utc)
+            return v.replace(tzinfo=UTC)
         return v
 
 
