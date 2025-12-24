@@ -56,9 +56,7 @@ def debate_init(
     # Check if thread already exists
     state_file = state_dir / f"{thread_id}.json"
     if state_file.exists():
-        raise FileExistsError(
-            f"Thread {thread_id} already exists at {state_file}"
-        )
+        raise FileExistsError(f"Thread {thread_id} already exists at {state_file}")
 
     # Create debate room
     room = DebateRoom(

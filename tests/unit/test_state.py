@@ -162,12 +162,14 @@ class TestDebateRoom:
 
         assert len(room.turns) == 0
 
-        room.turns.append(Turn(
-            role="Wind",
-            content="Turn 1",
-            timestamp=datetime.now(UTC),
-            previous_hash=None,
-        ))
+        room.turns.append(
+            Turn(
+                role="Wind",
+                content="Turn 1",
+                timestamp=datetime.now(UTC),
+                previous_hash=None,
+            )
+        )
 
         assert len(room.turns) == 1
 

@@ -89,9 +89,7 @@ def test_debate_next_context_lines_limits_transcript(tmp_path: Path) -> None:
     debate_turn("test-thread-004", "Wall", "W4", state_dir=tmp_path)
 
     # Request only last 2 turns
-    result = debate_next(
-        thread_id="test-thread-004", context_lines=2, state_dir=tmp_path
-    )
+    result = debate_next(thread_id="test-thread-004", context_lines=2, state_dir=tmp_path)
 
     assert result["turn_count"] == 5  # Total turns
     assert len(result["transcript"]) == 2  # Limited to last 2

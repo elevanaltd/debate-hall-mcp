@@ -59,7 +59,7 @@ async def test_force_close_admin_override(cleanup_debates):  # noqa: ARG001
                 "mode": "fixed",
                 "max_turns": 12,
                 "max_rounds": 4,
-            }
+            },
         )
 
         assert init_result is not None
@@ -71,7 +71,7 @@ async def test_force_close_admin_override(cleanup_debates):  # noqa: ARG001
                 "thread_id": "test-admin-001",
                 "role": "Wind",
                 "content": "TURN::Wind initial perspective",
-            }
+            },
         )
 
         assert turn_result is not None
@@ -82,23 +82,30 @@ async def test_force_close_admin_override(cleanup_debates):  # noqa: ARG001
             {
                 "thread_id": "test-admin-001",
                 "reason": "Emergency shutdown: content policy violation detected",
-            }
+            },
         )
 
         assert force_close_result is not None
-        force_close_text = force_close_result.content[0].text if hasattr(force_close_result.content[0], 'text') else str(force_close_result.content[0])
+        force_close_text = (
+            force_close_result.content[0].text
+            if hasattr(force_close_result.content[0], "text")
+            else str(force_close_result.content[0])
+        )
 
         # Should indicate force closure
         assert "force" in force_close_text.lower() or "closed" in force_close_text.lower()
 
         # Step 4: Verify status shows force_closed
         status_result = await client_session.call_tool(
-            "get_status",
-            {"thread_id": "test-admin-001"}
+            "get_status", {"thread_id": "test-admin-001"}
         )
 
         assert status_result is not None
-        status_text = status_result.content[0].text if hasattr(status_result.content[0], 'text') else str(status_result.content[0])
+        status_text = (
+            status_result.content[0].text
+            if hasattr(status_result.content[0], "text")
+            else str(status_result.content[0])
+        )
 
         # Should show force_closed status and reason
         assert "force" in status_text.lower() or "emergency" in status_text.lower()
@@ -111,11 +118,19 @@ async def test_force_close_admin_override(cleanup_debates):  # noqa: ARG001
                     "thread_id": "test-admin-001",
                     "role": "Wall",
                     "content": "TURN::This should be rejected",
-                }
+                },
             )
             # If it doesn't raise, check for error indication
-            turn_after_text = turn_after_result.content[0].text if hasattr(turn_after_result.content[0], 'text') else str(turn_after_result.content[0])
-            assert "error" in turn_after_text.lower() or "closed" in turn_after_text.lower() or "force" in turn_after_text.lower()
+            turn_after_text = (
+                turn_after_result.content[0].text
+                if hasattr(turn_after_result.content[0], "text")
+                else str(turn_after_result.content[0])
+            )
+            assert (
+                "error" in turn_after_text.lower()
+                or "closed" in turn_after_text.lower()
+                or "force" in turn_after_text.lower()
+            )
         except Exception:
             # Exception is acceptable - force close blocks new turns
             pass
@@ -150,7 +165,7 @@ async def test_tombstone_turn_redaction(cleanup_debates):  # noqa: ARG001
                 "mode": "fixed",
                 "max_turns": 12,
                 "max_rounds": 4,
-            }
+            },
         )
 
         assert init_result is not None
@@ -163,7 +178,7 @@ async def test_tombstone_turn_redaction(cleanup_debates):  # noqa: ARG001
                     "thread_id": "test-admin-002",
                     "role": role,
                     "content": f"TURN::{role} turn {i+1} with sensitive content",
-                }
+                },
             )
             assert turn_result is not None
 
@@ -174,23 +189,34 @@ async def test_tombstone_turn_redaction(cleanup_debates):  # noqa: ARG001
                 "thread_id": "test-admin-002",
                 "turn_index": 1,  # Wall turn (0-indexed)
                 "reason": "Content redacted: privacy concern",
-            }
+            },
         )
 
         assert tombstone_result is not None
-        tombstone_text = tombstone_result.content[0].text if hasattr(tombstone_result.content[0], 'text') else str(tombstone_result.content[0])
+        tombstone_text = (
+            tombstone_result.content[0].text
+            if hasattr(tombstone_result.content[0], "text")
+            else str(tombstone_result.content[0])
+        )
 
         # Should confirm tombstone
-        assert "tombstone" in tombstone_text.lower() or "redact" in tombstone_text.lower() or "1" in tombstone_text
+        assert (
+            "tombstone" in tombstone_text.lower()
+            or "redact" in tombstone_text.lower()
+            or "1" in tombstone_text
+        )
 
         # Step 4: Verify status shows turn count unchanged
         status_result = await client_session.call_tool(
-            "get_status",
-            {"thread_id": "test-admin-002"}
+            "get_status", {"thread_id": "test-admin-002"}
         )
 
         assert status_result is not None
-        status_text = status_result.content[0].text if hasattr(status_result.content[0], 'text') else str(status_result.content[0])
+        status_text = (
+            status_result.content[0].text
+            if hasattr(status_result.content[0], "text")
+            else str(status_result.content[0])
+        )
 
         # Should still show 3 turns (tombstone doesn't delete)
         assert "3" in status_text
@@ -202,7 +228,7 @@ async def test_tombstone_turn_redaction(cleanup_debates):  # noqa: ARG001
             {
                 "thread_id": "test-admin-002",
                 "synthesis": "SYNTHESIS::Audit trail preserved despite redaction",
-            }
+            },
         )
 
         assert close_result is not None

@@ -161,9 +161,7 @@ class DebateEngine:
         # Add to room
         self.room.turns.append(turn)
 
-    def close_debate(
-        self, reason: TerminationReason, synthesis: str | None = None
-    ) -> None:
+    def close_debate(self, reason: TerminationReason, synthesis: str | None = None) -> None:
         """Close debate with specified termination reason.
 
         Args:

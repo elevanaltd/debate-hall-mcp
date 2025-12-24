@@ -62,7 +62,7 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates):  # noqa: ARG00
                 "mode": "fixed",
                 "max_turns": 12,
                 "max_rounds": 4,
-            }
+            },
         )
 
         assert init_result is not None
@@ -70,7 +70,7 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates):  # noqa: ARG00
         assert len(content) > 0
 
         # Parse response - MCP returns list of TextContent or ImageContent
-        response_text = content[0].text if hasattr(content[0], 'text') else str(content[0])
+        response_text = content[0].text if hasattr(content[0], "text") else str(content[0])
 
         # Verify initialization
         assert "test-e2e-001" in response_text
@@ -83,11 +83,15 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates):  # noqa: ARG00
                 "thread_id": "test-e2e-001",
                 "role": "Wind",
                 "content": "TURN::Wind explores infinite possibility space: constraints as catalysts for breakthrough thinking.",
-            }
+            },
         )
 
         assert wind_result is not None
-        wind_text = wind_result.content[0].text if hasattr(wind_result.content[0], 'text') else str(wind_result.content[0])
+        wind_text = (
+            wind_result.content[0].text
+            if hasattr(wind_result.content[0], "text")
+            else str(wind_result.content[0])
+        )
         assert "Wind" in wind_text
 
         # Step 3: Wall turn (ETHOS - boundary validation)
@@ -97,11 +101,15 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates):  # noqa: ARG00
                 "thread_id": "test-e2e-001",
                 "role": "Wall",
                 "content": "TURN::Wall validates boundaries: unconstrained exploration leads to chaos, structure provides safety.",
-            }
+            },
         )
 
         assert wall_result is not None
-        wall_text = wall_result.content[0].text if hasattr(wall_result.content[0], 'text') else str(wall_result.content[0])
+        wall_text = (
+            wall_result.content[0].text
+            if hasattr(wall_result.content[0], "text")
+            else str(wall_result.content[0])
+        )
         assert "Wall" in wall_text
 
         # Step 4: Door turn (LOGOS - synthesis)
@@ -111,11 +119,15 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates):  # noqa: ARG00
                 "thread_id": "test-e2e-001",
                 "role": "Door",
                 "content": "TURN::Door synthesizes: constraints enable creativity by channeling exploration into productive paths.",
-            }
+            },
         )
 
         assert door_result is not None
-        door_text = door_result.content[0].text if hasattr(door_result.content[0], 'text') else str(door_result.content[0])
+        door_text = (
+            door_result.content[0].text
+            if hasattr(door_result.content[0], "text")
+            else str(door_result.content[0])
+        )
         assert "Door" in door_text
 
         # Step 5: Close debate with synthesis
@@ -124,21 +136,26 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates):  # noqa: ARG00
             {
                 "thread_id": "test-e2e-001",
                 "synthesis": "SYNTHESIS::The debate reveals that constraints and creativity exist in productive tension - constraints catalyze breakthroughs while preventing chaos.",
-            }
+            },
         )
 
         assert close_result is not None
-        close_text = close_result.content[0].text if hasattr(close_result.content[0], 'text') else str(close_result.content[0])
+        close_text = (
+            close_result.content[0].text
+            if hasattr(close_result.content[0], "text")
+            else str(close_result.content[0])
+        )
         assert "closed" in close_text.lower() or "synthesis" in close_text.lower()
 
         # Step 6: Verify final status shows hash chain integrity
-        status_result = await client_session.call_tool(
-            "get_status",
-            {"thread_id": "test-e2e-001"}
-        )
+        status_result = await client_session.call_tool("get_status", {"thread_id": "test-e2e-001"})
 
         assert status_result is not None
-        status_text = status_result.content[0].text if hasattr(status_result.content[0], 'text') else str(status_result.content[0])
+        status_text = (
+            status_result.content[0].text
+            if hasattr(status_result.content[0], "text")
+            else str(status_result.content[0])
+        )
 
         # Verify debate is closed (status is "synthesis" after close)
         assert "synthesis" in status_text.lower()

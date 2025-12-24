@@ -46,9 +46,7 @@ def debate_pick(
     """
     # Validate role
     if role not in VALID_ROLES:
-        raise ValueError(
-            f"Invalid role: {role}. Must be one of {', '.join(VALID_ROLES)}"
-        )
+        raise ValueError(f"Invalid role: {role}. Must be one of {', '.join(VALID_ROLES)}")
 
     # Default state directory
     if state_dir is None:
@@ -65,9 +63,7 @@ def debate_pick(
 
     # Validate active status
     if room.status != DebateStatus.ACTIVE:
-        raise ValueError(
-            f"Debate is not active (status: {room.status.value})"
-        )
+        raise ValueError(f"Debate is not active (status: {room.status.value})")
 
     # Note: In current implementation, we don't persist the picked role
     # because debate_turn in mediated mode accepts any role anyway.

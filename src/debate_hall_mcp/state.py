@@ -87,9 +87,7 @@ class DebateRoom(BaseModel):
     thread_id: str = Field(..., description="Unique thread identifier")
     topic: str = Field(..., description="Debate topic")
     mode: DebateMode = Field(..., description="Orchestration mode")
-    status: DebateStatus = Field(
-        default=DebateStatus.ACTIVE, description="Current debate status"
-    )
+    status: DebateStatus = Field(default=DebateStatus.ACTIVE, description="Current debate status")
     max_turns: int = Field(default=12, description="Maximum turns allowed (I3)")
     max_rounds: int = Field(default=4, description="Maximum rounds allowed (I3)")
     turns: list[Turn] = Field(default_factory=list, description="Turn history")

@@ -50,9 +50,7 @@ def debate_turn(
     if room.mode == DebateMode.FIXED:
         expected_role = get_next_speaker(room)
         if role != expected_role:
-            raise ValueError(
-                f"Expected role '{expected_role}' but got '{role}' in fixed mode"
-            )
+            raise ValueError(f"Expected role '{expected_role}' but got '{role}' in fixed mode")
 
     # Add turn via engine (validates active state and limits)
     engine = DebateEngine(room)

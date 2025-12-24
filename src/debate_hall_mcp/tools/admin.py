@@ -94,9 +94,7 @@ def debate_tombstone(
 
     # Validate turn index
     if turn_index < 0 or turn_index >= len(room.turns):
-        raise ValueError(
-            f"Invalid turn index: {turn_index}. Valid range: 0-{len(room.turns) - 1}"
-        )
+        raise ValueError(f"Invalid turn index: {turn_index}. Valid range: 0-{len(room.turns) - 1}")
 
     # Redact content (hash remains unchanged - I4 compliance)
     room.turns[turn_index].content = f"[REDACTED: {reason}]"

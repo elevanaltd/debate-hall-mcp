@@ -7,7 +7,6 @@ Tests cover:
 - Transport configuration
 """
 
-
 from debate_hall_mcp.server import SERVER_NAME, SERVER_VERSION, create_server
 
 

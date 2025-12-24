@@ -43,30 +43,36 @@ class TestGetNextSpeaker:
         )
 
         # Wind turn
-        room.turns.append(Turn(
-            role="Wind",
-            content="Test",
-            timestamp=datetime.now(UTC),
-            previous_hash=None,
-        ))
+        room.turns.append(
+            Turn(
+                role="Wind",
+                content="Test",
+                timestamp=datetime.now(UTC),
+                previous_hash=None,
+            )
+        )
         assert get_next_speaker(room) == "Wall"
 
         # Wall turn
-        room.turns.append(Turn(
-            role="Wall",
-            content="Test",
-            timestamp=datetime.now(UTC),
-            previous_hash=room.turns[-1].hash,
-        ))
+        room.turns.append(
+            Turn(
+                role="Wall",
+                content="Test",
+                timestamp=datetime.now(UTC),
+                previous_hash=room.turns[-1].hash,
+            )
+        )
         assert get_next_speaker(room) == "Door"
 
         # Door turn
-        room.turns.append(Turn(
-            role="Door",
-            content="Test",
-            timestamp=datetime.now(UTC),
-            previous_hash=room.turns[-1].hash,
-        ))
+        room.turns.append(
+            Turn(
+                role="Door",
+                content="Test",
+                timestamp=datetime.now(UTC),
+                previous_hash=room.turns[-1].hash,
+            )
+        )
         assert get_next_speaker(room) == "Wind"
 
     def test_mediated_mode_requires_explicit_role(self) -> None:
@@ -107,12 +113,14 @@ class TestIsDebateExhausted:
         for i in range(3):
             role = ["Wind", "Wall", "Door"][i]
             prev_hash = room.turns[-1].hash if room.turns else None
-            room.turns.append(Turn(
-                role=role,
-                content=f"Turn {i}",
-                timestamp=datetime.now(UTC),
-                previous_hash=prev_hash,
-            ))
+            room.turns.append(
+                Turn(
+                    role=role,
+                    content=f"Turn {i}",
+                    timestamp=datetime.now(UTC),
+                    previous_hash=prev_hash,
+                )
+            )
 
         assert is_debate_exhausted(room) is True
 
@@ -130,12 +138,14 @@ class TestIsDebateExhausted:
         roles = ["Wind", "Wall", "Door", "Wind", "Wall", "Door"]
         for i, role in enumerate(roles):
             prev_hash = room.turns[-1].hash if room.turns else None
-            room.turns.append(Turn(
-                role=role,
-                content=f"Turn {i}",
-                timestamp=datetime.now(UTC),
-                previous_hash=prev_hash,
-            ))
+            room.turns.append(
+                Turn(
+                    role=role,
+                    content=f"Turn {i}",
+                    timestamp=datetime.now(UTC),
+                    previous_hash=prev_hash,
+                )
+            )
 
         assert is_debate_exhausted(room) is True
 
@@ -162,12 +172,14 @@ class TestCanAddTurn:
             max_turns=1,
         )
 
-        room.turns.append(Turn(
-            role="Wind",
-            content="Only turn",
-            timestamp=datetime.now(UTC),
-            previous_hash=None,
-        ))
+        room.turns.append(
+            Turn(
+                role="Wind",
+                content="Only turn",
+                timestamp=datetime.now(UTC),
+                previous_hash=None,
+            )
+        )
 
         assert can_add_turn(room) is False
 
@@ -265,10 +277,7 @@ class TestDebateEngine:
         )
         engine = DebateEngine(room)
 
-        engine.close_debate(
-            reason=TerminationReason.SYNTHESIS,
-            synthesis="Final synthesis content"
-        )
+        engine.close_debate(reason=TerminationReason.SYNTHESIS, synthesis="Final synthesis content")
 
         assert room.status == DebateStatus.SYNTHESIS
         assert room.synthesis == "Final synthesis content"
