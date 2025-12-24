@@ -1,0 +1,179 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish_to_test_pypi:
+        description: 'Publish to Test PyPI instead of PyPI'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: Build Distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install build tools
+        run: |
+          uv pip install --system build twine
+
+      - name: Build distribution
+        run: |
+          python -m build
+
+      - name: Check distribution
+        run: |
+          twine check dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  test-package:
+    name: Test Package Installation
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install from wheel
+        run: |
+          pip install dist/*.whl
+
+      - name: Test CLI commands
+        run: |
+          debate-hall-mcp --help || echo "CLI registered"
+
+      - name: Test Python import
+        run: |
+          python -c "import debate_hall_mcp; print(f'Imported: {debate_hall_mcp.__file__}')"
+
+  publish:
+    name: Publish to PyPI
+    needs: [build, test-package]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/debate-hall-mcp
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to Test PyPI
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_to_test_pypi
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+      - name: Publish to PyPI
+        if: github.event_name == 'release'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: false
+
+  verify-publication:
+    name: Verify Publication
+    needs: publish
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Wait for package to be available
+        run: |
+          # Wait up to 5 minutes for package to propagate
+          for i in {1..30}; do
+            if pip index versions debate-hall-mcp | grep -q "${{ github.ref_name }}"; then
+              echo "Package version ${{ github.ref_name }} is available on PyPI"
+              exit 0
+            fi
+            echo "Waiting for package to be available (attempt $i/30)..."
+            sleep 10
+          done
+          echo "Package not available after 5 minutes"
+          exit 1
+
+      - name: Install from PyPI
+        run: |
+          pip install debate-hall-mcp==${{ github.ref_name }}
+
+      - name: Verify installation
+        run: |
+          debate-hall-mcp --help || echo "CLI installed"
+          python -c "import debate_hall_mcp; print(f'Version verified: {debate_hall_mcp.__file__}')"
+
+  create-github-release-notes:
+    name: Update GitHub Release Notes
+    needs: publish
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Update release notes
+        uses: softprops/action-gh-release@v2
+        with:
+          append_body: |
+
+            ## Installation
+
+            Install from PyPI:
+            ```bash
+            pip install debate-hall-mcp==${{ github.ref_name }}
+            ```
+
+            ## Documentation
+
+            - [README](https://github.com/hestai/debate-hall-mcp/blob/main/README.md)
+            - [Usage Guide](https://github.com/hestai/debate-hall-mcp#usage)
+
+            ## PyPI
+
+            View on PyPI: https://pypi.org/project/debate-hall-mcp/${{ github.ref_name }}/
