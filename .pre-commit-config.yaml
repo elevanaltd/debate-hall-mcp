@@ -1,0 +1,41 @@
+# Pre-commit hooks for debate-hall-mcp
+# Install: pip install pre-commit && pre-commit install
+
+repos:
+  - repo: local
+    hooks:
+      - id: no-tests-init
+        name: Prevent tests/__init__.py
+        entry: bash -c 'if find tests -name "__init__.py" -type f | grep -q .; then echo "ERROR tests/__init__.py files must not exist per TEST-STRUCTURE-STANDARD.md Standard 4"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: ruff
+        name: ruff (staged)
+        entry: ruff check --fix
+        language: system
+        types: [python]
+        files: ^(src|tests|scripts)/.*\.py$
+
+      - id: black
+        name: black --check (staged)
+        entry: black --check
+        language: system
+        types: [python]
+        files: ^(src|tests|scripts)/.*\.py$
+
+      - id: mypy
+        name: mypy src (only when src staged)
+        entry: bash -c 'set -euo pipefail; if git diff --cached --name-only --diff-filter=ACMR | grep -E "^src/.*\.py$" >/dev/null; then mypy src; else echo "SKIP mypy (no src/*.py staged)"; fi'
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
