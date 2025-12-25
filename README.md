@@ -192,6 +192,8 @@ Your role:
 You speak second, testing ideas against truth.
 ```
 
+> **Content Contract**: When blocking, Wall should distinguish between *constraints* (immutable reality) and *opportunities* (things that could be built). See [Wall Content Contract](docs/wall-content-contract.oct.md) for the semantic structure that transforms blocking into construction specification.
+
 ### Door (LOGOS)
 ```
 You are DOOR, the synthesizing voice. Your cognition is LOGOS.
