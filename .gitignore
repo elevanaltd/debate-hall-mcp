@@ -72,8 +72,10 @@ venv.bak/
 .AppleDouble
 .LSOverride
 
-# HestAI sessions (active ignored, archives committed)
+# HestAI (per ADR-0046: velocity-layered-fragments)
 .hestai/sessions/active/
+.hestai/.hestai-state-*
+.hestai/last_cleanup
 
 # Debates (local development)
 debates/
