@@ -57,14 +57,16 @@ class Turn(BaseModel):
     content: str = Field(..., description="Turn content (OCTAVE format)")
     timestamp: datetime = Field(..., description="UTC timestamp of turn")
     previous_hash: str | None = Field(
-        None, description="Hash of previous turn (None for first turn)"
+        default=None, description="Hash of previous turn (None for first turn)"
     )
     hash: str = Field(default="", description="SHA-256 hash of this turn")
 
     # Speaker identity metadata (Issue #4) - excluded from hash chain
-    agent_role: str | None = Field(None, description="Operational agent role")
-    model: str | None = Field(None, description="AI model identifier")
-    cognition: str | None = Field(None, description="Cognitive archetype: PATHOS|ETHOS|LOGOS")
+    agent_role: str | None = Field(default=None, description="Operational agent role")
+    model: str | None = Field(default=None, description="AI model identifier")
+    cognition: str | None = Field(
+        default=None, description="Cognitive archetype: PATHOS|ETHOS|LOGOS"
+    )
 
     def model_post_init(self, __context: Any) -> None:
         """Calculate hash after model initialization."""
@@ -95,6 +97,7 @@ class DebateRoom(BaseModel):
     - Current status
     - Resource limits (I3: Finite Dialectic Closure)
     - Turn history with hash chain (I4: Verifiable Event Ledger)
+    - Cognition enforcement policy (behavioral firewall)
     """
 
     thread_id: str = Field(..., description="Unique thread identifier")
@@ -103,6 +106,10 @@ class DebateRoom(BaseModel):
     status: DebateStatus = Field(default=DebateStatus.ACTIVE, description="Current debate status")
     max_turns: int = Field(default=12, description="Maximum turns allowed (I3)")
     max_rounds: int = Field(default=4, description="Maximum rounds allowed (I3)")
+    strict_cognition: bool = Field(
+        default=False,
+        description="If True, BLOCK-level cognition violations reject turns (behavioral firewall)",
+    )
     turns: list[Turn] = Field(default_factory=list, description="Turn history")
     synthesis: str | None = Field(
         default=None, description="Final Door synthesis (if status=SYNTHESIS)"

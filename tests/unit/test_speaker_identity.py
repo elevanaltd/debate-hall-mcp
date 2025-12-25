@@ -10,6 +10,7 @@ Tests verify:
 """
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 from debate_hall_mcp.engine import DebateEngine
 from debate_hall_mcp.state import DebateMode, DebateRoom, DebateStatus, Turn, calculate_turn_hash
@@ -18,7 +19,7 @@ from debate_hall_mcp.state import DebateMode, DebateRoom, DebateStatus, Turn, ca
 class TestTurnModelWithIdentity:
     """Test Turn model with speaker identity fields."""
 
-    def test_turn_with_speaker_identity(self):
+    def test_turn_with_speaker_identity(self) -> None:
         """Turn model accepts optional speaker identity fields."""
         # Create turn with all identity fields
         turn = Turn(
@@ -38,7 +39,7 @@ class TestTurnModelWithIdentity:
         assert turn.role == "Wind"
         assert turn.content == "Test content"
 
-    def test_turn_without_speaker_identity_backward_compatible(self):
+    def test_turn_without_speaker_identity_backward_compatible(self) -> None:
         """Existing Turn creation without identity still works."""
         # Create turn WITHOUT identity fields (backward compatibility)
         turn = Turn(
@@ -57,7 +58,7 @@ class TestTurnModelWithIdentity:
         assert turn.model is None
         assert turn.cognition is None
 
-    def test_turn_partial_identity(self):
+    def test_turn_partial_identity(self) -> None:
         """Turn accepts partial identity (not all fields required)."""
         # Create turn with only some identity fields
         turn = Turn(
@@ -77,7 +78,7 @@ class TestTurnModelWithIdentity:
 class TestIdentityExcludedFromHash:
     """Test that identity fields are NOT included in hash calculation."""
 
-    def test_identity_excluded_from_hash_chain(self):
+    def test_identity_excluded_from_hash_chain(self) -> None:
         """Identity fields do NOT affect hash calculation."""
         timestamp = datetime.now(UTC)
 
@@ -105,7 +106,7 @@ class TestIdentityExcludedFromHash:
         # Hash should be IDENTICAL (identity excluded from hash)
         assert turn1.hash == turn2.hash
 
-    def test_hash_function_signature_unchanged(self):
+    def test_hash_function_signature_unchanged(self) -> None:
         """calculate_turn_hash() function signature remains unchanged."""
         # Hash function should only take 4 parameters (not identity fields)
         timestamp = datetime.now(UTC)
@@ -124,7 +125,7 @@ class TestIdentityExcludedFromHash:
 class TestDebateEngineWithIdentity:
     """Test DebateEngine.add_turn() with identity parameters."""
 
-    def test_debate_engine_add_turn_accepts_identity(self):
+    def test_debate_engine_add_turn_accepts_identity(self) -> None:
         """DebateEngine.add_turn() accepts optional identity parameters."""
         room = DebateRoom(
             thread_id="test",
@@ -151,7 +152,7 @@ class TestDebateEngineWithIdentity:
         assert turn.model == "test-model"
         assert turn.cognition == "LOGOS"
 
-    def test_debate_engine_add_turn_backward_compatible(self):
+    def test_debate_engine_add_turn_backward_compatible(self) -> None:
         """DebateEngine.add_turn() works without identity (backward compatible)."""
         room = DebateRoom(
             thread_id="test",
@@ -176,7 +177,7 @@ class TestDebateEngineWithIdentity:
 class TestDebateTurnToolWithIdentity:
     """Test debate_turn tool function with identity parameters."""
 
-    def test_debate_turn_tool_accepts_identity(self, tmp_path):
+    def test_debate_turn_tool_accepts_identity(self, tmp_path: Path) -> None:
         """debate_turn tool passes identity to Turn model."""
         from debate_hall_mcp.tools.init import debate_init
         from debate_hall_mcp.tools.turn import debate_turn
@@ -214,7 +215,7 @@ class TestDebateTurnToolWithIdentity:
         assert turn.model == "test-model"
         assert turn.cognition == "PATHOS"
 
-    def test_debate_turn_tool_backward_compatible(self, tmp_path):
+    def test_debate_turn_tool_backward_compatible(self, tmp_path: Path) -> None:
         """debate_turn tool works without identity parameters."""
         from debate_hall_mcp.tools.init import debate_init
         from debate_hall_mcp.tools.turn import debate_turn

@@ -107,7 +107,7 @@ def test_debate_init_invalid_mode(tmp_path: Path) -> None:
         debate_init(
             thread_id="test-thread-005",
             topic="Invalid mode test",
-            mode="invalid_mode",  # type: ignore
+            mode="invalid_mode",  # pyright: ignore[reportArgumentType]
             state_dir=tmp_path,
         )
 
