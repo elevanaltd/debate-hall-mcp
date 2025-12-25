@@ -167,17 +167,17 @@ The three quality gates validate functional correctness.
         assert len(result.violations) == 0
 
     def test_valid_wall_with_verdict_colon_format(self) -> None:
-        """Valid Wall turn accepts 'VERDICT:' format."""
+        """Valid Wall turn accepts 'VERDICT:' format with non-BLOCKED verdict."""
         validator = CognitionValidator()
         content = """
-VERDICT: BLOCKED - Missing required tests
+VERDICT: APPROVED - All requirements met
 
 [EVIDENCE]
-- No test coverage for new validation module
-- pytest shows only existing tests passing
+- Test coverage complete for new validation module
+- pytest shows all tests passing
 
 [REASONING]
-TDD requires tests before implementation.
+TDD cycle complete: tests written and passing.
 """
         result = validator.validate(role="Wall", content=content, cognition="ETHOS")
         assert result.level == "PASS"
@@ -249,6 +249,118 @@ It could be fine, maybe.
             "hedging" in v.lower() or "maybe" in v.lower() or "perhaps" in v.lower()
             for v in result.violations
         )
+
+    def test_wall_blocked_verdict_without_block_nature_warns(self) -> None:
+        """Wall with BLOCKED verdict but missing BLOCK_NATURE triggers WARN."""
+        validator = CognitionValidator()
+        content = """
+VERDICT::BLOCKED
+
+[EVIDENCE]
+- File does not exist
+- No tests found
+
+[REASONING]
+Cannot proceed without required file.
+
+REMEDIATION_REQUEST::"Create the missing file"
+"""
+        result = validator.validate(role="Wall", content=content, cognition="ETHOS")
+        assert result.level == "WARN"
+        assert any("block_nature" in v.lower() for v in result.violations)
+        assert any("block_nature" in h.lower() for h in result.hints)
+
+    def test_wall_blocked_verdict_without_remediation_request_warns(self) -> None:
+        """Wall with BLOCKED verdict but missing REMEDIATION_REQUEST triggers WARN."""
+        validator = CognitionValidator()
+        content = """
+VERDICT::BLOCKED
+
+[EVIDENCE]
+- Function not implemented
+- Tests are missing
+
+[REASONING]
+Cannot validate without implementation.
+
+BLOCK_NATURE::OPPORTUNITY
+"""
+        result = validator.validate(role="Wall", content=content, cognition="ETHOS")
+        assert result.level == "WARN"
+        assert any("remediation_request" in v.lower() for v in result.violations)
+        assert any("specific action" in h.lower() for h in result.hints)
+
+    def test_wall_blocked_verdict_with_both_fields_passes(self) -> None:
+        """Wall with BLOCKED verdict and both required fields passes."""
+        validator = CognitionValidator()
+        content = """
+VERDICT::BLOCKED
+
+[EVIDENCE]
+- tests/unit/test_auth_flow.py does not exist
+- No test coverage for auth module
+
+[REASONING]
+TDD requires tests before implementation.
+
+BLOCK_NATURE::OPPORTUNITY
+
+VOID_IDENTIFIED::"tests/unit/test_auth_flow.py does not exist"
+CONSTRUCTION_SPEC::"Unit tests covering login, logout, token refresh flows"
+ACCEPTANCE_CRITERIA::"pytest passes with >80% coverage on auth module"
+
+REMEDIATION_REQUEST::"Create test file with RED tests for auth flows before implementation"
+"""
+        result = validator.validate(role="Wall", content=content, cognition="ETHOS")
+        assert result.level == "PASS"
+        assert len(result.violations) == 0
+
+    def test_wall_non_blocked_verdict_no_additional_checks(self) -> None:
+        """Wall with non-BLOCKED verdict doesn't check for BLOCK_NATURE or REMEDIATION_REQUEST."""
+        validator = CognitionValidator()
+        content = """
+VERDICT::APPROVED
+
+[EVIDENCE]
+- All tests passing (pytest output: 47 passed)
+- Type checking clean (mypy: 0 errors)
+
+[REASONING]
+Implementation meets requirements.
+"""
+        result = validator.validate(role="Wall", content=content, cognition="ETHOS")
+        assert result.level == "PASS"
+        assert len(result.violations) == 0
+
+    def test_wall_blocked_verdict_various_formats(self) -> None:
+        """Wall BLOCKED verdict detection works with various formats."""
+        validator = CognitionValidator()
+
+        # Test VERDICT: BLOCKED format
+        content1 = """
+VERDICT: BLOCKED
+
+[EVIDENCE]
+- Missing file
+
+BLOCK_NATURE::CONSTRAINT
+REMEDIATION_REQUEST::"Fix the constraint"
+"""
+        result1 = validator.validate(role="Wall", content=content1, cognition="ETHOS")
+        assert result1.level == "PASS"
+
+        # Test [VERDICT] BLOCKED format
+        content2 = """
+[VERDICT] BLOCKED
+
+[EVIDENCE]
+- Missing file
+
+BLOCK_NATURE::OPPORTUNITY
+REMEDIATION_REQUEST::"Create the file"
+"""
+        result2 = validator.validate(role="Wall", content=content2, cognition="ETHOS")
+        assert result2.level == "PASS"
 
 
 class TestCognitionValidatorDoorLogos:
@@ -369,3 +481,72 @@ APPROVED
 """
         result = validator.validate(role="Wall", content=content, cognition="ETHOS")
         assert result.level == "PASS"
+
+    def test_verdict_blocked_no_space_after_colon(self) -> None:
+        """VERDICT:BLOCKED (no space after colon) should trigger BLOCKED detection."""
+        validator = CognitionValidator()
+        content = """
+VERDICT:BLOCKED
+
+[EVIDENCE]
+- Missing file
+
+BLOCK_NATURE::CONSTRAINT
+REMEDIATION_REQUEST::"Fix the issue"
+"""
+        result = validator.validate(role="Wall", content=content, cognition="ETHOS")
+        # Should detect BLOCKED verdict and pass with required fields
+        assert result.level == "PASS"
+        assert len(result.violations) == 0
+
+    def test_block_nature_invalid_value_warns(self) -> None:
+        """BLOCK_NATURE::INVALID should WARN (invalid value)."""
+        validator = CognitionValidator()
+        content = """
+VERDICT::BLOCKED
+
+[EVIDENCE]
+- Missing file
+
+BLOCK_NATURE::INVALID
+REMEDIATION_REQUEST::"Fix it"
+"""
+        result = validator.validate(role="Wall", content=content, cognition="ETHOS")
+        # Should WARN because INVALID is not CONSTRAINT or OPPORTUNITY
+        assert result.level == "WARN"
+        assert any("block_nature" in v.lower() for v in result.violations)
+
+    def test_block_nature_lowercase_constraint_passes(self) -> None:
+        """BLOCK_NATURE::constraint (lowercase) should PASS."""
+        validator = CognitionValidator()
+        content = """
+VERDICT::BLOCKED
+
+[EVIDENCE]
+- Missing required file
+
+BLOCK_NATURE::constraint
+REMEDIATION_REQUEST::"Create the file"
+"""
+        result = validator.validate(role="Wall", content=content, cognition="ETHOS")
+        # Should PASS with lowercase constraint
+        assert result.level == "PASS"
+        assert len(result.violations) == 0
+
+    def test_verdict_blocked_false_positive_protection(self) -> None:
+        """VERDICT::BLOCKEDNESS should NOT trigger BLOCKED detection."""
+        validator = CognitionValidator()
+        content = """
+VERDICT::BLOCKEDNESS_NOT_APPLICABLE
+
+[EVIDENCE]
+- Tests passing
+- No blockers found
+
+[REASONING]
+The concept of blockedness does not apply here.
+"""
+        result = validator.validate(role="Wall", content=content, cognition="ETHOS")
+        # Should PASS - "BLOCKEDNESS" should not match due to word boundary
+        assert result.level == "PASS"
+        assert len(result.violations) == 0

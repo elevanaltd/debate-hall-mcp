@@ -51,6 +51,16 @@ Issues = "https://github.com/hestai/debate-hall-mcp/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/debate_hall_mcp"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".hestai/",
+    ".github/",
+    "debates/",
+    "cognitions/",
+    "docs/",
+    "tests/",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
