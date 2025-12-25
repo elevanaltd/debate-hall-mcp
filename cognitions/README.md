@@ -2,9 +2,22 @@
 
 This directory contains the **cognition overlays** for the three debate roles. These define the behavioral contracts that shape how agents participate in debates.
 
-## Architecture: Behavioral Firewall
+## Current Status
 
-The cognition system uses a **validation-first architecture** - the Hall enforces cognition through OUTPUT validation, not INPUT injection.
+| Feature | Status |
+|---------|--------|
+| Cognition overlay files | ✅ Implemented |
+| Speaker identity metadata (`cognition` field) | ✅ Implemented (Issue #4) |
+| `CognitionValidator` behavioral firewall | ⏳ **Planned** |
+| Turn rejection on cognition violation | ⏳ **Planned** |
+
+**Currently**: The `cognition` field is recorded as audit metadata on each turn, but content is NOT validated against cognition contracts. Turns are accepted regardless of whether they follow their role's behavioral pattern.
+
+## Target Architecture: Behavioral Firewall
+
+> **This section describes PLANNED architecture, not current behavior.**
+
+The cognition system will use a **validation-first architecture** - the Hall enforces cognition through OUTPUT validation, not INPUT injection.
 
 > **Core Insight**: Cognition integration = Validation layer extension, NOT prompt distribution system
 
@@ -15,7 +28,7 @@ The cognition system uses a **validation-first architecture** - the Hall enforce
 | Prompt Injection | ~400 tokens/turn | None (advisory) | Weak (can be stripped) |
 | **Behavioral Firewall** | **0 tokens** | **Deterministic** | **Zero-trust** |
 
-**Token savings**: 4,800 tokens per 12-turn debate.
+**Projected token savings**: 4,800 tokens per 12-turn debate.
 
 ## The Three Cognitions
 
@@ -23,7 +36,7 @@ The cognition system uses a **validation-first architecture** - the Hall enforce
 - **Mode**: DIVERGENT
 - **Goal**: EXPAND possibility space
 - **Output Pattern**: `[STIMULUS] → [CONNECTIONS] → [POSSIBILITIES] → [QUESTIONS]`
-- **Validation Rules**:
+- **Validation Rules** (planned):
   - REQUIRED: Multiple options (detect numbered lists or bullets)
   - REQUIRED: Question marks (exploration signal)
   - FORBIDDEN: Single conclusion without alternatives
@@ -32,7 +45,7 @@ The cognition system uses a **validation-first architecture** - the Hall enforce
 - **Mode**: VALIDATION
 - **Goal**: VERIFY against evidence
 - **Output Pattern**: `[VERDICT] → [EVIDENCE] → [REASONING]`
-- **Validation Rules**:
+- **Validation Rules** (planned):
   - REQUIRED: `[VERDICT]` or `VERDICT:` in first 200 chars
   - REQUIRED: `[EVIDENCE]` section with citations
   - FORBIDDEN: Hedging language ("maybe", "perhaps", "could be")
@@ -41,25 +54,25 @@ The cognition system uses a **validation-first architecture** - the Hall enforce
 - **Mode**: CONVERGENT
 - **Goal**: SYNTHESIZE into emergent structure
 - **Output Pattern**: `[TENSION] → [PATTERN] → [CLARITY]`
-- **Validation Rules**:
+- **Validation Rules** (planned):
   - REQUIRED: Synthesis markers ("TENSION", "PATTERN", "STRUCTURE")
   - REQUIRED: Numbered reasoning steps
   - FORBIDDEN: Simple A+B without emergence explanation
 
-## Validation Behavior
+## Planned: Validation Behavior
 
-The `CognitionValidator` operates as a firewall extension:
+When implemented, the `CognitionValidator` will operate as a firewall extension:
 
 ```
 debate_turn()
   → validate role order      (existing firewall)
-  → validate_cognition()     (NEW - behavioral firewall)
+  → validate_cognition()     (PLANNED - behavioral firewall)
   → engine.add_turn()        (existing)
 ```
 
-### Rejection Response
+### Planned: Rejection Response
 
-When validation fails, agents receive structured feedback:
+When validation fails, agents will receive structured feedback:
 
 ```json
 {
@@ -71,11 +84,11 @@ When validation fails, agents receive structured feedback:
 }
 ```
 
-This creates **self-correcting agents** - they learn role behavior through error feedback.
+This will create **self-correcting agents** - learning role behavior through error feedback.
 
-## Emergent Properties
+## Planned: Emergent Properties
 
-The behavioral firewall creates three emergent benefits:
+The behavioral firewall will create three emergent benefits:
 
 1. **Self-Correcting Agents**: Error feedback becomes training signal
 2. **Observable Cognition Drift**: Rejection counts = measurable compliance metric
@@ -93,10 +106,17 @@ cognitions/
 
 ## For HestAI Agents
 
-If your agent already has a `§3::SHANK_OVERLAY` section, the Hall validates your output - no overlay injection needed. Your cognition is proven by your behavior, not claimed by your prompt.
+If your agent has a `§3::SHANK_OVERLAY` section, you can pass `cognition="PATHOS"` (etc.) to `add_turn()` for audit tracking. Currently this is metadata only - validation enforcement is planned.
+
+## Implementation Roadmap
+
+1. **Phase 1** (current): Cognition overlay files + metadata tracking
+2. **Phase 2**: `CognitionValidator` class with deterministic rules
+3. **Phase 3**: Integration into `debate_turn()` with rejection/retry protocol
+4. **Phase 4**: Metrics and compliance reporting
 
 ## Key Lesson
 
 > Wall's job is to validate against REAL constraints (physics, logic, security) - not against "it doesn't exist yet". We are engineers. We BUILD things.
 
-This architecture emerged from a Wind/Wall/Door debate where the first attempt failed because Wall blocked on "current code doesn't have X" instead of "X is fundamentally impossible". The reframed debate produced this superior validation-first approach.
+This architecture emerged from a Wind/Wall/Door debate. The overlay files exist; the enforcement firewall is the next build phase.
