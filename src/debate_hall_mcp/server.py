@@ -58,6 +58,7 @@ def create_server() -> FastMCP:
         mode: str = "fixed",
         max_turns: int = 12,
         max_rounds: int = 4,
+        strict_cognition: bool = False,
     ) -> dict[str, Any]:
         """Initialize a new debate thread.
 
@@ -67,9 +68,10 @@ def create_server() -> FastMCP:
             mode: Orchestration mode (fixed or mediated)
             max_turns: Maximum turns allowed
             max_rounds: Maximum rounds allowed
+            strict_cognition: If True, BLOCK-level cognition violations reject turns (behavioral firewall)
 
         Returns:
-            Debate summary with thread_id, topic, mode, status, limits
+            Debate summary with thread_id, topic, mode, status, limits, strict_cognition
         """
         return debate_init(
             thread_id=thread_id,
@@ -77,6 +79,7 @@ def create_server() -> FastMCP:
             mode=mode,
             max_turns=max_turns,
             max_rounds=max_rounds,
+            strict_cognition=strict_cognition,
             state_dir=DEFAULT_STATE_DIR,
         )
 
@@ -97,10 +100,14 @@ def create_server() -> FastMCP:
             content: Turn content (OCTAVE format expected)
             agent_role: Optional operational agent role (Issue #4)
             model: Optional AI model identifier (Issue #4)
-            cognition: Optional cognitive archetype (Issue #4)
+            cognition: Optional cognitive archetype (PATHOS|ETHOS|LOGOS)
 
         Returns:
-            Turn summary with thread_id, turn_count, role, status
+            Turn summary with thread_id, turn_count, role, status, cognition_warnings (if any)
+
+        Note:
+            Cognition enforcement mode (strict_cognition) is configured at room creation
+            via init_debate, not per-turn. This prevents bypassing the behavioral firewall.
         """
         return debate_turn(
             thread_id=thread_id,

@@ -19,6 +19,7 @@ def debate_init(
     mode: str = "fixed",
     max_turns: int = 12,
     max_rounds: int = 4,
+    strict_cognition: bool = False,
     state_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Initialize a new debate thread.
@@ -29,6 +30,7 @@ def debate_init(
         mode: Orchestration mode ("fixed" or "mediated")
         max_turns: Maximum turns allowed (I3 compliance)
         max_rounds: Maximum rounds allowed (I3 compliance)
+        strict_cognition: If True, BLOCK-level cognition violations reject turns (behavioral firewall)
         state_dir: Directory for state files (defaults to ./debates)
 
     Returns:
@@ -39,6 +41,7 @@ def debate_init(
         - status: Current status
         - max_turns: Turn limit
         - max_rounds: Round limit
+        - strict_cognition: Cognition enforcement mode
         - turn_count: Current turn count (0 for new debate)
 
     Raises:
@@ -65,6 +68,7 @@ def debate_init(
         mode=DebateMode(mode),
         max_turns=max_turns,
         max_rounds=max_rounds,
+        strict_cognition=strict_cognition,
     )
 
     # Save state
@@ -78,5 +82,6 @@ def debate_init(
         "status": room.status.value,
         "max_turns": room.max_turns,
         "max_rounds": room.max_rounds,
+        "strict_cognition": room.strict_cognition,
         "turn_count": len(room.turns),
     }

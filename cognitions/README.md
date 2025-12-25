@@ -8,16 +8,17 @@ This directory contains the **cognition overlays** for the three debate roles. T
 |---------|--------|
 | Cognition overlay files | ✅ Implemented |
 | Speaker identity metadata (`cognition` field) | ✅ Implemented (Issue #4) |
-| `CognitionValidator` behavioral firewall | ⏳ **Planned** |
-| Turn rejection on cognition violation | ⏳ **Planned** |
+| `CognitionValidator` behavioral firewall | ✅ **Implemented** |
+| Turn rejection on cognition violation | ✅ **Implemented** (strict mode) |
 
-**Currently**: The `cognition` field is recorded as audit metadata on each turn, but content is NOT validated against cognition contracts. Turns are accepted regardless of whether they follow their role's behavioral pattern.
+**Status**: The cognition validation system is fully operational. The `cognition` field is recorded as audit metadata, AND content is validated against cognition contracts before turn commitment. Validation operates in two modes:
 
-## Target Architecture: Behavioral Firewall
+- **Default (non-strict)**: WARN/BLOCK violations return `cognition_warnings`, turn accepted
+- **Strict mode**: BLOCK violations raise `ValueError`, turn rejected
 
-> **This section describes PLANNED architecture, not current behavior.**
+## Architecture: Behavioral Firewall
 
-The cognition system will use a **validation-first architecture** - the Hall enforces cognition through OUTPUT validation, not INPUT injection.
+The cognition system uses a **validation-first architecture** - the Hall enforces cognition through OUTPUT validation, not INPUT injection.
 
 > **Core Insight**: Cognition integration = Validation layer extension, NOT prompt distribution system
 
@@ -59,39 +60,53 @@ The cognition system will use a **validation-first architecture** - the Hall enf
   - REQUIRED: Numbered reasoning steps
   - FORBIDDEN: Simple A+B without emergence explanation
 
-## Planned: Validation Behavior
+## Validation Behavior
 
-When implemented, the `CognitionValidator` will operate as a firewall extension:
+The `CognitionValidator` operates as a firewall extension:
 
 ```
 debate_turn()
   → validate role order      (existing firewall)
-  → validate_cognition()     (PLANNED - behavioral firewall)
+  → validate_cognition()     (✅ IMPLEMENTED - behavioral firewall)
   → engine.add_turn()        (existing)
 ```
 
-### Planned: Rejection Response
+### Rejection Response
 
-When validation fails, agents will receive structured feedback:
+When validation fails, agents receive structured feedback:
 
+**Non-strict mode (default)**:
 ```json
 {
-  "error": "COGNITION_VIOLATION",
-  "role": "Wall",
-  "violation": "MISSING_VERDICT_MARKER",
-  "hint": "Wall/ETHOS must start with [VERDICT] followed by evidence",
-  "retry_allowed": true
+  "thread_id": "test-thread",
+  "turn_count": 1,
+  "role": "Wind",
+  "status": "active",
+  "cognition_warnings": [
+    "Single conclusion without alternatives detected"
+  ]
 }
 ```
 
-This will create **self-correcting agents** - learning role behavior through error feedback.
+**Strict mode** (`strict_cognition=True`):
+```python
+ValueError: Cognition validation failed:
+  - Missing [VERDICT] or VERDICT: in first 200 characters
+  - Missing [EVIDENCE] section
 
-## Planned: Emergent Properties
+Hints:
+  - Wall/ETHOS must start with [VERDICT] or VERDICT: followed by clear judgment
+  - Wall/ETHOS must provide [EVIDENCE] to support verdict
+```
 
-The behavioral firewall will create three emergent benefits:
+This creates **self-correcting agents** - learning role behavior through error feedback.
+
+## Emergent Properties
+
+The behavioral firewall creates three emergent benefits:
 
 1. **Self-Correcting Agents**: Error feedback becomes training signal
-2. **Observable Cognition Drift**: Rejection counts = measurable compliance metric
+2. **Observable Cognition Drift**: Warning counts = measurable compliance metric
 3. **Zero-Trust Architecture**: Validates OUTPUT, robust against misconfiguration
 
 ## File Structure
@@ -106,14 +121,14 @@ cognitions/
 
 ## For HestAI Agents
 
-If your agent has a `§3::SHANK_OVERLAY` section, you can pass `cognition="PATHOS"` (etc.) to `add_turn()` for audit tracking. Currently this is metadata only - validation enforcement is planned.
+If your agent has a `§3::SHANK_OVERLAY` section, you can pass `cognition="PATHOS"` (etc.) to `add_turn()` for validation and audit tracking. Validation is active and will return warnings or reject turns based on `strict_cognition` setting.
 
-## Implementation Roadmap
+## Implementation Status
 
-1. **Phase 1** (current): Cognition overlay files + metadata tracking
-2. **Phase 2**: `CognitionValidator` class with deterministic rules
-3. **Phase 3**: Integration into `debate_turn()` with rejection/retry protocol
-4. **Phase 4**: Metrics and compliance reporting
+1. ✅ **Phase 1**: Cognition overlay files + metadata tracking
+2. ✅ **Phase 2**: `CognitionValidator` class with deterministic rules (23 tests)
+3. ✅ **Phase 3**: Integration into `debate_turn()` with rejection/retry protocol
+4. ⏳ **Phase 4**: Metrics and compliance reporting (planned)
 
 ## Key Lesson
 

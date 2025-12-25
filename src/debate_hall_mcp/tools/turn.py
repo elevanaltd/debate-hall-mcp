@@ -12,6 +12,7 @@ from typing import Any
 
 from debate_hall_mcp.engine import DebateEngine, get_next_speaker
 from debate_hall_mcp.state import DebateMode, load_debate_state, save_debate_state
+from debate_hall_mcp.validation import CognitionValidator
 
 
 def debate_turn(
@@ -40,10 +41,15 @@ def debate_turn(
         - turn_count: Total turns after this one
         - role: Role that just spoke
         - status: Current debate status
+        - cognition_warnings: List of validation warnings (if any)
 
     Raises:
         FileNotFoundError: If thread doesn't exist
-        ValueError: If debate is not active, exhausted, or role is wrong
+        ValueError: If debate is not active, exhausted, role is wrong, or cognition validation fails in strict mode
+
+    Note:
+        Cognition enforcement mode (strict_cognition) is set at room creation time,
+        not per-turn. This prevents callers from bypassing the behavioral firewall.
     """
     # Default state directory
     if state_dir is None:
@@ -58,6 +64,28 @@ def debate_turn(
         if role != expected_role:
             raise ValueError(f"Expected role '{expected_role}' but got '{role}' in fixed mode")
 
+    # Validate cognition before state modification (behavioral firewall)
+    # Read strict_cognition from room configuration (prevents client bypass)
+    validator = CognitionValidator()
+    validation_result = validator.validate(
+        role=role, content=content, cognition=cognition, strict=room.strict_cognition
+    )
+
+    # Handle validation result
+    if validation_result.level == "BLOCK":
+        # Check if this is a content length violation (always blocks, regardless of strict mode)
+        is_length_violation = any(
+            "exceeds maximum length" in v.lower() for v in validation_result.violations
+        )
+
+        if is_length_violation or room.strict_cognition:
+            # BLOCK: Content length violations OR strict mode cognition violations
+            error_msg = "\n".join(validation_result.violations)
+            if validation_result.hints:
+                error_msg += "\n\nHints:\n"
+                error_msg += "\n".join(f"  - {h}" for h in validation_result.hints)
+            raise ValueError(error_msg)
+
     # Add turn via engine (validates active state and limits)
     engine = DebateEngine(room)
     engine.add_turn(
@@ -71,10 +99,16 @@ def debate_turn(
     # Save updated state
     save_debate_state(room, state_dir)
 
-    # Return summary
-    return {
+    # Build response with optional warnings
+    response: dict[str, Any] = {
         "thread_id": room.thread_id,
         "turn_count": len(room.turns),
         "role": role,
         "status": room.status.value,
     }
+
+    # Include validation warnings if any (WARN or non-strict BLOCK)
+    if validation_result.violations and validation_result.level in ("WARN", "BLOCK"):
+        response["cognition_warnings"] = validation_result.violations
+
+    return response

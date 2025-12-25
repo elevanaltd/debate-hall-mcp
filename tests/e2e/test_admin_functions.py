@@ -9,6 +9,7 @@ RED phase: Writing failing test first per TDD discipline.
 """
 
 import shutil
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ from debate_hall_mcp.server import create_server
 
 
 @pytest.fixture(scope="function")
-def cleanup_debates():
+def cleanup_debates() -> Generator[None, None, None]:
     """Clean up debate state before and after tests."""
     debates_dir = Path("./debates")
     if debates_dir.exists():
@@ -31,7 +32,7 @@ def cleanup_debates():
 
 
 @pytest.mark.anyio
-async def test_force_close_admin_override(cleanup_debates):  # noqa: ARG001
+async def test_force_close_admin_override(cleanup_debates: None) -> None:  # noqa: ARG001
     """Test force_close admin kill switch functionality.
 
     Scenario:
@@ -137,7 +138,7 @@ async def test_force_close_admin_override(cleanup_debates):  # noqa: ARG001
 
 
 @pytest.mark.anyio
-async def test_tombstone_turn_redaction(cleanup_debates):  # noqa: ARG001
+async def test_tombstone_turn_redaction(cleanup_debates: None) -> None:  # noqa: ARG001
     """Test turn tombstone/redaction while preserving audit trail.
 
     Scenario:

@@ -202,3 +202,126 @@ def test_debate_turn_respects_max_turns_limit(tmp_path: Path) -> None:
     # 4th turn should fail
     with pytest.raises(ValueError, match="exhausted"):
         debate_turn("test-thread-006", "Wind", "POSITION::4", state_dir=tmp_path)
+
+
+def test_debate_turn_validation_warnings_non_strict(tmp_path: Path) -> None:
+    """Test that cognition validation warnings are returned but don't block (default)."""
+    debate_init(
+        thread_id="test-thread-007",
+        topic="Validation test",
+        state_dir=tmp_path,
+    )
+
+    # Wind turn missing options (WARN level)
+    result = debate_turn(
+        thread_id="test-thread-007",
+        role="Wind",
+        content="Should we proceed? Yes.",
+        cognition="PATHOS",
+        state_dir=tmp_path,
+    )
+
+    # Turn should be accepted (non-strict mode)
+    assert result["turn_count"] == 1
+    assert "cognition_warnings" in result
+    assert len(result["cognition_warnings"]) > 0
+    assert any(
+        "question" in w.lower() and "option" in w.lower() for w in result["cognition_warnings"]
+    )
+
+
+def test_debate_turn_validation_blocks_strict_mode(tmp_path: Path) -> None:
+    """Test that cognition validation blocks turn in strict mode."""
+    # Create room with strict_cognition=True
+    debate_init(
+        thread_id="test-thread-008",
+        topic="Strict validation test",
+        strict_cognition=True,  # Room-level configuration
+        state_dir=tmp_path,
+    )
+
+    # Wind turn missing options (BLOCK level)
+    with pytest.raises(ValueError, match="Missing multiple options"):
+        debate_turn(
+            thread_id="test-thread-008",
+            role="Wind",
+            content="This is a statement.",  # No questions, no options
+            cognition="PATHOS",
+            state_dir=tmp_path,
+        )
+
+    # Verify turn was NOT added
+    room = load_debate_state("test-thread-008", tmp_path)
+    assert len(room.turns) == 0
+
+
+def test_debate_turn_validation_passes_valid_cognition(tmp_path: Path) -> None:
+    """Test that valid cognition content passes validation."""
+    # Create room with strict_cognition=True
+    debate_init(
+        thread_id="test-thread-009",
+        topic="Valid cognition test",
+        strict_cognition=True,  # Room-level configuration
+        state_dir=tmp_path,
+    )
+
+    # Valid Wind/PATHOS turn
+    result = debate_turn(
+        thread_id="test-thread-009",
+        role="Wind",
+        content="""
+[STIMULUS]
+Multiple approaches exist.
+
+[POSSIBILITIES]
+1. Option A: immediate action
+2. Option B: delayed validation
+3. Option C: hybrid approach
+
+Which path should we take?
+""",
+        cognition="PATHOS",
+        state_dir=tmp_path,
+    )
+
+    # Turn should be accepted with no warnings
+    assert result["turn_count"] == 1
+    assert "cognition_warnings" not in result or len(result["cognition_warnings"]) == 0
+
+
+def test_debate_turn_validation_skips_none_cognition(tmp_path: Path) -> None:
+    """Test that None cognition behavior depends on strict_cognition flag."""
+    # Non-strict room (default): None cognition is accepted (backward compatibility)
+    debate_init(
+        thread_id="test-thread-010",
+        topic="No cognition test",
+        strict_cognition=False,  # Non-strict room (default)
+        state_dir=tmp_path,
+    )
+
+    result = debate_turn(
+        thread_id="test-thread-010",
+        role="Wind",
+        content="Any content without cognition validation",
+        cognition=None,
+        state_dir=tmp_path,
+    )
+    assert result["turn_count"] == 1
+    assert "cognition_warnings" not in result or len(result["cognition_warnings"]) == 0
+
+    # Strict room: None cognition should BLOCK (security requirement)
+    debate_init(
+        thread_id="test-thread-011",
+        topic="Strict cognition test",
+        strict_cognition=True,  # Strict room
+        state_dir=tmp_path,
+    )
+
+    with pytest.raises(ValueError, match="No cognition specified"):
+        debate_turn(
+            thread_id="test-thread-011",
+            role="Wind",
+            content="Any content without cognition validation",
+            cognition=None,
+            state_dir=tmp_path,
+        )
