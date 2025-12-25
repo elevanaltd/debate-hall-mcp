@@ -19,6 +19,9 @@ def debate_turn(
     role: str,
     content: str,
     state_dir: Path | None = None,
+    agent_role: str | None = None,
+    model: str | None = None,
+    cognition: str | None = None,
 ) -> dict[str, Any]:
     """Record an agent turn in the debate.
 
@@ -27,6 +30,9 @@ def debate_turn(
         role: Agent role (Wind, Wall, Door)
         content: Turn content (OCTAVE format expected)
         state_dir: Directory for state files (defaults to ./debates)
+        agent_role: Optional operational agent role (Issue #4)
+        model: Optional AI model identifier (Issue #4)
+        cognition: Optional cognitive archetype (Issue #4)
 
     Returns:
         Dictionary with turn summary:
@@ -54,7 +60,13 @@ def debate_turn(
 
     # Add turn via engine (validates active state and limits)
     engine = DebateEngine(room)
-    engine.add_turn(role, content)
+    engine.add_turn(
+        role=role,
+        content=content,
+        agent_role=agent_role,
+        model=model,
+        cognition=cognition,
+    )
 
     # Save updated state
     save_debate_state(room, state_dir)

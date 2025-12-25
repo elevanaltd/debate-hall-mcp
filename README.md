@@ -14,6 +14,20 @@ Three cognitive voices work in tension to produce emergent synthesis:
 | **WALL** | ETHOS | "Yes, but..." | Grounding, critical, tests against reality |
 | **DOOR** | LOGOS | "Therefore..." | Synthesizing, decisive, forges actionable truth |
 
+## Execution Model
+
+**Debate Hall orchestrates roles, not agents.** It provides deterministic state management and role prompts—clients decide how to implement execution.
+
+| Model | Description | Use When |
+|-------|-------------|----------|
+| **Single-Agent** | One LLM adopts Wind→Wall→Door prompts in sequence | Default. Simple setup, self-dialogue |
+| **Multi-Agent** | Three distinct agents, each bound to one role | Team decisions, specialized cognition |
+| **Hybrid** | Mix of AI agents and human participants | Human-in-loop governance, final authority |
+
+Debate Hall provides: `state management`, `turn sequencing`, `hash chain`, `role prompts`, `limit enforcement`
+
+Clients implement: `agent architecture`, `content generation`, `orchestration logic`, `synthesis intelligence`
+
 ## Installation
 
 ```bash
@@ -55,9 +69,12 @@ Claude: [calls debate_init with thread_id="rust-rewrite", topic="Should we rewri
 In **fixed mode**, the sequence is automatic: Wind → Wall → Door → (repeat)
 
 ```
-[Wind proposes possibilities]
-[Wall challenges with reality]
-[Door synthesizes into decision]
+Client (Claude/Agent)
+  ├── init_debate(topic)      → creates debate room
+  ├── get_next_prompt()       → receives "You are WIND..."
+  ├── [generates content]     → add_turn(role, content)
+  ├── [repeat for Wall, Door]
+  └── close_debate(synthesis) → finalizes with decision
 ```
 
 ## MCP Tools
@@ -104,6 +121,20 @@ Orchestrator explicitly picks each speaker:
 ```
 
 Use for: Dynamic debates, breaking deadlocks, skipping roles when appropriate.
+
+**Mediated mode risk:** Can bias outcomes by starving roles (e.g., never calling Wall). Use fixed mode when balanced coverage is required.
+
+## Persistence
+
+State is held **in-memory** by default. Debates do not survive server restart.
+
+| Aspect | Current | Future |
+|--------|---------|--------|
+| Storage | In-memory dict | Pluggable backends |
+| Survival | Lost on restart | Configurable persistence |
+| Export | Via `close_debate` | OCTAVE transcript files |
+
+For production use requiring persistence, export transcripts on close or implement a custom storage backend.
 
 ## Resource Limits (I3 Immutable)
 
@@ -182,7 +213,7 @@ debate-hall-mcp is built on five unchangeable principles:
 | ID | Immutable | Enforcement |
 |----|-----------|-------------|
 | **I1** | Cognitive State Isolation | State managed by server only |
-| **I2** | Universal OCTAVE Binding | Strict protocol validation |
+| **I2** | Universal OCTAVE Binding | Transcripts exportable as OCTAVE format |
 | **I3** | Finite Dialectic Closure | Hard turn/round limits |
 | **I4** | Verifiable Event Ledger | SHA-256 hash chain |
 | **I5** | Sovereign Safety Override | Admin kill switch |

@@ -81,13 +81,23 @@ def create_server() -> FastMCP:
         )
 
     @server.tool()
-    def add_turn(thread_id: str, role: str, content: str) -> dict[str, Any]:
+    def add_turn(
+        thread_id: str,
+        role: str,
+        content: str,
+        agent_role: str | None = None,
+        model: str | None = None,
+        cognition: str | None = None,
+    ) -> dict[str, Any]:
         """Record an agent turn in the debate.
 
         Args:
             thread_id: Thread identifier
             role: Agent role (Wind, Wall, Door)
             content: Turn content (OCTAVE format expected)
+            agent_role: Optional operational agent role (Issue #4)
+            model: Optional AI model identifier (Issue #4)
+            cognition: Optional cognitive archetype (Issue #4)
 
         Returns:
             Turn summary with thread_id, turn_count, role, status
@@ -97,6 +107,9 @@ def create_server() -> FastMCP:
             role=role,
             content=content,
             state_dir=DEFAULT_STATE_DIR,
+            agent_role=agent_role,
+            model=model,
+            cognition=cognition,
         )
 
     @server.tool()

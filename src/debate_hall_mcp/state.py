@@ -43,6 +43,14 @@ class Turn(BaseModel):
 
     Each turn is cryptographically linked to the previous turn via hash,
     creating an append-only, tamper-evident ledger.
+
+    Speaker Identity Fields (Issue #4):
+    - agent_role: Operational agent role (e.g., "implementation-lead")
+    - model: AI model identifier (e.g., "claude-opus-4-5")
+    - cognition: Cognitive archetype (PATHOS|ETHOS|LOGOS)
+
+    These fields are audit metadata and are NOT included in hash calculation,
+    preserving dialectic integrity while enabling speaker attribution.
     """
 
     role: str = Field(..., description="Agent role (Wind, Wall, Door)")
@@ -52,6 +60,11 @@ class Turn(BaseModel):
         None, description="Hash of previous turn (None for first turn)"
     )
     hash: str = Field(default="", description="SHA-256 hash of this turn")
+
+    # Speaker identity metadata (Issue #4) - excluded from hash chain
+    agent_role: str | None = Field(None, description="Operational agent role")
+    model: str | None = Field(None, description="AI model identifier")
+    cognition: str | None = Field(None, description="Cognitive archetype: PATHOS|ETHOS|LOGOS")
 
     def model_post_init(self, __context: Any) -> None:
         """Calculate hash after model initialization."""
