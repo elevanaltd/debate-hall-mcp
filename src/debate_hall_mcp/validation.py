@@ -201,6 +201,8 @@ class CognitionValidator:
 
         WARN:
         - Hedging language ("maybe", "perhaps", "could be")
+        - BLOCKED verdict without BLOCK_NATURE (Wall Content Contract)
+        - BLOCKED verdict without REMEDIATION_REQUEST (Wall Content Contract)
 
         Args:
             content: Turn content to validate
@@ -230,6 +232,42 @@ class CognitionValidator:
             violations.append("Missing [EVIDENCE] section")
             hints.append("Wall/ETHOS must provide [EVIDENCE] to support verdict")
             level = "BLOCK"
+
+        # WARN: Check for BLOCKED verdict content contract (docs/wall-content-contract.oct.md)
+        # Detect BLOCKED verdict patterns: "VERDICT::BLOCKED", "[VERDICT] BLOCKED", "VERDICT:BLOCKED" (no space)
+        content_lower = content.lower()
+        has_blocked_verdict = bool(
+            re.search(
+                r"(?:verdict\s*::\s*|\[verdict\]\s*|verdict\s*:\s*)blocked\b",
+                content_lower,
+            )
+        )
+
+        if has_blocked_verdict and level == "PASS":  # Only check if not already blocked
+            # Check for BLOCK_NATURE:: with valid value (CONSTRAINT or OPPORTUNITY)
+            block_nature_match = re.search(
+                r"block_nature\s*::\s*(constraint|opportunity)\b", content_lower
+            )
+            has_valid_block_nature = bool(block_nature_match)
+
+            # Check for REMEDIATION_REQUEST::
+            has_remediation_request = bool(re.search(r"remediation_request\s*::", content_lower))
+
+            if not has_valid_block_nature:
+                violations.append(
+                    "BLOCKED verdict missing BLOCK_NATURE:: (should be CONSTRAINT or OPPORTUNITY)"
+                )
+                hints.append(
+                    "Wall Content Contract: BLOCKED verdicts should specify BLOCK_NATURE::CONSTRAINT or BLOCK_NATURE::OPPORTUNITY"
+                )
+                level = "WARN"
+
+            if not has_remediation_request:
+                violations.append("BLOCKED verdict missing REMEDIATION_REQUEST::")
+                hints.append(
+                    "Wall Content Contract: BLOCKED verdicts should include REMEDIATION_REQUEST:: with specific action"
+                )
+                level = "WARN"
 
         # WARN: Check for hedging language
         hedging_words = ["maybe", "perhaps", "could be", "might be", "seems", "appears"]

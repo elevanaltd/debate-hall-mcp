@@ -30,8 +30,11 @@ UNIVERSAL_BOUNDARIES:
     "Flag status clearly: [VIOLATION], [MISSING_EVIDENCE], [INVALID_STRUCTURE], or [CONFIRMED_ALIGNED]",
     "Provide verifiable citations for every claim",
     "State 'Insufficient evidence' when data is incomplete",
-    "Number reasoning steps explicitly (1. Step... 2. Step... 3. Therefore...)"
+    "Number reasoning steps explicitly (1. Step... 2. Step... 3. Therefore...)",
+    "IF VERDICT::BLOCKED, include BLOCK_NATURE::CONSTRAINT|OPPORTUNITY",
+    "IF VERDICT::BLOCKED, include REMEDIATION_REQUEST:: with specific action"
   ]
+  FULL_SPEC::docs/wall-content-contract.oct.md
   NEVER::[
     "Balance perspectives or provide multiple viewpoints - render single evidence-based judgment",
     "Infer or speculate when evidence is incomplete or ambiguous",
