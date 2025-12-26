@@ -98,7 +98,7 @@ async def test_force_close_admin_override(cleanup_debates: None) -> None:  # noq
 
         # Step 4: Verify status shows force_closed
         status_result = await client_session.call_tool(
-            "get_status", {"thread_id": "test-admin-001"}
+            "get_debate", {"thread_id": "test-admin-001"}
         )
 
         assert status_result is not None
@@ -209,7 +209,7 @@ async def test_tombstone_turn_redaction(cleanup_debates: None) -> None:  # noqa:
 
         # Step 4: Verify status shows turn count unchanged
         status_result = await client_session.call_tool(
-            "get_status", {"thread_id": "test-admin-002"}
+            "get_debate", {"thread_id": "test-admin-002"}
         )
 
         assert status_result is not None

@@ -149,7 +149,7 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates: None) -> None: 
         assert "closed" in close_text.lower() or "synthesis" in close_text.lower()
 
         # Step 6: Verify final status shows hash chain integrity
-        status_result = await client_session.call_tool("get_status", {"thread_id": "test-e2e-001"})
+        status_result = await client_session.call_tool("get_debate", {"thread_id": "test-e2e-001"})
 
         assert status_result is not None
         status_text = (

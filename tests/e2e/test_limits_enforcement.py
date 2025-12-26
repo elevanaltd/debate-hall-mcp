@@ -84,7 +84,7 @@ async def test_max_turns_limit_enforcement(cleanup_debates: None) -> None:  # no
 
         # Step 3: Check status after hitting limit
         status_result = await client_session.call_tool(
-            "get_status", {"thread_id": "test-limits-001"}
+            "get_debate", {"thread_id": "test-limits-001"}
         )
 
         assert status_result is not None
@@ -127,7 +127,7 @@ async def test_max_turns_limit_enforcement(cleanup_debates: None) -> None:  # no
 
         # Verify final status confirms exhaustion
         final_status = await client_session.call_tool(
-            "get_status", {"thread_id": "test-limits-001"}
+            "get_debate", {"thread_id": "test-limits-001"}
         )
 
         assert final_status is not None

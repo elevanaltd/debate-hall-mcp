@@ -16,10 +16,9 @@ from mcp.server.fastmcp import FastMCP
 
 from debate_hall_mcp.tools.admin import debate_force_close, debate_tombstone
 from debate_hall_mcp.tools.close import debate_close
+from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.init import debate_init
-from debate_hall_mcp.tools.next import debate_next
 from debate_hall_mcp.tools.pick import debate_pick
-from debate_hall_mcp.tools.status import debate_status
 from debate_hall_mcp.tools.turn import debate_turn
 
 # Server metadata
@@ -31,20 +30,11 @@ DEFAULT_STATE_DIR = Path("./debates")
 
 
 def create_server() -> FastMCP:
-    """Create and configure the debate-hall MCP server.
+    """Create debate-hall MCP server.
 
-    Returns:
-        Configured FastMCP instance with all tools registered
-
-    Tools registered:
-        - debate_init: Create new debate room
-        - debate_turn: Record agent turn
-        - debate_next: Get prompt for next speaker
-        - debate_status: View debate state
-        - debate_close: Finalize debate
-        - debate_pick: Set next speaker (mediated mode)
-        - debate_force_close: Admin kill switch (I5)
-        - debate_tombstone: Redact turn (I4)
+    Tools (7):
+        init_debate, add_turn, get_debate, close_debate,
+        pick_next_speaker, force_close_debate, tombstone_turn
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -92,19 +82,16 @@ def create_server() -> FastMCP:
         )
 
     @server.tool()
-    def get_next_prompt(thread_id: str, context_lines: int | None = None) -> dict[str, Any]:
-        """Next speaker→prompt+transcript. context_lines:limit history depth."""
-        return debate_next(
+    def get_debate(
+        thread_id: str,
+        include_transcript: bool = False,
+        context_lines: int | None = None,
+    ) -> dict[str, Any]:
+        """State+optional transcript. include_transcript→adds turn history. context_lines:limit depth."""
+        return debate_get(
             thread_id=thread_id,
+            include_transcript=include_transcript,
             context_lines=context_lines,
-            state_dir=DEFAULT_STATE_DIR,
-        )
-
-    @server.tool()
-    def get_status(thread_id: str) -> dict[str, Any]:
-        """State→topic,mode,status,turn_count,limits,next_role."""
-        return debate_status(
-            thread_id=thread_id,
             state_dir=DEFAULT_STATE_DIR,
         )
 
