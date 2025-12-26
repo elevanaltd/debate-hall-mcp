@@ -237,21 +237,22 @@ You speak third, closing the dialectic into decision.
 
 ## Architecture Immutables
 
-debate-hall-mcp is built on five unchangeable principles:
+debate-hall-mcp is built on four unchangeable principles:
 
 | ID | Immutable | Enforcement |
 |----|-----------|-------------|
 | **I1** | Cognitive State Isolation | State managed by server only |
-| **I2** | Universal OCTAVE Binding | Transcripts exportable as OCTAVE format |
 | **I3** | Finite Dialectic Closure | Hard turn/round limits |
 | **I4** | Verifiable Event Ledger | SHA-256 hash chain |
 | **I5** | Sovereign Safety Override | Admin kill switch |
+
+> **Note**: OCTAVE format is recommended for turn content (structured semantic compression), but not enforced. See [OCTAVE-MCP](https://github.com/elevanaltd/octave) for the specification.
 
 ## Development
 
 ```bash
 # Clone and install
-git clone https://github.com/hestai/debate-hall-mcp
+git clone https://github.com/elevanaltd/debate-hall-mcp
 cd debate-hall-mcp
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
@@ -296,9 +297,13 @@ debate-hall-mcp/
 ├── tests/
 │   ├── unit/         # 89 unit tests
 │   └── e2e/          # 5 E2E tests
-└── .hestai/
-    └── workflow/     # NORTH STAR and orchestration
+└── .hestai/              # HestAI context (see HestAI-MCP docs)
+    ├── context/          # Operational state
+    ├── workflow/         # NORTH STAR and methodology
+    └── reports/          # Evidence artifacts
 ```
+
+For `.hestai/` structure details, see [HestAI-MCP/.hestai/README.md](https://github.com/elevanaltd/HestAI-MCP/blob/main/.hestai/README.md).
 
 ## License
 
@@ -306,4 +311,4 @@ MIT
 
 ---
 
-Built with the [HestAI methodology](https://github.com/hestai) and the [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
+Built with the [HestAI methodology](https://github.com/elevanaltd/HestAI-MCP) and the [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
