@@ -766,3 +766,710 @@ class TestLockfileSchema:
             # SHA256 is 64 hex characters
             assert len(agent_data["sha256"]) == 64
             assert all(c in "0123456789abcdef" for c in agent_data["sha256"])
+
+
+# =============================================================================
+# Test Error Handling - Paying Down TDD Debt
+# =============================================================================
+
+
+class TestErrorHandling:
+    """Tests for error branches - paying down TDD debt.
+
+    These tests cover OSError handling paths that were added defensively
+    after initial implementation, violating TDD principles. This class
+    systematically tests each error branch to restore coverage.
+    """
+
+    # -------------------------------------------------------------------------
+    # _save_lockfile OSError (line 119-122)
+    # -------------------------------------------------------------------------
+
+    def test_save_lockfile_oserror(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test _save_lockfile handles OSError gracefully."""
+        from debate_hall_mcp.cli import _save_lockfile
+
+        # Mock Path.write_text to raise OSError
+        def mock_write_text(_self: Path, _content: str) -> None:
+            raise OSError("Permission denied")
+
+        monkeypatch.setattr(Path, "write_text", mock_write_text)
+
+        # Call _save_lockfile - should print error but not raise
+        _save_lockfile(tmp_path, {"version": "1.0", "agents": {}})
+
+        captured = capsys.readouterr()
+        assert "Error: Failed to write lockfile" in captured.out
+        assert "Permission denied" in captured.out
+
+    # -------------------------------------------------------------------------
+    # sync_agents mkdir OSError (line 147-151)
+    # -------------------------------------------------------------------------
+
+    def test_sync_mkdir_oserror(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test sync_agents handles mkdir failure."""
+        from debate_hall_mcp.cli import sync_agents
+
+        original_mkdir = Path.mkdir
+
+        def mock_mkdir(self: Path, *args: object, **kwargs: object) -> None:
+            # Only fail for the target .github/agents directory
+            if ".github" in str(self) and "agents" in str(self):
+                raise OSError("Permission denied")
+            return original_mkdir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", mock_mkdir)
+
+        result = sync_agents(tmp_path)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error: Failed to create directory" in captured.out
+
+    # -------------------------------------------------------------------------
+    # sync_agents file check OSError (line 203-205)
+    # -------------------------------------------------------------------------
+
+    def test_sync_file_check_oserror(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test sync_agents handles file stat/hash check failure."""
+        from debate_hall_mcp.cli import sync_agents
+
+        # Create target directory with agent files that will fail on stat
+        agents_dir = tmp_path / ".github" / "agents"
+        agents_dir.mkdir(parents=True)
+        wind_file = agents_dir / "wind.agent.md"
+        wind_file.write_text("# Wind Agent")
+
+        original_stat = Path.stat
+
+        def mock_stat(self: Path) -> object:
+            # Fail on the target wind file during comparison
+            if "wind.agent.md" in str(self) and ".github" in str(self):
+                raise OSError("I/O error")
+            return original_stat(self)
+
+        monkeypatch.setattr(Path, "stat", mock_stat)
+
+        result = sync_agents(tmp_path, force=False)
+
+        # Should continue despite error
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Error checking file wind" in captured.out
+
+    # -------------------------------------------------------------------------
+    # sync_agents shutil.copy2 OSError (line 211-213)
+    # -------------------------------------------------------------------------
+
+    def test_sync_copy_oserror(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test sync_agents handles shutil.copy2 failure."""
+        import shutil as shutil_module
+
+        from debate_hall_mcp.cli import sync_agents
+
+        original_copy2 = shutil_module.copy2
+
+        def mock_copy2(src: object, dst: object) -> None:
+            # Fail on wind agent copy
+            if "wind.agent.md" in str(src):
+                raise OSError("Disk full")
+            return original_copy2(src, dst)
+
+        monkeypatch.setattr(shutil_module, "copy2", mock_copy2)
+
+        result = sync_agents(tmp_path)
+
+        # Should continue with other agents
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Error: Failed to copy wind" in captured.out
+
+    # -------------------------------------------------------------------------
+    # sync_agents hash OSError (line 224-225)
+    # -------------------------------------------------------------------------
+
+    def test_sync_hash_oserror(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test sync_agents handles hash computation failure after copy."""
+        from debate_hall_mcp.cli import sync_agents
+
+        # Track which files have been copied
+        copied_files: list[str] = []
+
+        original_read_bytes = Path.read_bytes
+
+        def mock_read_bytes(self: Path) -> bytes:
+            # If this is a target file (in .github/agents) and has been copied,
+            # fail the hash computation
+            if ".github" in str(self) and "wind.agent.md" in str(self) and "wind" in copied_files:
+                raise OSError("File locked")
+            return original_read_bytes(self)
+
+        # Track copies
+        import shutil as shutil_module
+
+        original_copy2 = shutil_module.copy2
+
+        def tracking_copy2(src: object, dst: object) -> object:
+            if "wind.agent.md" in str(src):
+                copied_files.append("wind")
+            return original_copy2(src, dst)
+
+        monkeypatch.setattr(Path, "read_bytes", mock_read_bytes)
+        monkeypatch.setattr(shutil_module, "copy2", tracking_copy2)
+
+        result = sync_agents(tmp_path)
+
+        # Should continue despite hash error
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Error hashing wind" in captured.out
+
+    # -------------------------------------------------------------------------
+    # verify_agents path resolve OSError (line 286-289)
+    # -------------------------------------------------------------------------
+
+    def test_verify_path_resolve_oserror(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test verify_agents handles path resolution failure."""
+        from debate_hall_mcp.cli import verify_agents
+
+        # Create a lockfile with valid structure
+        lockfile_data = {
+            "version": "1.0",
+            "source": {"repo": "test/repo", "ref": "v1.0.0"},
+            "agents": {
+                "wind": {
+                    "file": ".github/agents/wind.agent.md",
+                    "sha256": "a" * 64,
+                }
+            },
+        }
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(json.dumps(lockfile_data))
+
+        # Create the agent file
+        agents_dir = tmp_path / ".github" / "agents"
+        agents_dir.mkdir(parents=True)
+        (agents_dir / "wind.agent.md").write_text("# Wind")
+
+        original_resolve = Path.resolve
+
+        def mock_resolve(self: Path) -> Path:
+            # Fail on resolving paths containing .github/agents
+            if ".github" in str(self) and "agents" in str(self):
+                raise OSError("Cannot resolve path")
+            return original_resolve(self)
+
+        monkeypatch.setattr(Path, "resolve", mock_resolve)
+
+        result = verify_agents(tmp_path)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error: Invalid path" in captured.out
+
+    # -------------------------------------------------------------------------
+    # verify_agents hash OSError (line 308-311)
+    # -------------------------------------------------------------------------
+
+    def test_verify_hash_oserror(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test verify_agents handles hash computation failure."""
+        from debate_hall_mcp import cli
+        from debate_hall_mcp.cli import verify_agents
+
+        # Create agent file
+        agents_dir = tmp_path / ".github" / "agents"
+        agents_dir.mkdir(parents=True)
+        wind_file = agents_dir / "wind.agent.md"
+        wind_file.write_text("# Wind Agent")
+
+        # Create lockfile with a hash (doesn't matter what value, we'll fail before comparing)
+        lockfile_data = {
+            "version": "1.0",
+            "source": {"repo": "test/repo", "ref": "v1.0.0"},
+            "agents": {
+                "wind": {
+                    "file": ".github/agents/wind.agent.md",
+                    "sha256": "a" * 64,
+                }
+            },
+        }
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(json.dumps(lockfile_data))
+
+        # Mock _compute_sha256 to raise OSError
+        def mock_compute_sha256(_file_path: Path) -> str:
+            raise OSError("File unreadable")
+
+        monkeypatch.setattr(cli, "_compute_sha256", mock_compute_sha256)
+
+        result = verify_agents(tmp_path)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error reading wind" in captured.out
+
+    # -------------------------------------------------------------------------
+    # pin_agents empty ref validation (line 328-330)
+    # -------------------------------------------------------------------------
+
+    def test_pin_empty_ref(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """Test pin_agents rejects empty ref."""
+        from debate_hall_mcp.cli import pin_agents
+
+        # Create a lockfile
+        lockfile_data = {
+            "version": "1.0",
+            "source": {"repo": "test/repo", "ref": "v1.0.0"},
+            "agents": {},
+        }
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(json.dumps(lockfile_data))
+
+        # Test empty string
+        result = pin_agents(tmp_path, "")
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error: Ref cannot be empty" in captured.out
+
+    def test_pin_whitespace_only_ref(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Test pin_agents rejects whitespace-only ref."""
+        from debate_hall_mcp.cli import pin_agents
+
+        # Create a lockfile
+        lockfile_data = {
+            "version": "1.0",
+            "source": {"repo": "test/repo", "ref": "v1.0.0"},
+            "agents": {},
+        }
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(json.dumps(lockfile_data))
+
+        # Test whitespace-only
+        result = pin_agents(tmp_path, "   ")
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error: Ref cannot be empty" in captured.out
+
+    # -------------------------------------------------------------------------
+    # verify_agents invalid lockfile format (line 265-266, 274-276)
+    # -------------------------------------------------------------------------
+
+    def test_verify_invalid_agents_format(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Test verify_agents handles invalid agents format in lockfile."""
+        from debate_hall_mcp.cli import verify_agents
+
+        # Create lockfile with invalid agents (not a dict)
+        lockfile_data = {
+            "version": "1.0",
+            "source": {"repo": "test/repo", "ref": "v1.0.0"},
+            "agents": "not a dict",
+        }
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(json.dumps(lockfile_data))
+
+        result = verify_agents(tmp_path)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error: Invalid lockfile format" in captured.out
+
+    def test_verify_invalid_agent_entry_format(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Test verify_agents handles invalid agent entry format."""
+        from debate_hall_mcp.cli import verify_agents
+
+        # Create lockfile with invalid agent entry (not a dict)
+        lockfile_data = {
+            "version": "1.0",
+            "source": {"repo": "test/repo", "ref": "v1.0.0"},
+            "agents": {
+                "wind": "not a dict",
+            },
+        }
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(json.dumps(lockfile_data))
+
+        result = verify_agents(tmp_path)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error: Invalid agent entry for wind" in captured.out
+
+    def test_verify_missing_file_or_sha256(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Test verify_agents handles missing file or sha256 in agent entry."""
+        from debate_hall_mcp.cli import verify_agents
+
+        # Create lockfile with missing sha256
+        lockfile_data = {
+            "version": "1.0",
+            "source": {"repo": "test/repo", "ref": "v1.0.0"},
+            "agents": {
+                "wind": {
+                    "file": ".github/agents/wind.agent.md",
+                    # missing sha256
+                },
+            },
+        }
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(json.dumps(lockfile_data))
+
+        result = verify_agents(tmp_path)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error: Missing file or sha256 for agent wind" in captured.out
+
+    # -------------------------------------------------------------------------
+    # pin_agents invalid source format (line 375-376)
+    # -------------------------------------------------------------------------
+
+    def test_pin_invalid_source_format(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Test pin_agents handles invalid source format in lockfile."""
+        from debate_hall_mcp.cli import pin_agents
+
+        # Create lockfile with invalid source (not a dict)
+        lockfile_data = {
+            "version": "1.0",
+            "source": "not a dict",
+            "agents": {},
+        }
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(json.dumps(lockfile_data))
+
+        result = pin_agents(tmp_path, "v2.0.0")
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error: Invalid lockfile format" in captured.out
+
+    # -------------------------------------------------------------------------
+    # sync_agents source not found (line 142-143)
+    # -------------------------------------------------------------------------
+
+    def test_sync_source_not_found(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test sync_agents handles missing source agents directory."""
+        from debate_hall_mcp.cli import sync_agents
+
+        # Mock _get_package_agents_dir to return a non-existent path
+        def mock_get_package_agents_dir() -> Path:
+            return tmp_path / "nonexistent" / "agents"
+
+        from debate_hall_mcp import cli
+
+        monkeypatch.setattr(cli, "_get_package_agents_dir", mock_get_package_agents_dir)
+
+        result = sync_agents(tmp_path)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error: Source agents directory not found" in captured.out
+
+    # -------------------------------------------------------------------------
+    # sync_agents missing source file warning (line 173-174)
+    # -------------------------------------------------------------------------
+
+    def test_sync_missing_source_file_warning(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test sync_agents prints warning when source agent file is missing."""
+        from debate_hall_mcp.cli import sync_agents
+
+        # Create a mock package agents dir with only some files
+        mock_agents_dir = tmp_path / "mock_agents"
+        mock_agents_dir.mkdir()
+        (mock_agents_dir / "wall.agent.md").write_text("# Wall")
+        (mock_agents_dir / "door.agent.md").write_text("# Door")
+        # Intentionally missing wind.agent.md
+
+        def mock_get_package_agents_dir() -> Path:
+            return mock_agents_dir
+
+        from debate_hall_mcp import cli
+
+        monkeypatch.setattr(cli, "_get_package_agents_dir", mock_get_package_agents_dir)
+
+        result = sync_agents(tmp_path)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Warning: Source agent file not found" in captured.out
+        assert "wind.agent.md" in captured.out
+
+    # -------------------------------------------------------------------------
+    # _load_lockfile JSONDecodeError/OSError (line 106-107)
+    # -------------------------------------------------------------------------
+
+    def test_load_lockfile_json_decode_error(self, tmp_path: Path) -> None:
+        """Test _load_lockfile handles invalid JSON gracefully."""
+        from debate_hall_mcp.cli import _load_lockfile
+
+        # Create an invalid JSON lockfile
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text("{ invalid json }")
+
+        result = _load_lockfile(tmp_path)
+
+        assert result is None
+
+    def test_load_lockfile_oserror(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test _load_lockfile handles OSError gracefully."""
+        from debate_hall_mcp.cli import _load_lockfile
+
+        # Create a valid lockfile
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text('{"version": "1.0"}')
+
+        original_read_text = Path.read_text
+
+        def mock_read_text(self: Path, *args: object, **kwargs: object) -> str:
+            if "agents.lock.json" in str(self):
+                raise OSError("Permission denied")
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", mock_read_text)
+
+        result = _load_lockfile(tmp_path)
+
+        assert result is None
+
+    # -------------------------------------------------------------------------
+    # sync_agents same-size different-content (lines 187-190)
+    # -------------------------------------------------------------------------
+
+    def test_sync_same_size_different_content(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test sync detects different content when file sizes match."""
+        from debate_hall_mcp.cli import sync_agents
+
+        # Create a mock package agents dir
+        mock_agents_dir = tmp_path / "mock_agents"
+        mock_agents_dir.mkdir()
+        # Content A: same size as target
+        (mock_agents_dir / "wind.agent.md").write_text("ABC123")
+        (mock_agents_dir / "wall.agent.md").write_text("# Wall")
+        (mock_agents_dir / "door.agent.md").write_text("# Door")
+
+        # Create target with same size but different content
+        agents_dir = tmp_path / ".github" / "agents"
+        agents_dir.mkdir(parents=True)
+        # Content B: same size (6 chars) as source
+        (agents_dir / "wind.agent.md").write_text("XYZ789")
+
+        def mock_get_package_agents_dir() -> Path:
+            return mock_agents_dir
+
+        from debate_hall_mcp import cli
+
+        monkeypatch.setattr(cli, "_get_package_agents_dir", mock_get_package_agents_dir)
+
+        # Without force, should skip
+        result = sync_agents(tmp_path, force=False)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "SKIP: wind" in captured.out
+
+
+# =============================================================================
+# Test CLI Internal Functions - Direct Coverage
+# =============================================================================
+
+
+class TestCLIInternalFunctions:
+    """Test internal CLI functions directly for coverage.
+
+    The subprocess-based tests exercise CLI behavior but don't count
+    toward coverage of the actual Python code. These tests call the
+    internal functions directly.
+    """
+
+    def test_create_parser_returns_parser(self) -> None:
+        """Test _create_parser returns a configured ArgumentParser."""
+        from debate_hall_mcp.cli import _create_parser
+
+        parser = _create_parser()
+
+        assert parser is not None
+        assert parser.prog == "debate-hall-mcp"
+
+    def test_create_parser_has_subcommands(self) -> None:
+        """Test _create_parser configures all subcommands."""
+        from debate_hall_mcp.cli import _create_parser
+
+        parser = _create_parser()
+
+        # Parse each subcommand to verify they're configured
+        sync_args = parser.parse_args(["sync"])
+        assert sync_args.command == "sync"
+        assert hasattr(sync_args, "func")
+
+        verify_args = parser.parse_args(["verify"])
+        assert verify_args.command == "verify"
+        assert hasattr(verify_args, "func")
+
+        pin_args = parser.parse_args(["pin", "v1.0.0"])
+        assert pin_args.command == "pin"
+        assert pin_args.ref == "v1.0.0"
+        assert hasattr(pin_args, "func")
+
+    def test_create_parser_sync_force_flag(self) -> None:
+        """Test _create_parser configures --force flag for sync."""
+        from debate_hall_mcp.cli import _create_parser
+
+        parser = _create_parser()
+
+        args_no_force = parser.parse_args(["sync"])
+        assert args_no_force.force is False
+
+        args_with_force = parser.parse_args(["sync", "--force"])
+        assert args_with_force.force is True
+
+        args_with_short_force = parser.parse_args(["sync", "-f"])
+        assert args_with_short_force.force is True
+
+    def test_cmd_sync_uses_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test _cmd_sync uses current working directory."""
+        import argparse
+
+        from debate_hall_mcp.cli import _cmd_sync
+
+        # Mock Path.cwd to return tmp_path
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+
+        args = argparse.Namespace(force=False)
+        result = _cmd_sync(args)
+
+        # Should succeed and create files
+        assert result == 0
+        assert (tmp_path / ".github" / "agents").exists()
+
+    def test_cmd_verify_uses_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test _cmd_verify uses current working directory."""
+        import argparse
+
+        from debate_hall_mcp.cli import _cmd_verify
+
+        # Mock Path.cwd to return tmp_path
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+
+        args = argparse.Namespace()
+        result = _cmd_verify(args)
+
+        # Should fail because no lockfile exists
+        assert result == 1
+
+    def test_cmd_pin_uses_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test _cmd_pin uses current working directory."""
+        import argparse
+
+        from debate_hall_mcp.cli import _cmd_pin
+
+        # Create a lockfile first
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(
+            '{"version": "1.0", "source": {"repo": "test", "ref": "v1"}, "agents": {}}'
+        )
+
+        # Mock Path.cwd to return tmp_path
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+
+        args = argparse.Namespace(ref="v2.0.0")
+        result = _cmd_pin(args)
+
+        assert result == 0
+
+    def test_main_no_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Test main() with no command shows help."""
+        import sys
+
+        from debate_hall_mcp.cli import main
+
+        # Mock sys.argv to have no command
+        monkeypatch.setattr(sys, "argv", ["debate-hall-mcp"])
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+
+        result = main()
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "usage" in captured.out.lower() or "debate-hall-mcp" in captured.out
+
+    def test_main_with_sync_command(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test main() with sync command."""
+        import sys
+
+        from debate_hall_mcp.cli import main
+
+        # Mock sys.argv and cwd
+        monkeypatch.setattr(sys, "argv", ["debate-hall-mcp", "sync"])
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+
+        result = main()
+
+        assert result == 0
+        assert (tmp_path / ".github" / "agents").exists()
+
+    def test_main_with_verify_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test main() with verify command."""
+        import sys
+
+        from debate_hall_mcp.cli import main
+
+        # Mock sys.argv and cwd
+        monkeypatch.setattr(sys, "argv", ["debate-hall-mcp", "verify"])
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+
+        result = main()
+
+        # Should fail - no lockfile
+        assert result == 1
+
+    def test_main_with_pin_command(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test main() with pin command."""
+        import sys
+
+        from debate_hall_mcp.cli import main
+
+        # Create a lockfile first
+        lockfile = tmp_path / "agents.lock.json"
+        lockfile.write_text(
+            '{"version": "1.0", "source": {"repo": "test", "ref": "v1"}, "agents": {}}'
+        )
+
+        # Mock sys.argv and cwd
+        monkeypatch.setattr(sys, "argv", ["debate-hall-mcp", "pin", "v2.0.0"])
+        monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+
+        result = main()
+
+        assert result == 0
