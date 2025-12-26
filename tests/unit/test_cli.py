@@ -846,15 +846,21 @@ class TestErrorHandling:
         wind_file = agents_dir / "wind.agent.md"
         wind_file.write_text("# Wind Agent")
 
-        original_stat = Path.stat
+        import os
 
-        def mock_stat(self: Path, **kwargs: object) -> object:
+        original_os_stat = os.stat
+        stat_calls = {"count": 0}
+
+        def mock_os_stat(path: object, *args: object, **kwargs: object) -> object:
             # Fail on the target wind file during comparison
-            if "wind.agent.md" in str(self) and ".github" in str(self):
-                raise OSError("I/O error")
-            return original_stat(self, **kwargs)
+            # We track calls to ensure exists() passes (call 1) but stat() fails (call 2)
+            if "wind.agent.md" in str(path) and ".github" in str(path):
+                stat_calls["count"] += 1
+                if stat_calls["count"] == 2:
+                    raise OSError("I/O error")
+            return original_os_stat(path, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "stat", mock_stat)
+        monkeypatch.setattr(os, "stat", mock_os_stat)
 
         result = sync_agents(tmp_path, force=False)
 
