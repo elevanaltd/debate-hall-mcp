@@ -162,7 +162,7 @@ async def test_mediated_mode_with_pick(cleanup_debates: None) -> None:  # noqa: 
 
         # Verify final status
         status_result = await client_session.call_tool(
-            "get_status", {"thread_id": "test-mediated-001"}
+            "get_debate", {"thread_id": "test-mediated-001"}
         )
 
         assert status_result is not None

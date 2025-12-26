@@ -16,10 +16,9 @@ from mcp.server.fastmcp import FastMCP
 
 from debate_hall_mcp.tools.admin import debate_force_close, debate_tombstone
 from debate_hall_mcp.tools.close import debate_close
+from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.init import debate_init
-from debate_hall_mcp.tools.next import debate_next
 from debate_hall_mcp.tools.pick import debate_pick
-from debate_hall_mcp.tools.status import debate_status
 from debate_hall_mcp.tools.turn import debate_turn
 
 # Server metadata
@@ -31,20 +30,11 @@ DEFAULT_STATE_DIR = Path("./debates")
 
 
 def create_server() -> FastMCP:
-    """Create and configure the debate-hall MCP server.
+    """Create debate-hall MCP server.
 
-    Returns:
-        Configured FastMCP instance with all tools registered
-
-    Tools registered:
-        - debate_init: Create new debate room
-        - debate_turn: Record agent turn
-        - debate_next: Get prompt for next speaker
-        - debate_status: View debate state
-        - debate_close: Finalize debate
-        - debate_pick: Set next speaker (mediated mode)
-        - debate_force_close: Admin kill switch (I5)
-        - debate_tombstone: Redact turn (I4)
+    Tools (7):
+        init_debate, add_turn, get_debate, close_debate,
+        pick_next_speaker, force_close_debate, tombstone_turn
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -60,19 +50,7 @@ def create_server() -> FastMCP:
         max_rounds: int = 4,
         strict_cognition: bool = False,
     ) -> dict[str, Any]:
-        """Initialize a new debate thread.
-
-        Args:
-            thread_id: Unique thread identifier
-            topic: Debate topic
-            mode: Orchestration mode (fixed or mediated)
-            max_turns: Maximum turns allowed
-            max_rounds: Maximum rounds allowed
-            strict_cognition: If True, BLOCK-level cognition violations reject turns (behavioral firewall)
-
-        Returns:
-            Debate summary with thread_id, topic, mode, status, limits, strict_cognition
-        """
+        """Create room. mode:fixed|mediated. strict_cognition→validate turns."""
         return debate_init(
             thread_id=thread_id,
             topic=topic,
@@ -92,23 +70,7 @@ def create_server() -> FastMCP:
         model: str | None = None,
         cognition: str | None = None,
     ) -> dict[str, Any]:
-        """Record an agent turn in the debate.
-
-        Args:
-            thread_id: Thread identifier
-            role: Agent role (Wind, Wall, Door)
-            content: Turn content (OCTAVE format expected)
-            agent_role: Optional operational agent role (Issue #4)
-            model: Optional AI model identifier (Issue #4)
-            cognition: Optional cognitive archetype (PATHOS|ETHOS|LOGOS)
-
-        Returns:
-            Turn summary with thread_id, turn_count, role, status, cognition_warnings (if any)
-
-        Note:
-            Cognition enforcement mode (strict_cognition) is configured at room creation
-            via init_debate, not per-turn. This prevents bypassing the behavioral firewall.
-        """
+        """Record turn. role:Wind|Wall|Door. cognition:PATHOS|ETHOS|LOGOS→validates content."""
         return debate_turn(
             thread_id=thread_id,
             role=role,
@@ -120,48 +82,22 @@ def create_server() -> FastMCP:
         )
 
     @server.tool()
-    def get_next_prompt(thread_id: str, context_lines: int | None = None) -> dict[str, Any]:
-        """Get prompt information for next speaker.
-
-        Args:
-            thread_id: Thread identifier
-            context_lines: Number of recent turns to include (None = all)
-
-        Returns:
-            Prompt info with topic, status, next_role, transcript
-        """
-        return debate_next(
+    def get_debate(
+        thread_id: str,
+        include_transcript: bool = False,
+        context_lines: int | None = None,
+    ) -> dict[str, Any]:
+        """State+optional transcript. include_transcript→adds turn history. context_lines:limit depth."""
+        return debate_get(
             thread_id=thread_id,
+            include_transcript=include_transcript,
             context_lines=context_lines,
             state_dir=DEFAULT_STATE_DIR,
         )
 
     @server.tool()
-    def get_status(thread_id: str) -> dict[str, Any]:
-        """View current debate state and status.
-
-        Args:
-            thread_id: Thread identifier
-
-        Returns:
-            Debate state with topic, mode, status, turn_count, limits
-        """
-        return debate_status(
-            thread_id=thread_id,
-            state_dir=DEFAULT_STATE_DIR,
-        )
-
-    @server.tool()
     def close_debate(thread_id: str, synthesis: str) -> dict[str, Any]:
-        """Close debate with final synthesis.
-
-        Args:
-            thread_id: Thread identifier
-            synthesis: Final Door synthesis content
-
-        Returns:
-            Close summary with thread_id, status, synthesis
-        """
+        """Finalize debate. synthesis:Door's final resolution→closes room."""
         return debate_close(
             thread_id=thread_id,
             synthesis=synthesis,
@@ -170,15 +106,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def pick_next_speaker(thread_id: str, role: str) -> dict[str, Any]:
-        """Set next expected speaker role in mediated mode.
-
-        Args:
-            thread_id: Thread identifier
-            role: Role to pick (Wind, Wall, Door)
-
-        Returns:
-            Pick summary with thread_id, next_role, mode
-        """
+        """Mediated mode only. role:Wind|Wall|Door→sets next expected speaker."""
         return debate_pick(
             thread_id=thread_id,
             role=role,
@@ -187,15 +115,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def force_close_debate(thread_id: str, reason: str) -> dict[str, Any]:
-        """Force close a debate immediately (admin override).
-
-        Args:
-            thread_id: Thread identifier
-            reason: Reason for force close
-
-        Returns:
-            Force close summary with thread_id, status, reason
-        """
+        """I5:safety override. reason:logged→force closes any state."""
         return debate_force_close(
             thread_id=thread_id,
             reason=reason,
@@ -204,16 +124,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def tombstone_turn(thread_id: str, turn_index: int, reason: str) -> dict[str, Any]:
-        """Redact a turn's content while preserving hash chain.
-
-        Args:
-            thread_id: Thread identifier
-            turn_index: Index of turn to tombstone (0-based)
-            reason: Reason for redaction
-
-        Returns:
-            Tombstone summary with thread_id, turn_index, reason
-        """
+        """I4:redact content→hash chain preserved. turn_index:0-based."""
         return debate_tombstone(
             thread_id=thread_id,
             turn_index=turn_index,
