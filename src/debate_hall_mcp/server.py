@@ -60,7 +60,7 @@ def create_server() -> FastMCP:
         max_rounds: int = 4,
         strict_cognition: bool = False,
     ) -> dict[str, Any]:
-        """Create debate room. Returns: thread_id, topic, mode, status, limits."""
+        """Create room. mode:fixed|mediated. strict_cognition→validate turns."""
         return debate_init(
             thread_id=thread_id,
             topic=topic,
@@ -80,7 +80,7 @@ def create_server() -> FastMCP:
         model: str | None = None,
         cognition: str | None = None,
     ) -> dict[str, Any]:
-        """Record agent turn. role: Wind|Wall|Door. cognition: PATHOS|ETHOS|LOGOS. Returns: turn_count, status."""
+        """Record turn. role:Wind|Wall|Door. cognition:PATHOS|ETHOS|LOGOS→validates content."""
         return debate_turn(
             thread_id=thread_id,
             role=role,
@@ -93,7 +93,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def get_next_prompt(thread_id: str, context_lines: int | None = None) -> dict[str, Any]:
-        """Get next speaker prompt with transcript. context_lines limits history."""
+        """Next speaker→prompt+transcript. context_lines:limit history depth."""
         return debate_next(
             thread_id=thread_id,
             context_lines=context_lines,
@@ -102,7 +102,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def get_status(thread_id: str) -> dict[str, Any]:
-        """View debate state. Returns: topic, mode, status, turn_count, limits."""
+        """State→topic,mode,status,turn_count,limits,next_role."""
         return debate_status(
             thread_id=thread_id,
             state_dir=DEFAULT_STATE_DIR,
@@ -110,7 +110,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def close_debate(thread_id: str, synthesis: str) -> dict[str, Any]:
-        """Close debate with Door synthesis. Returns: thread_id, status, synthesis."""
+        """Finalize debate. synthesis:Door's final resolution→closes room."""
         return debate_close(
             thread_id=thread_id,
             synthesis=synthesis,
@@ -119,7 +119,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def pick_next_speaker(thread_id: str, role: str) -> dict[str, Any]:
-        """Set next speaker in mediated mode. role: Wind|Wall|Door."""
+        """Mediated mode only. role:Wind|Wall|Door→sets next expected speaker."""
         return debate_pick(
             thread_id=thread_id,
             role=role,
@@ -128,7 +128,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def force_close_debate(thread_id: str, reason: str) -> dict[str, Any]:
-        """Admin kill switch. Force close regardless of state."""
+        """I5:safety override. reason:logged→force closes any state."""
         return debate_force_close(
             thread_id=thread_id,
             reason=reason,
@@ -137,7 +137,7 @@ def create_server() -> FastMCP:
 
     @server.tool()
     def tombstone_turn(thread_id: str, turn_index: int, reason: str) -> dict[str, Any]:
-        """Redact turn content, preserve hash chain. turn_index is 0-based."""
+        """I4:redact content→hash chain preserved. turn_index:0-based."""
         return debate_tombstone(
             thread_id=thread_id,
             turn_index=turn_index,
