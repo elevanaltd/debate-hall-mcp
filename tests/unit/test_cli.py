@@ -848,11 +848,11 @@ class TestErrorHandling:
 
         original_stat = Path.stat
 
-        def mock_stat(self: Path) -> object:
+        def mock_stat(self: Path, **kwargs: object) -> object:
             # Fail on the target wind file during comparison
             if "wind.agent.md" in str(self) and ".github" in str(self):
                 raise OSError("I/O error")
-            return original_stat(self)
+            return original_stat(self, **kwargs)
 
         monkeypatch.setattr(Path, "stat", mock_stat)
 
