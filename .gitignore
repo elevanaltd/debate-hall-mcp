@@ -77,7 +77,8 @@ venv.bak/
 .hestai/.hestai-state-*
 .hestai/last_cleanup
 
-# Debates (local development)
+# Debates (local development artifacts - see README.md#persistence)
+# Rationale: repo bloat, merge conflicts, security (PII/secrets), industry precedent
 debates/
 
 # mypy

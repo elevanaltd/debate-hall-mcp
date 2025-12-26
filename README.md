@@ -126,15 +126,42 @@ Use for: Dynamic debates, breaking deadlocks, skipping roles when appropriate.
 
 ## Persistence
 
-State is held **in-memory** by default. Debates do not survive server restart.
+Debates are persisted to **JSON files** in `./debates/{thread_id}.json` relative to the current working directory.
 
-| Aspect | Current | Future |
-|--------|---------|--------|
-| Storage | In-memory dict | Pluggable backends |
-| Survival | Lost on restart | Configurable persistence |
-| Export | Via `close_debate` | OCTAVE transcript files |
+| Aspect | Behavior |
+|--------|----------|
+| Storage | JSON files in `./debates/` |
+| Survival | Persists across server restarts |
+| Format | Pydantic JSON with hash chain |
+| Export | Full transcript in JSON |
 
-For production use requiring persistence, export transcripts on close or implement a custom storage backend.
+### Gitignore Recommendation
+
+**Add `debates/` to your `.gitignore`** unless you have specific reasons to commit them:
+
+```gitignore
+# Debate transcripts (local development artifacts)
+debates/
+```
+
+**Rationale** (from Wind-Wall-Door analysis):
+- **Repo bloat**: JSON files grow with each turn, accumulating over time
+- **Merge conflicts**: Multi-person teams get conflicts on shared debate files
+- **Security**: Transcripts may contain secrets or PII from discussion context
+- **Industry precedent**: MLflow, DVC, W&B store artifacts externally, not in git
+
+**When to commit debates**: If a debate led to an architectural decision, consider extracting the synthesis into a proper ADR rather than committing the raw transcript.
+
+### HestAI-MCP Integration
+
+If you're using [HestAI-MCP](https://github.com/elevanaltd/HestAI-MCP) for context management, debates should follow the same tiered storage pattern:
+
+| Tier | Location | Git Status | Purpose |
+|------|----------|------------|---------|
+| Active | `debates/` | Gitignored | Working debates in progress |
+| Archive | `.hestai/sessions/archive/` | Committed | Decision records (via `clock_out`) |
+
+The HestAI-MCP `clock_out` tool can compress session learnings (including debate outcomes) into OCTAVE format for permanent archival. Raw debate JSON files remain local development artifacts.
 
 ## Resource Limits (I3 Immutable)
 
