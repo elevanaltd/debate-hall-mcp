@@ -246,7 +246,7 @@ debate-hall-mcp is built on four unchangeable principles:
 | **I4** | Verifiable Event Ledger | SHA-256 hash chain |
 | **I5** | Sovereign Safety Override | Admin kill switch |
 
-> **Note**: OCTAVE format is recommended for turn content (structured semantic compression), but not enforced. See [OCTAVE-MCP](https://github.com/elevanaltd/octave) for the specification.
+> **Note**: OCTAVE format is recommended for turn content (structured semantic compression), but not enforced. See [OCTAVE-MCP](https://github.com/elevanaltd/octave-mcp) for the specification.
 
 ## Development
 
