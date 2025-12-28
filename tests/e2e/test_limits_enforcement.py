@@ -54,7 +54,7 @@ async def test_max_turns_limit_enforcement(cleanup_debates: None) -> None:  # no
         init_result = await client_session.call_tool(
             "init_debate",
             {
-                "thread_id": "test-limits-001",
+                "thread_id": "2025-01-01-test-limits-001",
                 "topic": "Testing resource limits",
                 "mode": "fixed",
                 "max_turns": 3,
@@ -68,14 +68,14 @@ async def test_max_turns_limit_enforcement(cleanup_debates: None) -> None:  # no
             if hasattr(init_result.content[0], "text")
             else str(init_result.content[0])
         )
-        assert "test-limits-001" in init_text
+        assert "2025-01-01-test-limits-001" in init_text
 
         # Step 2: Add 3 turns (exactly at limit)
         for i, role in enumerate(["Wind", "Wall", "Door"], 1):
             turn_result = await client_session.call_tool(
                 "add_turn",
                 {
-                    "thread_id": "test-limits-001",
+                    "thread_id": "2025-01-01-test-limits-001",
                     "role": role,
                     "content": f"TURN::{role} turn {i}",
                 },
@@ -84,7 +84,7 @@ async def test_max_turns_limit_enforcement(cleanup_debates: None) -> None:  # no
 
         # Step 3: Check status after hitting limit
         status_result = await client_session.call_tool(
-            "get_debate", {"thread_id": "test-limits-001"}
+            "get_debate", {"thread_id": "2025-01-01-test-limits-001"}
         )
 
         assert status_result is not None
@@ -104,7 +104,7 @@ async def test_max_turns_limit_enforcement(cleanup_debates: None) -> None:  # no
             fourth_result = await client_session.call_tool(
                 "add_turn",
                 {
-                    "thread_id": "test-limits-001",
+                    "thread_id": "2025-01-01-test-limits-001",
                     "role": "Wind",  # Would be next in cycle
                     "content": "TURN::This should fail",
                 },
@@ -127,7 +127,7 @@ async def test_max_turns_limit_enforcement(cleanup_debates: None) -> None:  # no
 
         # Verify final status confirms exhaustion
         final_status = await client_session.call_tool(
-            "get_debate", {"thread_id": "test-limits-001"}
+            "get_debate", {"thread_id": "2025-01-01-test-limits-001"}
         )
 
         assert final_status is not None

@@ -19,15 +19,15 @@ class TestDebateGetBasic:
     def test_debate_get_new_debate(self, tmp_path: Path) -> None:
         """Get returns state for new debate."""
         debate_init(
-            thread_id="test-get-1",
+            thread_id="2025-01-01-test-get-1",
             topic="Test topic",
             mode="fixed",
             state_dir=tmp_path,
         )
 
-        result = debate_get(thread_id="test-get-1", state_dir=tmp_path)
+        result = debate_get(thread_id="2025-01-01-test-get-1", state_dir=tmp_path)
 
-        assert result["thread_id"] == "test-get-1"
+        assert result["thread_id"] == "2025-01-01-test-get-1"
         assert result["topic"] == "Test topic"
         assert result["mode"] == "fixed"
         assert result["status"] == "active"
@@ -38,19 +38,19 @@ class TestDebateGetBasic:
     def test_debate_get_with_turns(self, tmp_path: Path) -> None:
         """Get reflects turn count after turns added."""
         debate_init(
-            thread_id="test-get-2",
+            thread_id="2025-01-01-test-get-2",
             topic="Test",
             mode="fixed",
             state_dir=tmp_path,
         )
         debate_turn(
-            thread_id="test-get-2",
+            thread_id="2025-01-01-test-get-2",
             role="Wind",
             content="Wind content",
             state_dir=tmp_path,
         )
 
-        result = debate_get(thread_id="test-get-2", state_dir=tmp_path)
+        result = debate_get(thread_id="2025-01-01-test-get-2", state_dir=tmp_path)
 
         assert result["turn_count"] == 1
         assert result["next_role"] == "Wall"
@@ -58,18 +58,18 @@ class TestDebateGetBasic:
     def test_debate_get_closed_debate_includes_synthesis(self, tmp_path: Path) -> None:
         """Get includes synthesis for closed debates."""
         debate_init(
-            thread_id="test-get-3",
+            thread_id="2025-01-01-test-get-3",
             topic="Test",
             mode="fixed",
             state_dir=tmp_path,
         )
         debate_close(
-            thread_id="test-get-3",
+            thread_id="2025-01-01-test-get-3",
             synthesis="Final synthesis",
             state_dir=tmp_path,
         )
 
-        result = debate_get(thread_id="test-get-3", state_dir=tmp_path)
+        result = debate_get(thread_id="2025-01-01-test-get-3", state_dir=tmp_path)
 
         assert result["status"] == "synthesis"
         assert result["synthesis"] == "Final synthesis"
@@ -83,13 +83,13 @@ class TestDebateGetBasic:
     def test_debate_get_mediated_mode(self, tmp_path: Path) -> None:
         """Get returns None for next_role in mediated mode."""
         debate_init(
-            thread_id="test-get-4",
+            thread_id="2025-01-01-test-get-4",
             topic="Test",
             mode="mediated",
             state_dir=tmp_path,
         )
 
-        result = debate_get(thread_id="test-get-4", state_dir=tmp_path)
+        result = debate_get(thread_id="2025-01-01-test-get-4", state_dir=tmp_path)
 
         assert result["mode"] == "mediated"
         assert result["next_role"] is None
@@ -101,20 +101,20 @@ class TestDebateGetWithTranscript:
     def test_debate_get_with_transcript(self, tmp_path: Path) -> None:
         """Get includes transcript when requested."""
         debate_init(
-            thread_id="test-transcript-1",
+            thread_id="2025-01-01-test-transcript-1",
             topic="Test",
             mode="fixed",
             state_dir=tmp_path,
         )
         debate_turn(
-            thread_id="test-transcript-1",
+            thread_id="2025-01-01-test-transcript-1",
             role="Wind",
             content="Wind says hello",
             state_dir=tmp_path,
         )
 
         result = debate_get(
-            thread_id="test-transcript-1",
+            thread_id="2025-01-01-test-transcript-1",
             include_transcript=True,
             state_dir=tmp_path,
         )
@@ -128,7 +128,7 @@ class TestDebateGetWithTranscript:
     def test_debate_get_transcript_context_lines(self, tmp_path: Path) -> None:
         """context_lines limits transcript depth."""
         debate_init(
-            thread_id="test-context-1",
+            thread_id="2025-01-01-test-context-1",
             topic="Test",
             mode="fixed",
             state_dir=tmp_path,
@@ -136,14 +136,14 @@ class TestDebateGetWithTranscript:
         # Add 3 turns
         for role in ["Wind", "Wall", "Door"]:
             debate_turn(
-                thread_id="test-context-1",
+                thread_id="2025-01-01-test-context-1",
                 role=role,
                 content=f"{role} content",
                 state_dir=tmp_path,
             )
 
         result = debate_get(
-            thread_id="test-context-1",
+            thread_id="2025-01-01-test-context-1",
             include_transcript=True,
             context_lines=2,
             state_dir=tmp_path,
@@ -156,14 +156,14 @@ class TestDebateGetWithTranscript:
     def test_debate_get_empty_transcript(self, tmp_path: Path) -> None:
         """Transcript is empty list for new debate."""
         debate_init(
-            thread_id="test-empty-1",
+            thread_id="2025-01-01-test-empty-1",
             topic="Test",
             mode="fixed",
             state_dir=tmp_path,
         )
 
         result = debate_get(
-            thread_id="test-empty-1",
+            thread_id="2025-01-01-test-empty-1",
             include_transcript=True,
             state_dir=tmp_path,
         )
@@ -173,14 +173,14 @@ class TestDebateGetWithTranscript:
     def test_debate_get_includes_limits(self, tmp_path: Path) -> None:
         """Get always includes max_turns and max_rounds."""
         debate_init(
-            thread_id="test-limits-1",
+            thread_id="2025-01-01-test-limits-1",
             topic="Test",
             max_turns=20,
             max_rounds=5,
             state_dir=tmp_path,
         )
 
-        result = debate_get(thread_id="test-limits-1", state_dir=tmp_path)
+        result = debate_get(thread_id="2025-01-01-test-limits-1", state_dir=tmp_path)
 
         assert result["max_turns"] == 20
         assert result["max_rounds"] == 5

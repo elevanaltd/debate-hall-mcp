@@ -20,6 +20,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+# Security: Patterns that indicate path traversal or directory injection
+PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
+
 
 class DebateStatus(str, Enum):
     """Status of a debate room (I3: Finite Dialectic Closure)."""
@@ -100,7 +103,10 @@ class DebateRoom(BaseModel):
     - Cognition enforcement policy (behavioral firewall)
     """
 
-    thread_id: str = Field(..., description="Unique thread identifier")
+    thread_id: str = Field(
+        ...,
+        description="Unique thread identifier in date-first format (YYYY-MM-DD-subject)",
+    )
     topic: str = Field(..., description="Debate topic")
     mode: DebateMode = Field(..., description="Orchestration mode")
     status: DebateStatus = Field(default=DebateStatus.ACTIVE, description="Current debate status")
@@ -137,13 +143,38 @@ def calculate_turn_hash(
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
 
+def _validate_thread_id_for_filesystem(thread_id: str) -> None:
+    """Validate thread_id is safe for filesystem operations.
+
+    Security: Rejects path traversal sequences and directory separators
+    to prevent file system injection attacks.
+
+    Args:
+        thread_id: Thread identifier to validate
+
+    Raises:
+        ValueError: If thread_id contains path-unsafe characters
+    """
+    for pattern in PATH_UNSAFE_PATTERNS:
+        if pattern in thread_id:
+            raise ValueError(f"Invalid thread_id '{thread_id}': contains path-unsafe characters")
+
+
 def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
     """Save debate room state to JSON file.
 
     File location: {state_dir}/{thread_id}.json
 
     Format: Pydantic model JSON with hash chain preserved.
+
+    Security: Validates thread_id to prevent path traversal attacks.
+
+    Raises:
+        ValueError: If thread_id contains path-unsafe characters
     """
+    # Security: Validate thread_id before using in file path
+    _validate_thread_id_for_filesystem(room.thread_id)
+
     state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / f"{room.thread_id}.json"
 
@@ -155,9 +186,15 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
 def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     """Load debate room state from JSON file.
 
+    Security: Validates thread_id to prevent path traversal attacks.
+
     Raises:
+        ValueError: If thread_id contains path-unsafe characters
         FileNotFoundError: If state file doesn't exist.
     """
+    # Security: Validate thread_id before using in file path
+    _validate_thread_id_for_filesystem(thread_id)
+
     state_file = state_dir / f"{thread_id}.json"
 
     if not state_file.exists():

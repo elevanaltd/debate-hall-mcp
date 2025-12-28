@@ -5,12 +5,69 @@ Immutables Compliance:
 - I3 (FINITE_DIALECTIC_CLOSURE): Resource limits enforced
 
 TDD: Implements minimal functionality to pass tests.
+
+Issue #30: Thread IDs must use date-first format (YYYY-MM-DD-subject)
+for chronological sorting and HestAI ecosystem alignment.
 """
 
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.state import DebateMode, DebateRoom, save_debate_state
+
+# Pattern for date-first thread_id: YYYY-MM-DD-subject
+# Subject must start with alphanumeric, followed by alphanumeric, hyphens, underscores, or single dots
+# Security: Excludes path separators (/, \) and path traversal (..)
+THREAD_ID_PATTERN = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-([a-zA-Z0-9][a-zA-Z0-9._-]*)$")
+
+# Patterns that indicate path traversal or directory injection attempts
+PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
+
+
+def validate_thread_id(thread_id: str) -> None:
+    """Validate thread_id uses date-first format (YYYY-MM-DD-subject).
+
+    Security: Rejects path traversal sequences (..) and directory separators (/, \\)
+    to prevent file system injection attacks.
+
+    Args:
+        thread_id: Thread identifier to validate
+
+    Raises:
+        ValueError: If thread_id doesn't match date-first format, contains unsafe
+            characters, or date is invalid
+
+    Examples:
+        Valid: "2025-12-28-debate-topic", "2024-02-29-leap-year", "2025-01-01-v1.0"
+        Invalid: "debate-topic-2025-12-28", "2025-12-28", "2025-01-01-../etc"
+    """
+    # Security check: Reject path-unsafe patterns before regex matching
+    for pattern in PATH_UNSAFE_PATTERNS:
+        if pattern in thread_id:
+            raise ValueError(
+                f"Invalid thread_id '{thread_id}': must use date-first format "
+                "YYYY-MM-DD-subject (e.g., '2025-12-28-debate-topic')"
+            )
+
+    match = THREAD_ID_PATTERN.match(thread_id)
+    if not match:
+        raise ValueError(
+            f"Invalid thread_id '{thread_id}': must use date-first format "
+            "YYYY-MM-DD-subject (e.g., '2025-12-28-debate-topic')"
+        )
+
+    year, month, day, _subject = match.groups()
+
+    # Validate calendar date
+    try:
+        datetime(int(year), int(month), int(day))
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid thread_id '{thread_id}': {e}. "
+            "Must use date-first format with valid calendar date."
+        ) from e
 
 
 def debate_init(
@@ -25,7 +82,9 @@ def debate_init(
     """Initialize a new debate thread.
 
     Args:
-        thread_id: Unique thread identifier
+        thread_id: Unique thread identifier in date-first format (YYYY-MM-DD-subject).
+            Example: "2025-12-28-north-star-debate". Required for chronological sorting
+            and HestAI ecosystem alignment.
         topic: Debate topic
         mode: Orchestration mode ("fixed" or "mediated")
         max_turns: Maximum turns allowed (I3 compliance)
@@ -45,9 +104,12 @@ def debate_init(
         - turn_count: Current turn count (0 for new debate)
 
     Raises:
-        ValueError: If mode is invalid
+        ValueError: If mode is invalid or thread_id format is invalid
         FileExistsError: If thread_id already exists
     """
+    # Validate thread_id format (Issue #30: date-first convention)
+    validate_thread_id(thread_id)
+
     # Validate mode
     if mode not in ("fixed", "mediated"):
         raise ValueError(f"Invalid mode: {mode}. Must be 'fixed' or 'mediated'")
