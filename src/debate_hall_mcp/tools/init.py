@@ -18,23 +18,39 @@ from typing import Any
 from debate_hall_mcp.state import DebateMode, DebateRoom, save_debate_state
 
 # Pattern for date-first thread_id: YYYY-MM-DD-subject
-# Date portion validated separately for calendar validity
-THREAD_ID_PATTERN = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(.+)$")
+# Subject must start with alphanumeric, followed by alphanumeric, hyphens, underscores, or single dots
+# Security: Excludes path separators (/, \) and path traversal (..)
+THREAD_ID_PATTERN = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-([a-zA-Z0-9][a-zA-Z0-9._-]*)$")
+
+# Patterns that indicate path traversal or directory injection attempts
+PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
 
 
 def validate_thread_id(thread_id: str) -> None:
     """Validate thread_id uses date-first format (YYYY-MM-DD-subject).
 
+    Security: Rejects path traversal sequences (..) and directory separators (/, \\)
+    to prevent file system injection attacks.
+
     Args:
         thread_id: Thread identifier to validate
 
     Raises:
-        ValueError: If thread_id doesn't match date-first format or date is invalid
+        ValueError: If thread_id doesn't match date-first format, contains unsafe
+            characters, or date is invalid
 
     Examples:
-        Valid: "2025-12-28-debate-topic", "2024-02-29-leap-year"
-        Invalid: "debate-topic-2025-12-28", "2025-12-28", "no-date-here"
+        Valid: "2025-12-28-debate-topic", "2024-02-29-leap-year", "2025-01-01-v1.0"
+        Invalid: "debate-topic-2025-12-28", "2025-12-28", "2025-01-01-../etc"
     """
+    # Security check: Reject path-unsafe patterns before regex matching
+    for pattern in PATH_UNSAFE_PATTERNS:
+        if pattern in thread_id:
+            raise ValueError(
+                f"Invalid thread_id '{thread_id}': must use date-first format "
+                "YYYY-MM-DD-subject (e.g., '2025-12-28-debate-topic')"
+            )
+
     match = THREAD_ID_PATTERN.match(thread_id)
     if not match:
         raise ValueError(
