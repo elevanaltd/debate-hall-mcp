@@ -107,3 +107,61 @@ class TestThreadIdValidation:
             state_dir=tmp_path,
         )
         assert result["thread_id"] == "2025-12-28-x"
+
+
+class TestThreadIdSecurityValidation:
+    """Security tests for thread_id validation (path traversal prevention)."""
+
+    def test_reject_path_traversal_dotdot(self, tmp_path: Path) -> None:
+        """Test that path traversal with .. is rejected."""
+        with pytest.raises(ValueError, match="date-first format"):
+            debate_init(
+                thread_id="2025-01-01-../sensitive",
+                topic="Test topic",
+                state_dir=tmp_path,
+            )
+
+    def test_reject_nested_directory_forward_slash(self, tmp_path: Path) -> None:
+        """Test that nested directory with / is rejected."""
+        with pytest.raises(ValueError, match="date-first format"):
+            debate_init(
+                thread_id="2025-01-01-foo/bar",
+                topic="Test topic",
+                state_dir=tmp_path,
+            )
+
+    def test_reject_nested_directory_backslash(self, tmp_path: Path) -> None:
+        """Test that nested directory with \\ is rejected."""
+        with pytest.raises(ValueError, match="date-first format"):
+            debate_init(
+                thread_id="2025-01-01-foo\\bar",
+                topic="Test topic",
+                state_dir=tmp_path,
+            )
+
+    def test_reject_dotdot_at_start(self, tmp_path: Path) -> None:
+        """Test that subject starting with .. is rejected."""
+        with pytest.raises(ValueError, match="date-first format"):
+            debate_init(
+                thread_id="2025-01-01-..foo",
+                topic="Test topic",
+                state_dir=tmp_path,
+            )
+
+    def test_valid_subject_with_underscore(self, tmp_path: Path) -> None:
+        """Test that underscores in subject are allowed."""
+        result = debate_init(
+            thread_id="2025-01-01-api_design_v2",
+            topic="Test topic",
+            state_dir=tmp_path,
+        )
+        assert result["thread_id"] == "2025-01-01-api_design_v2"
+
+    def test_valid_subject_with_dots_not_traversal(self, tmp_path: Path) -> None:
+        """Test that single dots in subject are allowed (e.g., v1.0)."""
+        result = debate_init(
+            thread_id="2025-01-01-version-1.0",
+            topic="Test topic",
+            state_dir=tmp_path,
+        )
+        assert result["thread_id"] == "2025-01-01-version-1.0"
