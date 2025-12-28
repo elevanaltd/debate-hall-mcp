@@ -116,6 +116,10 @@ class DebateRoom(BaseModel):
         default=False,
         description="If True, BLOCK-level cognition violations reject turns (behavioral firewall)",
     )
+    octave_preamble: bool = Field(
+        default=True,
+        description="If True, prepend System turn with OCTAVE format guidance to transcripts (view-layer only)",
+    )
     turns: list[Turn] = Field(default_factory=list, description="Turn history")
     synthesis: str | None = Field(
         default=None, description="Final Door synthesis (if status=SYNTHESIS)"
