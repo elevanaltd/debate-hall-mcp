@@ -100,7 +100,10 @@ class DebateRoom(BaseModel):
     - Cognition enforcement policy (behavioral firewall)
     """
 
-    thread_id: str = Field(..., description="Unique thread identifier")
+    thread_id: str = Field(
+        ...,
+        description="Unique thread identifier in date-first format (YYYY-MM-DD-subject)",
+    )
     topic: str = Field(..., description="Debate topic")
     mode: DebateMode = Field(..., description="Orchestration mode")
     status: DebateStatus = Field(default=DebateStatus.ACTIVE, description="Current debate status")

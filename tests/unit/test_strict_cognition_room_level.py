@@ -19,7 +19,7 @@ def test_room_with_strict_cognition_false_allows_invalid_content(tmp_path: Path)
     """Test that room with strict_cognition=False allows BLOCK-level violations."""
     # Create room with strict_cognition=False (default)
     debate_init(
-        thread_id="test-non-strict",
+        thread_id="2025-01-01-test-non-strict",
         topic="Non-strict room",
         mode="fixed",
         strict_cognition=False,
@@ -28,7 +28,7 @@ def test_room_with_strict_cognition_false_allows_invalid_content(tmp_path: Path)
 
     # Invalid PATHOS content (missing options and questions) should be accepted with warnings
     result = debate_turn(
-        thread_id="test-non-strict",
+        thread_id="2025-01-01-test-non-strict",
         role="Wind",
         content="This is a statement.",  # No questions, no options (BLOCK level)
         cognition="PATHOS",
@@ -45,7 +45,7 @@ def test_room_with_strict_cognition_true_blocks_invalid_content(tmp_path: Path) 
     """Test that room with strict_cognition=True blocks BLOCK-level violations."""
     # Create room with strict_cognition=True
     debate_init(
-        thread_id="test-strict",
+        thread_id="2025-01-01-test-strict",
         topic="Strict room",
         mode="fixed",
         strict_cognition=True,
@@ -55,7 +55,7 @@ def test_room_with_strict_cognition_true_blocks_invalid_content(tmp_path: Path) 
     # Invalid PATHOS content should be BLOCKED
     with pytest.raises(ValueError, match="Missing multiple options"):
         debate_turn(
-            thread_id="test-strict",
+            thread_id="2025-01-01-test-strict",
             role="Wind",
             content="This is a statement.",  # No questions, no options (BLOCK level)
             cognition="PATHOS",
@@ -65,7 +65,7 @@ def test_room_with_strict_cognition_true_blocks_invalid_content(tmp_path: Path) 
     # Verify turn was NOT added
     from debate_hall_mcp.state import load_debate_state
 
-    room = load_debate_state("test-strict", tmp_path)
+    room = load_debate_state("2025-01-01-test-strict", tmp_path)
     assert len(room.turns) == 0
 
 
@@ -73,7 +73,7 @@ def test_strict_cognition_persists_across_turns(tmp_path: Path) -> None:
     """Test that strict_cognition setting persists for all turns in room."""
     # Create strict room
     debate_init(
-        thread_id="test-persist",
+        thread_id="2025-01-01-test-persist",
         topic="Persistence test",
         mode="fixed",
         strict_cognition=True,
@@ -82,7 +82,7 @@ def test_strict_cognition_persists_across_turns(tmp_path: Path) -> None:
 
     # First turn: valid content passes
     debate_turn(
-        thread_id="test-persist",
+        thread_id="2025-01-01-test-persist",
         role="Wind",
         content="""
 [POSSIBILITIES]
@@ -98,7 +98,7 @@ Which should we choose?
     # Second turn: invalid content still blocked (strict_cognition persists)
     with pytest.raises(ValueError, match="Missing \\[VERDICT\\]"):
         debate_turn(
-            thread_id="test-persist",
+            thread_id="2025-01-01-test-persist",
             role="Wall",
             content="This looks good.",  # Missing [VERDICT] and [EVIDENCE]
             cognition="ETHOS",
@@ -110,7 +110,7 @@ def test_strict_cognition_default_is_false(tmp_path: Path) -> None:
     """Test that strict_cognition defaults to False (backward compatibility)."""
     # Create room without specifying strict_cognition
     debate_init(
-        thread_id="test-default",
+        thread_id="2025-01-01-test-default",
         topic="Default test",
         mode="fixed",
         state_dir=tmp_path,
@@ -118,7 +118,7 @@ def test_strict_cognition_default_is_false(tmp_path: Path) -> None:
 
     # Invalid content should be accepted (non-strict default)
     result = debate_turn(
-        thread_id="test-default",
+        thread_id="2025-01-01-test-default",
         role="Wind",
         content="Simple statement.",
         cognition="PATHOS",

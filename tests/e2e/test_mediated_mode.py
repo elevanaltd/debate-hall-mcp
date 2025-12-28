@@ -56,7 +56,7 @@ async def test_mediated_mode_with_pick(cleanup_debates: None) -> None:  # noqa: 
         init_result = await client_session.call_tool(
             "init_debate",
             {
-                "thread_id": "test-mediated-001",
+                "thread_id": "2025-01-01-test-mediated-001",
                 "topic": "Balancing autonomy and coordination in multi-agent systems",
                 "mode": "mediated",
                 "max_turns": 12,
@@ -70,14 +70,14 @@ async def test_mediated_mode_with_pick(cleanup_debates: None) -> None:  # noqa: 
             if hasattr(init_result.content[0], "text")
             else str(init_result.content[0])
         )
-        assert "test-mediated-001" in init_text
+        assert "2025-01-01-test-mediated-001" in init_text
         assert "mediated" in init_text.lower()
 
         # Step 2: Pick Wind as first speaker
         pick_wind_result = await client_session.call_tool(
             "pick_next_speaker",
             {
-                "thread_id": "test-mediated-001",
+                "thread_id": "2025-01-01-test-mediated-001",
                 "role": "Wind",
             },
         )
@@ -94,7 +94,7 @@ async def test_mediated_mode_with_pick(cleanup_debates: None) -> None:  # noqa: 
         wind_result = await client_session.call_tool(
             "add_turn",
             {
-                "thread_id": "test-mediated-001",
+                "thread_id": "2025-01-01-test-mediated-001",
                 "role": "Wind",
                 "content": "TURN::Wind advocates for maximum agent autonomy - each agent self-directs toward shared goals.",
             },
@@ -112,7 +112,7 @@ async def test_mediated_mode_with_pick(cleanup_debates: None) -> None:  # noqa: 
         pick_door_result = await client_session.call_tool(
             "pick_next_speaker",
             {
-                "thread_id": "test-mediated-001",
+                "thread_id": "2025-01-01-test-mediated-001",
                 "role": "Door",
             },
         )
@@ -129,7 +129,7 @@ async def test_mediated_mode_with_pick(cleanup_debates: None) -> None:  # noqa: 
         door_result = await client_session.call_tool(
             "add_turn",
             {
-                "thread_id": "test-mediated-001",
+                "thread_id": "2025-01-01-test-mediated-001",
                 "role": "Door",
                 "content": "TURN::Door synthesizes: structured autonomy - agents self-organize within coordination frameworks.",
             },
@@ -147,7 +147,7 @@ async def test_mediated_mode_with_pick(cleanup_debates: None) -> None:  # noqa: 
         close_result = await client_session.call_tool(
             "close_debate",
             {
-                "thread_id": "test-mediated-001",
+                "thread_id": "2025-01-01-test-mediated-001",
                 "synthesis": "SYNTHESIS::Multi-agent systems thrive with structured autonomy - clear frameworks enable self-organization.",
             },
         )
@@ -162,7 +162,7 @@ async def test_mediated_mode_with_pick(cleanup_debates: None) -> None:  # noqa: 
 
         # Verify final status
         status_result = await client_session.call_tool(
-            "get_debate", {"thread_id": "test-mediated-001"}
+            "get_debate", {"thread_id": "2025-01-01-test-mediated-001"}
         )
 
         assert status_result is not None
