@@ -130,7 +130,7 @@ def test_debate_init_creates_state_directory(tmp_path: Path) -> None:
 def test_debate_init_octave_preamble_default_true(tmp_path: Path) -> None:
     """Test that octave_preamble defaults to True."""
     result = debate_init(
-        thread_id="test-thread-007",
+        thread_id="2025-01-01-test-thread-007",
         topic="Preamble default test",
         state_dir=tmp_path,
     )
@@ -139,7 +139,7 @@ def test_debate_init_octave_preamble_default_true(tmp_path: Path) -> None:
     assert result["octave_preamble"] is True
 
     # Verify in state file
-    state_file = tmp_path / "test-thread-007.json"
+    state_file = tmp_path / "2025-01-01-test-thread-007.json"
     with open(state_file) as f:
         state_data = json.load(f)
 
@@ -149,7 +149,7 @@ def test_debate_init_octave_preamble_default_true(tmp_path: Path) -> None:
 def test_debate_init_octave_preamble_explicit_false(tmp_path: Path) -> None:
     """Test that octave_preamble can be set to False."""
     result = debate_init(
-        thread_id="test-thread-008",
+        thread_id="2025-01-01-test-thread-008",
         topic="Preamble disabled test",
         octave_preamble=False,
         state_dir=tmp_path,
@@ -158,7 +158,7 @@ def test_debate_init_octave_preamble_explicit_false(tmp_path: Path) -> None:
     assert result["octave_preamble"] is False
 
     # Verify in state file
-    state_file = tmp_path / "test-thread-008.json"
+    state_file = tmp_path / "2025-01-01-test-thread-008.json"
     with open(state_file) as f:
         state_data = json.load(f)
 
@@ -168,7 +168,7 @@ def test_debate_init_octave_preamble_explicit_false(tmp_path: Path) -> None:
 def test_debate_init_octave_preamble_explicit_true(tmp_path: Path) -> None:
     """Test that octave_preamble can be explicitly set to True."""
     result = debate_init(
-        thread_id="test-thread-009",
+        thread_id="2025-01-01-test-thread-009",
         topic="Preamble enabled test",
         octave_preamble=True,
         state_dir=tmp_path,

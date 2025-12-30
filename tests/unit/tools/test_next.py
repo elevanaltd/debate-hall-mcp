@@ -154,12 +154,12 @@ def test_debate_next_includes_topic_and_limits(tmp_path: Path) -> None:
 def test_debate_next_preamble_prepended_by_default(tmp_path: Path) -> None:
     """Test that System preamble is prepended to transcript when octave_preamble=True (default)."""
     debate_init(
-        thread_id="test-preamble-001",
+        thread_id="2025-01-01-test-preamble-001",
         topic="Preamble test",
         state_dir=tmp_path,
     )
 
-    result = debate_next(thread_id="test-preamble-001", state_dir=tmp_path)
+    result = debate_next(thread_id="2025-01-01-test-preamble-001", state_dir=tmp_path)
 
     # Should have System preamble as first item (even with no real turns)
     assert len(result["transcript"]) == 1
@@ -173,20 +173,20 @@ def test_debate_next_preamble_prepended_by_default(tmp_path: Path) -> None:
 def test_debate_next_preamble_with_existing_turns(tmp_path: Path) -> None:
     """Test that System preamble is prepended before existing turns."""
     debate_init(
-        thread_id="test-preamble-002",
+        thread_id="2025-01-01-test-preamble-002",
         topic="Preamble with turns test",
         state_dir=tmp_path,
     )
 
     # Add a Wind turn
     debate_turn(
-        thread_id="test-preamble-002",
+        thread_id="2025-01-01-test-preamble-002",
         role="Wind",
         content="POSITION::Test position",
         state_dir=tmp_path,
     )
 
-    result = debate_next(thread_id="test-preamble-002", state_dir=tmp_path)
+    result = debate_next(thread_id="2025-01-01-test-preamble-002", state_dir=tmp_path)
 
     # Should have System preamble first, then Wind turn
     assert len(result["transcript"]) == 2
@@ -199,13 +199,13 @@ def test_debate_next_preamble_with_existing_turns(tmp_path: Path) -> None:
 def test_debate_next_no_preamble_when_disabled(tmp_path: Path) -> None:
     """Test that System preamble is NOT prepended when octave_preamble=False."""
     debate_init(
-        thread_id="test-preamble-003",
+        thread_id="2025-01-01-test-preamble-003",
         topic="Preamble disabled test",
         octave_preamble=False,
         state_dir=tmp_path,
     )
 
-    result = debate_next(thread_id="test-preamble-003", state_dir=tmp_path)
+    result = debate_next(thread_id="2025-01-01-test-preamble-003", state_dir=tmp_path)
 
     # No preamble, no turns = empty transcript
     assert len(result["transcript"]) == 0
@@ -216,32 +216,32 @@ def test_debate_next_preamble_not_stored_in_db(tmp_path: Path) -> None:
     from debate_hall_mcp.state import load_debate_state
 
     debate_init(
-        thread_id="test-preamble-004",
+        thread_id="2025-01-01-test-preamble-004",
         topic="Preamble storage test",
         state_dir=tmp_path,
     )
 
     # Call debate_next (should show preamble)
-    result = debate_next(thread_id="test-preamble-004", state_dir=tmp_path)
+    result = debate_next(thread_id="2025-01-01-test-preamble-004", state_dir=tmp_path)
     assert len(result["transcript"]) == 1
     assert result["transcript"][0]["role"] == "System"
 
     # Load state directly - should have NO turns
-    room = load_debate_state("test-preamble-004", tmp_path)
+    room = load_debate_state("2025-01-01-test-preamble-004", tmp_path)
     assert len(room.turns) == 0
 
 
 def test_debate_next_preamble_not_in_hash_chain(tmp_path: Path) -> None:
     """Test that preamble does not affect hash chain of real turns."""
     debate_init(
-        thread_id="test-preamble-005",
+        thread_id="2025-01-01-test-preamble-005",
         topic="Preamble hash chain test",
         state_dir=tmp_path,
     )
 
     # Add a Wind turn
     debate_turn(
-        thread_id="test-preamble-005",
+        thread_id="2025-01-01-test-preamble-005",
         role="Wind",
         content="POSITION::Hash test",
         state_dir=tmp_path,
@@ -249,7 +249,7 @@ def test_debate_next_preamble_not_in_hash_chain(tmp_path: Path) -> None:
 
     # Add a Wall turn
     debate_turn(
-        thread_id="test-preamble-005",
+        thread_id="2025-01-01-test-preamble-005",
         role="Wall",
         content="POSITION::Hash test response",
         state_dir=tmp_path,
@@ -258,7 +258,7 @@ def test_debate_next_preamble_not_in_hash_chain(tmp_path: Path) -> None:
     # Load state directly and check hash chain
     from debate_hall_mcp.state import load_debate_state
 
-    room = load_debate_state("test-preamble-005", tmp_path)
+    room = load_debate_state("2025-01-01-test-preamble-005", tmp_path)
 
     # First real turn should have previous_hash=None (not preamble's hash)
     assert room.turns[0].previous_hash is None
@@ -269,12 +269,12 @@ def test_debate_next_preamble_not_in_hash_chain(tmp_path: Path) -> None:
 def test_debate_next_preamble_content_is_octave_format(tmp_path: Path) -> None:
     """Test that preamble content contains expected OCTAVE syntax guide."""
     debate_init(
-        thread_id="test-preamble-006",
+        thread_id="2025-01-01-test-preamble-006",
         topic="Preamble content test",
         state_dir=tmp_path,
     )
 
-    result = debate_next(thread_id="test-preamble-006", state_dir=tmp_path)
+    result = debate_next(thread_id="2025-01-01-test-preamble-006", state_dir=tmp_path)
 
     preamble_content = result["transcript"][0]["content"]
 
@@ -289,18 +289,20 @@ def test_debate_next_preamble_content_is_octave_format(tmp_path: Path) -> None:
 def test_debate_next_preamble_with_context_lines(tmp_path: Path) -> None:
     """Test that context_lines works correctly with preamble."""
     debate_init(
-        thread_id="test-preamble-007",
+        thread_id="2025-01-01-test-preamble-007",
         topic="Preamble context lines test",
         state_dir=tmp_path,
     )
 
     # Add 3 turns
-    debate_turn("test-preamble-007", "Wind", "W1", state_dir=tmp_path)
-    debate_turn("test-preamble-007", "Wall", "W2", state_dir=tmp_path)
-    debate_turn("test-preamble-007", "Door", "D1", state_dir=tmp_path)
+    debate_turn("2025-01-01-test-preamble-007", "Wind", "W1", state_dir=tmp_path)
+    debate_turn("2025-01-01-test-preamble-007", "Wall", "W2", state_dir=tmp_path)
+    debate_turn("2025-01-01-test-preamble-007", "Door", "D1", state_dir=tmp_path)
 
     # Request last 2 turns - should get preamble + 2 most recent turns
-    result = debate_next(thread_id="test-preamble-007", context_lines=2, state_dir=tmp_path)
+    result = debate_next(
+        thread_id="2025-01-01-test-preamble-007", context_lines=2, state_dir=tmp_path
+    )
 
     # Preamble + 2 context lines = 3 items
     assert len(result["transcript"]) == 3
