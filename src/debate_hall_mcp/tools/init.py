@@ -77,6 +77,7 @@ def debate_init(
     max_turns: int = 12,
     max_rounds: int = 4,
     strict_cognition: bool = False,
+    octave_preamble: bool = True,
     state_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Initialize a new debate thread.
@@ -90,6 +91,7 @@ def debate_init(
         max_turns: Maximum turns allowed (I3 compliance)
         max_rounds: Maximum rounds allowed (I3 compliance)
         strict_cognition: If True, BLOCK-level cognition violations reject turns (behavioral firewall)
+        octave_preamble: If True, prepend OCTAVE format guidance to transcripts (default: True)
         state_dir: Directory for state files (defaults to ./debates)
 
     Returns:
@@ -101,6 +103,7 @@ def debate_init(
         - max_turns: Turn limit
         - max_rounds: Round limit
         - strict_cognition: Cognition enforcement mode
+        - octave_preamble: Whether OCTAVE preamble is enabled
         - turn_count: Current turn count (0 for new debate)
 
     Raises:
@@ -131,6 +134,7 @@ def debate_init(
         max_turns=max_turns,
         max_rounds=max_rounds,
         strict_cognition=strict_cognition,
+        octave_preamble=octave_preamble,
     )
 
     # Save state
@@ -145,5 +149,6 @@ def debate_init(
         "max_turns": room.max_turns,
         "max_rounds": room.max_rounds,
         "strict_cognition": room.strict_cognition,
+        "octave_preamble": room.octave_preamble,
         "turn_count": len(room.turns),
     }
