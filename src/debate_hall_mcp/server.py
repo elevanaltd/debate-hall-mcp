@@ -14,6 +14,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
 from debate_hall_mcp.tools.admin import debate_force_close, debate_tombstone
 from debate_hall_mcp.tools.close import debate_close
 from debate_hall_mcp.tools.get import debate_get
@@ -39,6 +40,20 @@ def create_server() -> FastMCP:
     server = FastMCP(
         name=SERVER_NAME,
     )
+
+    # Register debate prompts
+    @server.prompt()
+    def debate_agent(role: str) -> str:
+        """Get the system prompt for a debate agent (Wind, Wall, Door)."""
+        role_lower = role.lower()
+        if role_lower == "wind":
+            return WIND_PROMPT
+        elif role_lower == "wall":
+            return WALL_PROMPT
+        elif role_lower == "door":
+            return DOOR_PROMPT
+        else:
+            raise ValueError(f"Unknown role: {role}. Must be Wind, Wall, or Door.")
 
     # Register debate tools as MCP tools
     @server.tool()
