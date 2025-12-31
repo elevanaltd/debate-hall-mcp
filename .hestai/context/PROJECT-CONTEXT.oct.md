@@ -2,9 +2,9 @@
 
 META:
   TYPE::PROJECT_CONTEXT
-  VERSION::"2.1"
+  VERSION::"2.2"
   GENERATED::"2025-12-31"
-  STATUS::POST_BUILD_MAINTENANCE
+  STATUS::ENFORCEMENT_HARDENING_COMPLETE
 
 §1::IDENTITY
 
@@ -27,9 +27,9 @@ ALL_PHASES_COMPLETE::[
 §3::QUALITY_METRICS
 
 TESTS::[
-  UNIT::89_tests,
+  UNIT::253_tests,
   E2E::5_tests,
-  TOTAL::94_tests,
+  TOTAL::258_tests,
   STATUS::ALL_PASSING
 ]
 
@@ -157,22 +157,32 @@ RELEASE_READY::[
   MCP_Registry::submission_pending
 ]
 
-§9::OPEN_ISSUES
+§9::COMPLETED_MILESTONES
 
-ENFORCEMENT_HARDENING::[
+ENFORCEMENT_HARDENING_v010::[
+  STATUS::COMPLETE[2025-12-31],
   BUILD_ORDER::#36->#37->#38->#39->#40,
-  Issue_#36::cognition_role_normalization[type_safety_foundation],
-  Issue_#37::mediated_picks_enforcement[orchestration_integrity],
-  Issue_#38::synthesis_semantics_in_engine[LOGOS_validation_on_close],
-  Issue_#39::atomic_persistence[crash_recovery],
-  Issue_#40::audit_trail_tombstone_context[verifiable_admin_actions],
-  ORCHESTRATION_PROMPT::.hestai/prompts/enforcement-hardening-orchestration.md,
+  PR_#42::Issue_#36_cognition_role_normalization[MERGED],
+  PR_#43::Issue_#37_mediated_picks_enforcement[MERGED],
+  PR_#44::Issue_#38_synthesis_semantics[MERGED],
+  PR_#45::Issue_#39_atomic_persistence[MERGED],
+  PR_#46::Issue_#40_audit_trail_tombstone[MERGED],
+  FEATURES_ADDED::[
+    role_cognition_mapping[Wind<->PATHOS,Wall<->ETHOS,Door<->LOGOS],
+    mediated_mode_enforcement[expected_next_role_persisted],
+    synthesis_validation[LOGOS_rules_on_close],
+    atomic_file_writes[tempfile+rename+fsync],
+    audit_trail[AuditEvent_model+audit_log_field],
+    tombstone_context[original_content_hash_preserved]
+  ],
   SOURCE::PR_#34_quality_review_debate[2025-12-31]
 ]
 
+§10::OPEN_ISSUES
+
 DEFERRED_V020::[
-  hash_chain_verification::BLOCKED[tombstone_mutates_content],
-  genius_insights::BLOCKED[requires_hash_chain_foundation]
+  hash_chain_verification::UNBLOCKED[tombstone_now_preserves_hash],
+  genius_insights::READY[audit_foundation_complete]
 ]
 
 OTHER_PRIORITY::[
@@ -184,7 +194,12 @@ OTHER_PRIORITY::[
 CLOSED_PRS::[
   PR_#23::CLOSED[Wind_exploration_no_code],
   PR_#25::CLOSED[superseded_CLI+wrong_I2_removal+stale_agents],
-  PR_#34::REVIEWED[quality_report_debated+issues_created]
+  PR_#34::REVIEWED[quality_report_debated+issues_created],
+  PR_#42::MERGED[Issue_#36_cognition_role_normalization],
+  PR_#43::MERGED[Issue_#37_mediated_picks_enforcement],
+  PR_#44::MERGED[Issue_#38_synthesis_semantics],
+  PR_#45::MERGED[Issue_#39_atomic_persistence],
+  PR_#46::MERGED[Issue_#40_audit_trail_tombstone]
 ]
 
 REPO_URL::https://github.com/elevanaltd/debate-hall-mcp
