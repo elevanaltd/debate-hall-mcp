@@ -207,6 +207,10 @@ class DebateEngine:
                 f"Cannot close debate: already closed (status={self.room.status.value})"
             )
 
+        # Enforce synthesis requirement for SYNTHESIS termination (Issue #49)
+        if reason == TerminationReason.SYNTHESIS and synthesis is None:
+            raise ValueError("Synthesis content is required when closing with SYNTHESIS reason")
+
         validation_result: ValidationResult | None = None
 
         # Validate synthesis for SYNTHESIS termination (Issue #38)
