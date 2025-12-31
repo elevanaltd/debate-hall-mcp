@@ -3,14 +3,23 @@
 Immutables Compliance:
 - I5 (SOVEREIGN_SAFETY_OVERRIDE): Force close capability
 - I4 (VERIFIABLE_EVENT_LEDGER): Tombstone preserves hash chain
+- Issue #40: Audit trail and tombstone context preservation
 
 TDD: Implements minimal functionality to pass tests.
 """
 
+import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from debate_hall_mcp.state import DebateStatus, load_debate_state, save_debate_state
+from debate_hall_mcp.state import (
+    AuditAction,
+    AuditEvent,
+    DebateStatus,
+    load_debate_state,
+    save_debate_state,
+)
 
 
 def debate_force_close(
@@ -47,6 +56,15 @@ def debate_force_close(
     # Force close (I5: safety override - works regardless of current status)
     room.status = DebateStatus.FORCE_CLOSED
 
+    # Record audit event (Issue #40)
+    audit_event = AuditEvent(
+        action=AuditAction.FORCE_CLOSE,
+        reason=reason,
+        timestamp=datetime.now(UTC),
+    )
+    room.audit_log.append(audit_event)
+    audit_event_index = len(room.audit_log) - 1
+
     # Save updated state
     save_debate_state(room, state_dir)
 
@@ -54,6 +72,7 @@ def debate_force_close(
         "thread_id": room.thread_id,
         "status": room.status.value,
         "reason": reason,
+        "audit_event_index": audit_event_index,
     }
 
 
@@ -96,8 +115,23 @@ def debate_tombstone(
     if turn_index < 0 or turn_index >= len(room.turns):
         raise ValueError(f"Invalid turn index: {turn_index}. Valid range: 0-{len(room.turns) - 1}")
 
+    # Preserve original content hash before redaction (Issue #40)
+    original_content = room.turns[turn_index].content
+    original_content_hash = hashlib.sha256(original_content.encode()).hexdigest()
+
     # Redact content (hash remains unchanged - I4 compliance)
     room.turns[turn_index].content = f"[REDACTED: {reason}]"
+
+    # Record audit event with original content hash (Issue #40)
+    audit_event = AuditEvent(
+        action=AuditAction.TOMBSTONE,
+        reason=reason,
+        timestamp=datetime.now(UTC),
+        turn_index=turn_index,
+        original_content_hash=original_content_hash,
+    )
+    room.audit_log.append(audit_event)
+    audit_event_index = len(room.audit_log) - 1
 
     # Save updated state
     save_debate_state(room, state_dir)
@@ -106,4 +140,6 @@ def debate_tombstone(
         "thread_id": room.thread_id,
         "turn_index": turn_index,
         "reason": reason,
+        "audit_event_index": audit_event_index,
+        "original_content_hash": original_content_hash,
     }

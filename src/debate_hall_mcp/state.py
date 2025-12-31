@@ -37,6 +37,39 @@ class DebateStatus(str, Enum):
     FORCE_CLOSED = "force_closed"
 
 
+class AuditAction(str, Enum):
+    """Type of administrative action for audit trail (Issue #40)."""
+
+    FORCE_CLOSE = "force_close"
+    TOMBSTONE = "tombstone"
+
+
+class AuditEvent(BaseModel):
+    """An audit event recording administrative actions (Issue #40).
+
+    Provides immutable audit trail for:
+    - Force close operations (I5: Sovereign Safety Override)
+    - Tombstone operations (I4: Verifiable Event Ledger)
+
+    Fields:
+    - action: Type of administrative action
+    - reason: Human-readable reason for the action
+    - timestamp: When the action occurred (UTC)
+    - actor: Optional identifier of who/what performed the action
+    - turn_index: For tombstone actions, which turn was affected
+    - original_content_hash: For tombstone actions, SHA-256 of original content
+    """
+
+    action: AuditAction = Field(..., description="Type of administrative action")
+    reason: str = Field(..., description="Reason for the action")
+    timestamp: datetime = Field(..., description="UTC timestamp of action")
+    actor: str | None = Field(default=None, description="Actor identifier (agent/admin)")
+    turn_index: int | None = Field(default=None, description="Turn index (for tombstone)")
+    original_content_hash: str | None = Field(
+        default=None, description="SHA-256 hash of original content before tombstone"
+    )
+
+
 class DebateMode(str, Enum):
     """Debate orchestration mode."""
 
@@ -131,6 +164,10 @@ class DebateRoom(BaseModel):
     turns: list[Turn] = Field(default_factory=list, description="Turn history")
     synthesis: str | None = Field(
         default=None, description="Final Door synthesis (if status=SYNTHESIS)"
+    )
+    audit_log: list[AuditEvent] = Field(
+        default_factory=list,
+        description="Immutable audit trail for administrative actions (Issue #40)",
     )
 
 
