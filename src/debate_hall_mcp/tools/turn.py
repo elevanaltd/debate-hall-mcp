@@ -5,6 +5,8 @@ Immutables Compliance:
 - I4 (VERIFIABLE_EVENT_LEDGER): Hash chain maintained
 
 TDD: Implements minimal functionality to pass tests.
+
+Issue #37: Enforces expected_next_role in mediated mode.
 """
 
 from pathlib import Path
@@ -58,11 +60,21 @@ def debate_turn(
     # Load state
     room = load_debate_state(thread_id, state_dir)
 
-    # In fixed mode, validate role matches expected
+    # In fixed mode, validate role matches expected sequence
     if room.mode == DebateMode.FIXED:
         expected_role = get_next_speaker(room)
         if role != expected_role:
             raise ValueError(f"Expected role '{expected_role}' but got '{role}' in fixed mode")
+
+    # In mediated mode, validate role matches pick (if pick was made) - Issue #37
+    if (
+        room.mode == DebateMode.MEDIATED
+        and room.expected_next_role is not None
+        and role != room.expected_next_role
+    ):
+        raise ValueError(
+            f"Expected role '{room.expected_next_role}' but got '{role}' in mediated mode"
+        )
 
     # Validate cognition before state modification (behavioral firewall)
     # Read strict_cognition from room configuration (prevents client bypass)
@@ -95,6 +107,11 @@ def debate_turn(
         model=model,
         cognition=cognition,
     )
+
+    # Clear expected_next_role after successful turn (Issue #37)
+    # This requires a new pick before the next turn in mediated mode
+    if room.mode == DebateMode.MEDIATED:
+        room.expected_next_role = None
 
     # Save updated state
     save_debate_state(room, state_dir)

@@ -101,6 +101,7 @@ class DebateRoom(BaseModel):
     - Resource limits (I3: Finite Dialectic Closure)
     - Turn history with hash chain (I4: Verifiable Event Ledger)
     - Cognition enforcement policy (behavioral firewall)
+    - Mediated mode role enforcement (Issue #37)
     """
 
     thread_id: str = Field(
@@ -119,6 +120,10 @@ class DebateRoom(BaseModel):
     octave_preamble: bool = Field(
         default=True,
         description="If True, prepend System turn with OCTAVE format guidance to transcripts (view-layer only)",
+    )
+    expected_next_role: str | None = Field(
+        default=None,
+        description="Expected next speaker role in mediated mode (set by debate_pick, cleared after turn)",
     )
     turns: list[Turn] = Field(default_factory=list, description="Turn history")
     synthesis: str | None = Field(
