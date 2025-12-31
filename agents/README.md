@@ -2,6 +2,47 @@
 
 Canonical agent definitions for structured debate using the Wind/Wall/Door methodology.
 
+## Agent Configuration Tiers
+
+Evidence from replication studies shows specialist agents search **different solution spaces** than basic agents. Choose your tier based on debate complexity:
+
+### Tier 1: Basic (Included)
+| Agent | Cognition | Behavior |
+|-------|-----------|----------|
+| `wind-agent.oct.md` | PATHOS | Explores obvious paths |
+| `wall-agent.oct.md` | ETHOS | Balanced judgment |
+| `door-agent.oct.md` | LOGOS | Balanced integration |
+
+**Use for:** Quick decisions, standard debates
+
+### Tier 2: Specialist (Recommended for complex debates)
+| Specialist | Maps to | Behavioral Difference |
+|------------|---------|----------------------|
+| `ideator` | Wind | Converges to minimal elegant solutions |
+| `edge-optimizer` | Wind | Discovers hidden vectors others miss |
+| `validator` | Wall | Cold truth, uncompromising reality |
+| `critical-engineer` | Wall | Production readiness focus |
+| `synthesizer` | Door | Breakthrough transcendence (1+1=3) |
+
+**Use for:** Architectural decisions, security reviews, innovation
+
+### Tier 3: Domain Mix
+Combine specialists based on the topic:
+- **Security:** edge-optimizer + critical-engineer + technical-architect
+- **Innovation:** ideator + validator + synthesizer
+- **Architecture:** ideator + critical-engineer + holistic-orchestrator
+
+### Using Specialists in Debates
+
+Specialists map to their cognition's debate role:
+- **PATHOS specialists** → speak as **Wind**
+- **ETHOS specialists** → speak as **Wall**
+- **LOGOS specialists** → speak as **Door**
+
+Pass identity via `agent_role` metadata in `debate_turn()` for audit trails.
+
+See [multi-model-debate-patterns.md](../docs/examples/multi-model-debate-patterns.md) for evidence and recipes.
+
 ## Files
 
 | File | Purpose |
@@ -9,7 +50,7 @@ Canonical agent definitions for structured debate using the Wind/Wall/Door metho
 | `wind-agent.oct.md` | PATHOS - The Explorer (divergent thinking) |
 | `wall-agent.oct.md` | ETHOS - The Guardian (constraint validation) |
 | `door-agent.oct.md` | LOGOS - The Synthesizer (integration) |
-| `cognitions/` | Behavioral contracts (reference) |
+| `cognitions/` | Minimal behavioral contracts (standalone) |
 
 ## Installation
 
