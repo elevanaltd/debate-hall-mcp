@@ -5,5 +5,5 @@ A deterministic crucible where subjective cognitive friction is transmuted into
 objective structural truth through finite, governed, and verifiable dialectic.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "HestAI"
