@@ -2,9 +2,9 @@
 
 META:
   TYPE::PROJECT_CONTEXT
-  VERSION::"2.0"
-  GENERATED::"2025-12-24"
-  STATUS::BUILD_COMPLETE
+  VERSION::"2.1"
+  GENERATED::"2025-12-31"
+  STATUS::POST_BUILD_MAINTENANCE
 
 §1::IDENTITY
 
@@ -47,7 +47,8 @@ I1::COGNITIVE_STATE_ISOLATION[
 ]
 
 I2::UNIVERSAL_OCTAVE_BINDING[
-  IMPLEMENTATION::OCTAVE_format_throughout,
+  IMPLEMENTATION::PLANNED[Issue_#29_auto_generate_octave_on_close],
+  STATUS::cognition_validation_implemented+octave_export_pending,
   VERIFICATION::north_star_debate_used_octave
 ]
 
@@ -155,5 +156,21 @@ RELEASE_READY::[
   GitHub::release_v0.1.0,
   MCP_Registry::submission_pending
 ]
+
+§9::OPEN_ISSUES
+
+PRIORITY::[
+  Issue_#29::OCTAVE_auto_generate_on_close[implements_I2_fully],
+  Issue_#33::storage_location_documentation[clarify_worktree_relative_behavior],
+  Issue_#26::OCTAVE_format_support[broader_integration_scope]
+]
+
+CLOSED_PRS::[
+  PR_#23::CLOSED[Wind_exploration_no_code],
+  PR_#25::CLOSED[superseded_CLI+wrong_I2_removal+stale_agents],
+  PR_#34::OPEN[quality_report_valid_for_review]
+]
+
+REPO_URL::https://github.com/elevanaltd/debate-hall-mcp
 
 ===END_PROJECT_CONTEXT===
