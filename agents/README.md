@@ -2,6 +2,34 @@
 
 Canonical agent definitions for structured debate using the Wind/Wall/Door methodology.
 
+## Layered Identity Architecture
+
+Agent identity is composed from three layers. Use as much depth as you need:
+
+| Layer | Purpose | Size | Files |
+|-------|---------|------|-------|
+| **Cognitions** | Universal behavioral contracts | ~50 lines | `cognitions/*.oct.md` |
+| **Agents** | Complete debate-ready implementations | ~130 lines | `*.oct.md` |
+| **Specialists** | Full HestAI methodology binding | 200+ lines | Bring your own |
+
+### Composition Patterns
+
+```
+MINIMAL:   Cognition only     → "Wind acts as PATHOS explorer"
+STANDARD:  Full agent file    → "Wind with response format and boundaries"
+ADVANCED:  Your own agents    → Custom specialists mapped to Wind/Wall/Door roles
+```
+
+### Using Specialists
+
+Specialist agents (ideator, validator, synthesizer, etc.) can participate in debates by mapping to their cognition's role:
+
+- **PATHOS specialists** (ideator, edge-optimizer) → speak as **Wind**
+- **ETHOS specialists** (validator, critical-engineer) → speak as **Wall**
+- **LOGOS specialists** (synthesizer, technical-architect) → speak as **Door**
+
+Pass specialist identity via `agent_role` metadata in `debate_turn()` for audit trails.
+
 ## Files
 
 | File | Purpose |
@@ -9,7 +37,7 @@ Canonical agent definitions for structured debate using the Wind/Wall/Door metho
 | `wind-agent.oct.md` | PATHOS - The Explorer (divergent thinking) |
 | `wall-agent.oct.md` | ETHOS - The Guardian (constraint validation) |
 | `door-agent.oct.md` | LOGOS - The Synthesizer (integration) |
-| `cognitions/` | Behavioral contracts (reference) |
+| `cognitions/` | Minimal behavioral contracts (standalone) |
 
 ## Installation
 
