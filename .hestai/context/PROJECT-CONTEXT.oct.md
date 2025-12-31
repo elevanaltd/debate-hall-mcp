@@ -27,9 +27,9 @@ ALL_PHASES_COMPLETE::[
 §3::QUALITY_METRICS
 
 TESTS::[
-  UNIT::253_tests,
+  UNIT::257_tests,
   E2E::5_tests,
-  TOTAL::258_tests,
+  TOTAL::262_tests,
   STATUS::ALL_PASSING
 ]
 
@@ -199,7 +199,11 @@ CLOSED_PRS::[
   PR_#43::MERGED[Issue_#37_mediated_picks_enforcement],
   PR_#44::MERGED[Issue_#38_synthesis_semantics],
   PR_#45::MERGED[Issue_#39_atomic_persistence],
-  PR_#46::MERGED[Issue_#40_audit_trail_tombstone]
+  PR_#46::MERGED[Issue_#40_audit_trail_tombstone],
+  PR_#47::MERGED[PROJECT_CONTEXT_update],
+  PR_#51::MERGED[cross_platform_os_replace],
+  PR_#52::MERGED[Issues_#48_#49_#50_retrospective_review_fixes],
+  PR_#53::MERGED[Issue_#48_cross_platform_filelock]
 ]
 
 REPO_URL::https://github.com/elevanaltd/debate-hall-mcp
