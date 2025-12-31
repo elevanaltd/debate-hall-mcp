@@ -318,3 +318,56 @@ class TestCalculateTurnHash:
         hash1 = calculate_turn_hash("Wind", "Content", timestamp, None)
         hash2 = calculate_turn_hash("Wind", "Content", timestamp, "previous-hash")
         assert hash1 != hash2
+
+
+class TestStateSecurityValidation:
+    """Security tests for state persistence (path traversal prevention)."""
+
+    def test_load_rejects_path_traversal_dotdot(self, tmp_path: Path) -> None:
+        """Test that load_debate_state rejects path traversal with .."""
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        with pytest.raises(ValueError, match="Invalid thread_id"):
+            load_debate_state("../sensitive", state_dir)
+
+    def test_load_rejects_forward_slash(self, tmp_path: Path) -> None:
+        """Test that load_debate_state rejects forward slash."""
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        with pytest.raises(ValueError, match="Invalid thread_id"):
+            load_debate_state("foo/bar", state_dir)
+
+    def test_load_rejects_backslash(self, tmp_path: Path) -> None:
+        """Test that load_debate_state rejects backslash."""
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        with pytest.raises(ValueError, match="Invalid thread_id"):
+            load_debate_state("foo\\bar", state_dir)
+
+    def test_save_rejects_path_traversal_in_thread_id(self, tmp_path: Path) -> None:
+        """Test that save_debate_state rejects path traversal in thread_id."""
+        # Create room with malicious thread_id (bypassing init validation)
+        room = DebateRoom(
+            thread_id="../sensitive",
+            topic="Test",
+            mode=DebateMode.FIXED,
+        )
+
+        state_dir = tmp_path / "debates"
+        with pytest.raises(ValueError, match="Invalid thread_id"):
+            save_debate_state(room, state_dir)
+
+    def test_save_rejects_forward_slash_in_thread_id(self, tmp_path: Path) -> None:
+        """Test that save_debate_state rejects forward slash in thread_id."""
+        room = DebateRoom(
+            thread_id="foo/bar",
+            topic="Test",
+            mode=DebateMode.FIXED,
+        )
+
+        state_dir = tmp_path / "debates"
+        with pytest.raises(ValueError, match="Invalid thread_id"):
+            save_debate_state(room, state_dir)

@@ -55,7 +55,7 @@ async def test_force_close_admin_override(cleanup_debates: None) -> None:  # noq
         init_result = await client_session.call_tool(
             "init_debate",
             {
-                "thread_id": "test-admin-001",
+                "thread_id": "2025-01-01-test-admin-001",
                 "topic": "Testing admin overrides",
                 "mode": "fixed",
                 "max_turns": 12,
@@ -69,7 +69,7 @@ async def test_force_close_admin_override(cleanup_debates: None) -> None:  # noq
         turn_result = await client_session.call_tool(
             "add_turn",
             {
-                "thread_id": "test-admin-001",
+                "thread_id": "2025-01-01-test-admin-001",
                 "role": "Wind",
                 "content": "TURN::Wind initial perspective",
             },
@@ -81,7 +81,7 @@ async def test_force_close_admin_override(cleanup_debates: None) -> None:  # noq
         force_close_result = await client_session.call_tool(
             "force_close_debate",
             {
-                "thread_id": "test-admin-001",
+                "thread_id": "2025-01-01-test-admin-001",
                 "reason": "Emergency shutdown: content policy violation detected",
             },
         )
@@ -98,7 +98,7 @@ async def test_force_close_admin_override(cleanup_debates: None) -> None:  # noq
 
         # Step 4: Verify status shows force_closed
         status_result = await client_session.call_tool(
-            "get_debate", {"thread_id": "test-admin-001"}
+            "get_debate", {"thread_id": "2025-01-01-test-admin-001"}
         )
 
         assert status_result is not None
@@ -116,7 +116,7 @@ async def test_force_close_admin_override(cleanup_debates: None) -> None:  # noq
             turn_after_result = await client_session.call_tool(
                 "add_turn",
                 {
-                    "thread_id": "test-admin-001",
+                    "thread_id": "2025-01-01-test-admin-001",
                     "role": "Wall",
                     "content": "TURN::This should be rejected",
                 },
@@ -161,7 +161,7 @@ async def test_tombstone_turn_redaction(cleanup_debates: None) -> None:  # noqa:
         init_result = await client_session.call_tool(
             "init_debate",
             {
-                "thread_id": "test-admin-002",
+                "thread_id": "2025-01-01-test-admin-002",
                 "topic": "Testing tombstone redaction",
                 "mode": "fixed",
                 "max_turns": 12,
@@ -176,7 +176,7 @@ async def test_tombstone_turn_redaction(cleanup_debates: None) -> None:  # noqa:
             turn_result = await client_session.call_tool(
                 "add_turn",
                 {
-                    "thread_id": "test-admin-002",
+                    "thread_id": "2025-01-01-test-admin-002",
                     "role": role,
                     "content": f"TURN::{role} turn {i+1} with sensitive content",
                 },
@@ -187,7 +187,7 @@ async def test_tombstone_turn_redaction(cleanup_debates: None) -> None:  # noqa:
         tombstone_result = await client_session.call_tool(
             "tombstone_turn",
             {
-                "thread_id": "test-admin-002",
+                "thread_id": "2025-01-01-test-admin-002",
                 "turn_index": 1,  # Wall turn (0-indexed)
                 "reason": "Content redacted: privacy concern",
             },
@@ -209,7 +209,7 @@ async def test_tombstone_turn_redaction(cleanup_debates: None) -> None:  # noqa:
 
         # Step 4: Verify status shows turn count unchanged
         status_result = await client_session.call_tool(
-            "get_debate", {"thread_id": "test-admin-002"}
+            "get_debate", {"thread_id": "2025-01-01-test-admin-002"}
         )
 
         assert status_result is not None
@@ -227,7 +227,7 @@ async def test_tombstone_turn_redaction(cleanup_debates: None) -> None:  # noqa:
         close_result = await client_session.call_tool(
             "close_debate",
             {
-                "thread_id": "test-admin-002",
+                "thread_id": "2025-01-01-test-admin-002",
                 "synthesis": "SYNTHESIS::Audit trail preserved despite redaction",
             },
         )

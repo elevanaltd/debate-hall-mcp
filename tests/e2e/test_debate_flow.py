@@ -58,7 +58,7 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates: None) -> None: 
         init_result = await client_session.call_tool(
             "init_debate",
             {
-                "thread_id": "test-e2e-001",
+                "thread_id": "2025-01-01-test-e2e-001",
                 "topic": "The role of constraints in creative problem-solving",
                 "mode": "fixed",
                 "max_turns": 12,
@@ -74,14 +74,14 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates: None) -> None: 
         response_text = content[0].text if hasattr(content[0], "text") else str(content[0])
 
         # Verify initialization
-        assert "test-e2e-001" in response_text
+        assert "2025-01-01-test-e2e-001" in response_text
         assert "active" in response_text.lower() or "open" in response_text.lower()
 
         # Step 2: Wind turn (PATHOS - possibility exploration)
         wind_result = await client_session.call_tool(
             "add_turn",
             {
-                "thread_id": "test-e2e-001",
+                "thread_id": "2025-01-01-test-e2e-001",
                 "role": "Wind",
                 "content": "TURN::Wind explores infinite possibility space: constraints as catalysts for breakthrough thinking.",
             },
@@ -99,7 +99,7 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates: None) -> None: 
         wall_result = await client_session.call_tool(
             "add_turn",
             {
-                "thread_id": "test-e2e-001",
+                "thread_id": "2025-01-01-test-e2e-001",
                 "role": "Wall",
                 "content": "TURN::Wall validates boundaries: unconstrained exploration leads to chaos, structure provides safety.",
             },
@@ -117,7 +117,7 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates: None) -> None: 
         door_result = await client_session.call_tool(
             "add_turn",
             {
-                "thread_id": "test-e2e-001",
+                "thread_id": "2025-01-01-test-e2e-001",
                 "role": "Door",
                 "content": "TURN::Door synthesizes: constraints enable creativity by channeling exploration into productive paths.",
             },
@@ -135,7 +135,7 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates: None) -> None: 
         close_result = await client_session.call_tool(
             "close_debate",
             {
-                "thread_id": "test-e2e-001",
+                "thread_id": "2025-01-01-test-e2e-001",
                 "synthesis": "SYNTHESIS::The debate reveals that constraints and creativity exist in productive tension - constraints catalyze breakthroughs while preventing chaos.",
             },
         )
@@ -149,7 +149,9 @@ async def test_full_debate_lifecycle_fixed_mode(cleanup_debates: None) -> None: 
         assert "closed" in close_text.lower() or "synthesis" in close_text.lower()
 
         # Step 6: Verify final status shows hash chain integrity
-        status_result = await client_session.call_tool("get_debate", {"thread_id": "test-e2e-001"})
+        status_result = await client_session.call_tool(
+            "get_debate", {"thread_id": "2025-01-01-test-e2e-001"}
+        )
 
         assert status_result is not None
         status_text = (

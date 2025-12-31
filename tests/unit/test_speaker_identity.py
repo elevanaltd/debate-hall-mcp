@@ -128,7 +128,7 @@ class TestDebateEngineWithIdentity:
     def test_debate_engine_add_turn_accepts_identity(self) -> None:
         """DebateEngine.add_turn() accepts optional identity parameters."""
         room = DebateRoom(
-            thread_id="test",
+            thread_id="2025-01-01-test",
             topic="Test topic",
             mode=DebateMode.FIXED,
             status=DebateStatus.ACTIVE,
@@ -155,7 +155,7 @@ class TestDebateEngineWithIdentity:
     def test_debate_engine_add_turn_backward_compatible(self) -> None:
         """DebateEngine.add_turn() works without identity (backward compatible)."""
         room = DebateRoom(
-            thread_id="test",
+            thread_id="2025-01-01-test",
             topic="Test topic",
             mode=DebateMode.FIXED,
             status=DebateStatus.ACTIVE,
@@ -186,7 +186,7 @@ class TestDebateTurnToolWithIdentity:
 
         # Initialize debate
         debate_init(
-            thread_id="test",
+            thread_id="2025-01-01-test",
             topic="Test topic",
             mode="fixed",
             state_dir=state_dir,
@@ -194,7 +194,7 @@ class TestDebateTurnToolWithIdentity:
 
         # Add turn with identity via tool
         result = debate_turn(
-            thread_id="test",
+            thread_id="2025-01-01-test",
             role="Wind",
             content="Test content",
             state_dir=state_dir,
@@ -209,7 +209,7 @@ class TestDebateTurnToolWithIdentity:
         # Load state and verify identity stored
         from debate_hall_mcp.state import load_debate_state
 
-        room = load_debate_state("test", state_dir)
+        room = load_debate_state("2025-01-01-test", state_dir)
         turn = room.turns[0]
         assert turn.agent_role == "test-agent"
         assert turn.model == "test-model"
@@ -224,7 +224,7 @@ class TestDebateTurnToolWithIdentity:
 
         # Initialize debate
         debate_init(
-            thread_id="test",
+            thread_id="2025-01-01-test",
             topic="Test topic",
             mode="fixed",
             state_dir=state_dir,
@@ -232,7 +232,7 @@ class TestDebateTurnToolWithIdentity:
 
         # Add turn WITHOUT identity (old behavior)
         result = debate_turn(
-            thread_id="test",
+            thread_id="2025-01-01-test",
             role="Wind",
             content="Test content",
             state_dir=state_dir,
@@ -244,7 +244,7 @@ class TestDebateTurnToolWithIdentity:
         # Load state and verify identity is None
         from debate_hall_mcp.state import load_debate_state
 
-        room = load_debate_state("test", state_dir)
+        room = load_debate_state("2025-01-01-test", state_dir)
         turn = room.turns[0]
         assert turn.agent_role is None
         assert turn.model is None
