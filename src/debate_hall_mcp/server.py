@@ -23,7 +23,7 @@ from debate_hall_mcp.tools.turn import debate_turn
 
 # Server metadata
 SERVER_NAME = "debate-hall-mcp"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 
 # Default state directory
 DEFAULT_STATE_DIR = Path("./debates")
