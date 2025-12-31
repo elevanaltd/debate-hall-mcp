@@ -371,3 +371,219 @@ class TestStateSecurityValidation:
         state_dir = tmp_path / "debates"
         with pytest.raises(ValueError, match="Invalid thread_id"):
             save_debate_state(room, state_dir)
+
+
+class TestAtomicPersistence:
+    """Test atomic persistence for crash recovery (Issue #39).
+
+    Verifies that state writes use atomic file operations to prevent
+    data corruption from interrupted writes.
+    """
+
+    def test_save_uses_temp_file_then_rename(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Save creates temp file and atomically renames to final location."""
+        import os
+
+        room = DebateRoom(
+            thread_id="atomic-001",
+            topic="Atomic Test",
+            mode=DebateMode.FIXED,
+        )
+
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        # Track calls to os.rename
+        rename_calls: list[tuple[str, str]] = []
+        original_rename = os.rename
+
+        def tracking_rename(src: str, dst: str) -> None:
+            rename_calls.append((src, dst))
+            original_rename(src, dst)
+
+        monkeypatch.setattr("os.rename", tracking_rename)
+
+        save_debate_state(room, state_dir)
+
+        # Verify atomic rename was used
+        assert len(rename_calls) == 1
+        src, dst = rename_calls[0]
+        # Source should be a temp file in the same directory
+        assert tmp_path.as_posix() in src
+        assert src.endswith(".tmp")
+        # Destination should be the final state file
+        assert dst == str(state_dir / "atomic-001.json")
+
+    def test_save_calls_fsync_for_durability(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Save calls fsync before rename to ensure durability."""
+        import os
+
+        room = DebateRoom(
+            thread_id="fsync-001",
+            topic="Fsync Test",
+            mode=DebateMode.FIXED,
+        )
+
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        # Track fsync calls
+        fsync_calls: list[int] = []
+        original_fsync = os.fsync
+
+        def tracking_fsync(fd: int) -> None:
+            fsync_calls.append(fd)
+            original_fsync(fd)
+
+        monkeypatch.setattr("os.fsync", tracking_fsync)
+
+        save_debate_state(room, state_dir)
+
+        # Verify fsync was called at least once
+        assert len(fsync_calls) >= 1
+
+    def test_save_cleans_up_temp_file_on_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Temp file is cleaned up if write fails."""
+        import tempfile as tempfile_module
+
+        room = DebateRoom(
+            thread_id="cleanup-001",
+            topic="Cleanup Test",
+            mode=DebateMode.FIXED,
+        )
+
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        # Track temp files created
+        created_temps: list[str] = []
+        original_mkstemp = tempfile_module.mkstemp
+
+        def tracking_mkstemp(**kwargs: object) -> tuple[int, str]:
+            fd, path = original_mkstemp(**kwargs)
+            created_temps.append(path)
+            return fd, path
+
+        monkeypatch.setattr("tempfile.mkstemp", tracking_mkstemp)
+
+        # Make model_dump_json raise an error to simulate write failure
+        def failing_model_dump(_self: object, **_kwargs: object) -> str:
+            raise RuntimeError("Simulated write failure")
+
+        monkeypatch.setattr(DebateRoom, "model_dump_json", failing_model_dump)
+
+        with pytest.raises(RuntimeError, match="Simulated write failure"):
+            save_debate_state(room, state_dir)
+
+        # Verify temp file was cleaned up
+        assert len(created_temps) == 1
+        temp_path = created_temps[0]
+        assert not Path(temp_path).exists(), f"Temp file {temp_path} should have been cleaned up"
+
+    def test_save_preserves_existing_state_on_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Existing state file is preserved if new write fails."""
+        # Create initial state
+        room = DebateRoom(
+            thread_id="preserve-001",
+            topic="Initial State",
+            mode=DebateMode.FIXED,
+        )
+        turn = Turn(
+            role="Wind",
+            content="Original content",
+            timestamp=datetime.now(UTC),
+            previous_hash=None,
+        )
+        room.turns.append(turn)
+
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        # Record original file content
+        state_file = state_dir / "preserve-001.json"
+        original_content = state_file.read_text()
+
+        # Create updated room that will fail to save
+        updated_room = DebateRoom(
+            thread_id="preserve-001",
+            topic="Updated State",
+            mode=DebateMode.FIXED,
+        )
+
+        # Make serialization fail after file operations begin
+        def failing_dump(_self: object, **_kwargs: object) -> str:
+            raise RuntimeError("Simulated serialization failure")
+
+        monkeypatch.setattr(DebateRoom, "model_dump_json", failing_dump)
+
+        with pytest.raises(RuntimeError, match="Simulated serialization failure"):
+            save_debate_state(updated_room, state_dir)
+
+        # Verify original state is preserved
+        assert state_file.read_text() == original_content
+
+    def test_save_no_temp_files_left_on_success(self, tmp_path: Path) -> None:
+        """No temp files remain after successful save."""
+        room = DebateRoom(
+            thread_id="notmp-001",
+            topic="No Temp Test",
+            mode=DebateMode.FIXED,
+        )
+
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        save_debate_state(room, state_dir)
+
+        # Check for any .tmp files in the directory
+        tmp_files = list(state_dir.glob("*.tmp"))
+        assert tmp_files == [], f"Found leftover temp files: {tmp_files}"
+
+    def test_atomic_write_prevents_partial_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Interrupted writes don't leave partial JSON files.
+
+        Simulates a crash during write by having the write succeed but
+        rename fail, verifying no partial content is written to final path.
+        """
+        room = DebateRoom(
+            thread_id="partial-001",
+            topic="Partial Write Test",
+            mode=DebateMode.FIXED,
+        )
+
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        # Create existing valid state first
+        existing_room = DebateRoom(
+            thread_id="partial-001",
+            topic="Existing Valid State",
+            mode=DebateMode.FIXED,
+        )
+        save_debate_state(existing_room, state_dir)
+        original_content = (state_dir / "partial-001.json").read_text()
+
+        # Make rename fail to simulate crash after write but before commit
+        def failing_rename(src: str, _dst: str) -> None:
+            # Clean up temp file as the real implementation should
+            Path(src).unlink(missing_ok=True)
+            raise OSError("Simulated crash during rename")
+
+        monkeypatch.setattr("os.rename", failing_rename)
+
+        with pytest.raises(OSError, match="Simulated crash during rename"):
+            save_debate_state(room, state_dir)
+
+        # Verify original state is intact - no partial writes
+        final_content = (state_dir / "partial-001.json").read_text()
+        assert final_content == original_content
