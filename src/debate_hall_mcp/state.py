@@ -12,17 +12,16 @@ Immutables Compliance:
 """
 
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
 import tempfile
-from collections.abc import Generator
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from filelock import FileLock
 from pydantic import BaseModel, Field, field_validator
 
 # Security: Patterns that indicate path traversal or directory injection
@@ -211,39 +210,24 @@ def _validate_thread_id_for_filesystem(thread_id: str) -> None:
             raise ValueError(f"Invalid thread_id '{thread_id}': contains path-unsafe characters")
 
 
-@contextlib.contextmanager
-def _file_lock(lock_file: Path, exclusive: bool = True) -> Generator[None, None, None]:
-    """Context manager for file-based locking (Issue #48 - Concurrency Control).
+def _get_file_lock(lock_file: Path) -> FileLock:
+    """Get a cross-platform file lock (Issue #48 - Concurrency Control).
 
-    Uses fcntl for POSIX advisory locking. Prevents race conditions when
-    multiple processes access the same debate state simultaneously.
+    Uses filelock library for cross-platform file locking.
+    Works on POSIX (Linux, macOS) and Windows.
 
     Args:
         lock_file: Path to the lock file (typically {thread_id}.lock)
-        exclusive: If True, acquire exclusive (write) lock. If False, shared (read) lock.
 
-    Yields:
-        None - lock is held for the duration of the context
+    Returns:
+        FileLock instance that can be used as context manager
 
     Note:
-        Advisory locks only work if all processes use the same locking mechanism.
-        This is appropriate for debate-hall-mcp where all access goes through this module.
+        filelock uses exclusive locks only. For our use case this is fine
+        since reads are fast and contention is expected to be low.
     """
     lock_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Create lock file if it doesn't exist
-    fd = os.open(str(lock_file), os.O_RDWR | os.O_CREAT)
-    try:
-        # Acquire lock (blocks until available)
-        lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-        fcntl.flock(fd, lock_type)
-        try:
-            yield
-        finally:
-            # Release lock
-            fcntl.flock(fd, fcntl.LOCK_UN)
-    finally:
-        os.close(fd)
+    return FileLock(str(lock_file))
 
 
 def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
@@ -278,8 +262,8 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
     state_file = state_dir / f"{room.thread_id}.json"
     lock_file = state_dir / f"{room.thread_id}.lock"
 
-    # Acquire exclusive lock for write operation
-    with _file_lock(lock_file, exclusive=True):
+    # Acquire exclusive lock for write operation (cross-platform via filelock)
+    with _get_file_lock(lock_file):
         # Create temp file in same directory (required for atomic rename on same filesystem)
         fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
         try:
@@ -320,8 +304,9 @@ def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     if not state_file.exists():
         raise FileNotFoundError(f"No state file found for thread {thread_id}")
 
-    # Acquire shared lock for read operation (allows concurrent reads, blocks writes)
-    with _file_lock(lock_file, exclusive=False), open(state_file) as f:
+    # Acquire lock for read operation (cross-platform via filelock)
+    # Note: filelock only supports exclusive locks, but reads are fast so this is acceptable
+    with _get_file_lock(lock_file), open(state_file) as f:
         data = json.load(f)
 
     return DebateRoom.model_validate(data)
