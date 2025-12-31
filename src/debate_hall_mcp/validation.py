@@ -26,6 +26,17 @@ from typing import Literal
 # Prevents memory/CPU spike from multi-MB payloads hitting regex operations
 MAX_TURN_CONTENT_LENGTH = 32000
 
+# Role to cognition mapping (Issue #36: Cognition/Role Normalization)
+# Each debate role has a required cognition archetype:
+# - Wind (divergent exploration) requires PATHOS
+# - Wall (boundary enforcement) requires ETHOS
+# - Door (convergent synthesis) requires LOGOS
+ROLE_COGNITION_MAP: dict[str, str] = {
+    "WIND": "PATHOS",
+    "WALL": "ETHOS",
+    "DOOR": "LOGOS",
+}
+
 
 @dataclass
 class ValidationResult:
@@ -76,8 +87,8 @@ class CognitionValidator:
             - Validation is case-insensitive for cognition and markers
             - DoS protection: Content exceeding MAX_TURN_CONTENT_LENGTH is rejected early
         """
-        # Note: role parameter reserved for future validation logging/error messages
-        _ = role  # Explicitly mark as intentionally unused
+        # Normalize role to uppercase for comparison
+        normalized_role = role.upper() if role else None
 
         # DoS protection: Check content length BEFORE expensive regex operations
         if len(content) > MAX_TURN_CONTENT_LENGTH:
@@ -119,6 +130,32 @@ class CognitionValidator:
                 violations=["Content is empty"],
                 hints=["Provide substantive content for the turn"],
             )
+
+        # Check role/cognition pairing (Issue #36: Cognition/Role Normalization)
+        # Only check if both role and cognition are valid values
+        if normalized_role and normalized_cognition:
+            expected_cognition = ROLE_COGNITION_MAP.get(normalized_role)
+            if expected_cognition and normalized_cognition != expected_cognition:
+                # Role/cognition mismatch detected
+                role_lower = normalized_role.lower().capitalize()
+                expected_lower = expected_cognition
+                violation_msg = (
+                    f"Role/cognition mismatch: {role_lower} requires {expected_lower}, "
+                    f"but {normalized_cognition} was specified"
+                )
+                hint_msg = f"{role_lower} must use {expected_lower} cognition"
+                if strict:
+                    return ValidationResult(
+                        level="BLOCK",
+                        violations=[violation_msg],
+                        hints=[hint_msg],
+                    )
+                else:
+                    return ValidationResult(
+                        level="WARN",
+                        violations=[violation_msg],
+                        hints=[hint_msg],
+                    )
 
         # Route to appropriate validator
         if normalized_cognition == "PATHOS":
