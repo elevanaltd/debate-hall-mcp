@@ -159,7 +159,23 @@ RELEASE_READY::[
 
 §9::OPEN_ISSUES
 
-PRIORITY::[
+ENFORCEMENT_HARDENING::[
+  BUILD_ORDER::#36->#37->#38->#39->#40,
+  Issue_#36::cognition_role_normalization[type_safety_foundation],
+  Issue_#37::mediated_picks_enforcement[orchestration_integrity],
+  Issue_#38::synthesis_semantics_in_engine[LOGOS_validation_on_close],
+  Issue_#39::atomic_persistence[crash_recovery],
+  Issue_#40::audit_trail_tombstone_context[verifiable_admin_actions],
+  ORCHESTRATION_PROMPT::.hestai/prompts/enforcement-hardening-orchestration.md,
+  SOURCE::PR_#34_quality_review_debate[2025-12-31]
+]
+
+DEFERRED_V020::[
+  hash_chain_verification::BLOCKED[tombstone_mutates_content],
+  genius_insights::BLOCKED[requires_hash_chain_foundation]
+]
+
+OTHER_PRIORITY::[
   Issue_#29::OCTAVE_auto_generate_on_close[implements_I2_fully],
   Issue_#33::storage_location_documentation[clarify_worktree_relative_behavior],
   Issue_#26::OCTAVE_format_support[broader_integration_scope]
@@ -168,7 +184,7 @@ PRIORITY::[
 CLOSED_PRS::[
   PR_#23::CLOSED[Wind_exploration_no_code],
   PR_#25::CLOSED[superseded_CLI+wrong_I2_removal+stale_agents],
-  PR_#34::OPEN[quality_report_valid_for_review]
+  PR_#34::REVIEWED[quality_report_debated+issues_created]
 ]
 
 REPO_URL::https://github.com/elevanaltd/debate-hall-mcp
