@@ -3,6 +3,11 @@
 Implements I2 (Universal OCTAVE Binding) from North Star.
 Generates compressed OCTAVE representation of debate state.
 
+Aligned with octave-mcp canonical format (see octave-mcp/core/emitter.py):
+- Envelope: ===NAME=== ... ===END===
+- Operator: :: (no whitespace)
+- String escaping: \\ \" \\n \\t \\r
+
 Format:
 ===DEBATE_TRANSCRIPT===
 META:
@@ -19,7 +24,7 @@ TURNS::[
 ]
 
 SYNTHESIS::"..."
-===END_DEBATE_TRANSCRIPT===
+===END===
 """
 
 from debate_hall_mcp.state import DebateRoom
@@ -65,12 +70,12 @@ def _escape_octave_string(value: str) -> str:
         Quoted string with all special characters escaped
     """
     # Order matters: escape backslashes FIRST to avoid double-escaping
+    # Aligned with octave-mcp/core/emitter.py:85
     escaped = value.replace("\\", "\\\\")
-    # Escape newlines and carriage returns to preserve line structure
-    escaped = escaped.replace("\n", "\\n")
-    escaped = escaped.replace("\r", "\\r")
-    # Escape double quotes for string boundaries
     escaped = escaped.replace('"', '\\"')
+    escaped = escaped.replace("\n", "\\n")
+    escaped = escaped.replace("\t", "\\t")
+    escaped = escaped.replace("\r", "\\r")
     return f'"{escaped}"'
 
 
@@ -124,7 +129,7 @@ def format_debate_as_octave(room: DebateRoom) -> str:
         lines.append("SYNTHESIS::null")
     lines.append("")
 
-    # Footer
-    lines.append("===END_DEBATE_TRANSCRIPT===")
+    # Footer - canonical OCTAVE uses ===END=== not ===END_NAME===
+    lines.append("===END===")
 
     return "\n".join(lines)

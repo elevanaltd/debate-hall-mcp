@@ -115,7 +115,7 @@ def test_close_debate_octave_format_returns_string(tmp_path: Path) -> None:
     # Should return string (OCTAVE format)
     assert isinstance(result, str)
     assert "===DEBATE_TRANSCRIPT===" in result
-    assert "===END_DEBATE_TRANSCRIPT===" in result
+    assert "===END===" in result  # Canonical OCTAVE uses ===END===
 
 
 # =============================================================================

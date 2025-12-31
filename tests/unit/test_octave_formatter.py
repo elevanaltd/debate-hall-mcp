@@ -47,7 +47,7 @@ def test_format_debate_as_octave_contains_header_footer() -> None:
     result = format_debate_as_octave(room)
 
     assert "===DEBATE_TRANSCRIPT===" in result
-    assert "===END_DEBATE_TRANSCRIPT===" in result
+    assert "===END===" in result  # Canonical OCTAVE uses ===END===
 
 
 def test_format_debate_as_octave_contains_meta_fields() -> None:
@@ -275,6 +275,19 @@ def test_escape_handles_carriage_returns() -> None:
     # CR should be escaped as \\r
     assert result == '"Line one\\rLine two"'
     assert "\r" not in result
+
+
+def test_escape_handles_tabs() -> None:
+    """Test that tabs are escaped (aligned with octave-mcp/core/emitter.py)."""
+    from debate_hall_mcp.octave_formatter import _escape_octave_string
+
+    text_with_tab = "Column1\tColumn2"
+
+    result = _escape_octave_string(text_with_tab)
+
+    # Tab should be escaped as \\t
+    assert result == '"Column1\\tColumn2"'
+    assert "\t" not in result
 
 
 def test_escape_handles_backslashes() -> None:
