@@ -4,6 +4,11 @@ Immutables Compliance:
 - I1 (COGNITIVE_STATE_ISOLATION): State managed exclusively in Hall server
 
 TDD: Implements minimal functionality to pass tests.
+
+Issue #38: Synthesis semantics validation
+- Synthesis validated against LOGOS rules (numbered steps, synthesis markers)
+- Non-strict mode: WARN on invalid structure (close proceeds)
+- Strict mode: BLOCK on invalid structure (close fails)
 """
 
 from pathlib import Path
@@ -20,6 +25,10 @@ def debate_close(
 ) -> dict[str, Any]:
     """Close debate with final synthesis.
 
+    Synthesis content is validated against LOGOS/Door cognition rules:
+    - Numbered reasoning steps (BLOCK if missing in strict mode)
+    - Synthesis markers like TENSION, PATTERN, CLARITY (WARN if missing)
+
     Args:
         thread_id: Thread identifier
         synthesis: Final Door synthesis content
@@ -30,12 +39,14 @@ def debate_close(
         - thread_id: Thread identifier
         - status: New status (synthesis)
         - synthesis: Final synthesis content
+        - validation_warnings: List of validation warnings (if any, non-strict only)
 
     Raises:
         FileNotFoundError: If thread doesn't exist
         ValueError: If debate already closed or synthesis empty
+        ValueError: If synthesis fails validation in strict_cognition mode
     """
-    # Validate synthesis
+    # Validate synthesis is non-empty
     if not synthesis or not synthesis.strip():
         raise ValueError("Synthesis required for debate close")
 
@@ -46,16 +57,22 @@ def debate_close(
     # Load state
     room = load_debate_state(thread_id, state_dir)
 
-    # Close debate via engine (validates active state)
+    # Close debate via engine (validates active state and synthesis content)
     engine = DebateEngine(room)
-    engine.close_debate(TerminationReason.SYNTHESIS, synthesis=synthesis)
+    validation_result = engine.close_debate(TerminationReason.SYNTHESIS, synthesis=synthesis)
 
     # Save updated state
     save_debate_state(room, state_dir)
 
-    # Return summary
-    return {
+    # Build response
+    result: dict[str, Any] = {
         "thread_id": room.thread_id,
         "status": room.status.value,
         "synthesis": room.synthesis,
     }
+
+    # Include validation warnings if any (WARN level, non-strict mode)
+    if validation_result is not None and validation_result.violations:
+        result["validation_warnings"] = validation_result.violations
+
+    return result

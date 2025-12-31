@@ -6,15 +6,18 @@ Immutables Compliance:
 TDD: Implements minimal functionality to pass tests.
 
 Note: This tool is only valid for mediated mode debates.
-In fixed mode, role sequence is automatic (Wind→Wall→Door).
+In fixed mode, role sequence is automatic (Wind->Wall->Door).
+
+Issue #37: Now persists expected_next_role for enforcement in debate_turn.
 """
 
 from pathlib import Path
 from typing import Any
 
-from debate_hall_mcp.state import DebateMode, DebateStatus, load_debate_state
+from debate_hall_mcp.state import DebateMode, DebateStatus, load_debate_state, save_debate_state
 
-VALID_ROLES = {"Wind", "Wall", "Door"}
+# Use tuple for deterministic ordering in error messages (Issue #50)
+VALID_ROLES = ("Wind", "Wall", "Door")
 
 
 def debate_pick(
@@ -39,10 +42,10 @@ def debate_pick(
         FileNotFoundError: If thread doesn't exist
         ValueError: If not mediated mode, invalid role, or debate not active
 
-    Note:
-        In current implementation, this is informational only.
-        debate_turn in mediated mode accepts any role.
-        Future versions may enforce the picked role.
+    Note (Issue #37):
+        The picked role is persisted to expected_next_role field.
+        debate_turn in mediated mode enforces this - wrong role is rejected.
+        Calling pick again overwrites the expected role.
     """
     # Validate role
     if role not in VALID_ROLES:
@@ -65,10 +68,9 @@ def debate_pick(
     if room.status != DebateStatus.ACTIVE:
         raise ValueError(f"Debate is not active (status: {room.status.value})")
 
-    # Note: In current implementation, we don't persist the picked role
-    # because debate_turn in mediated mode accepts any role anyway.
-    # This tool is informational/coordination only.
-    # Future enhancement could add expected_next_role field to DebateRoom.
+    # Persist expected role for enforcement (Issue #37)
+    room.expected_next_role = role
+    save_debate_state(room, state_dir)
 
     return {
         "thread_id": room.thread_id,

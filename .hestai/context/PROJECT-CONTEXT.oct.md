@@ -2,9 +2,9 @@
 
 META:
   TYPE::PROJECT_CONTEXT
-  VERSION::"2.0"
-  GENERATED::"2025-12-24"
-  STATUS::BUILD_COMPLETE
+  VERSION::"2.2"
+  GENERATED::"2025-12-31"
+  STATUS::ENFORCEMENT_HARDENING_COMPLETE
 
 §1::IDENTITY
 
@@ -27,9 +27,9 @@ ALL_PHASES_COMPLETE::[
 §3::QUALITY_METRICS
 
 TESTS::[
-  UNIT::89_tests,
+  UNIT::257_tests,
   E2E::5_tests,
-  TOTAL::94_tests,
+  TOTAL::262_tests,
   STATUS::ALL_PASSING
 ]
 
@@ -47,7 +47,8 @@ I1::COGNITIVE_STATE_ISOLATION[
 ]
 
 I2::UNIVERSAL_OCTAVE_BINDING[
-  IMPLEMENTATION::OCTAVE_format_throughout,
+  IMPLEMENTATION::PLANNED[Issue_#29_auto_generate_octave_on_close],
+  STATUS::cognition_validation_implemented+octave_export_pending,
   VERIFICATION::north_star_debate_used_octave
 ]
 
@@ -155,5 +156,56 @@ RELEASE_READY::[
   GitHub::release_v0.1.0,
   MCP_Registry::submission_pending
 ]
+
+§9::COMPLETED_MILESTONES
+
+ENFORCEMENT_HARDENING_v010::[
+  STATUS::COMPLETE[2025-12-31],
+  BUILD_ORDER::#36->#37->#38->#39->#40,
+  PR_#42::Issue_#36_cognition_role_normalization[MERGED],
+  PR_#43::Issue_#37_mediated_picks_enforcement[MERGED],
+  PR_#44::Issue_#38_synthesis_semantics[MERGED],
+  PR_#45::Issue_#39_atomic_persistence[MERGED],
+  PR_#46::Issue_#40_audit_trail_tombstone[MERGED],
+  FEATURES_ADDED::[
+    role_cognition_mapping[Wind<->PATHOS,Wall<->ETHOS,Door<->LOGOS],
+    mediated_mode_enforcement[expected_next_role_persisted],
+    synthesis_validation[LOGOS_rules_on_close],
+    atomic_file_writes[tempfile+rename+fsync],
+    audit_trail[AuditEvent_model+audit_log_field],
+    tombstone_context[original_content_hash_preserved]
+  ],
+  SOURCE::PR_#34_quality_review_debate[2025-12-31]
+]
+
+§10::OPEN_ISSUES
+
+DEFERRED_V020::[
+  hash_chain_verification::UNBLOCKED[tombstone_now_preserves_hash],
+  genius_insights::READY[audit_foundation_complete]
+]
+
+OTHER_PRIORITY::[
+  Issue_#29::OCTAVE_auto_generate_on_close[implements_I2_fully],
+  Issue_#33::storage_location_documentation[clarify_worktree_relative_behavior],
+  Issue_#26::OCTAVE_format_support[broader_integration_scope]
+]
+
+CLOSED_PRS::[
+  PR_#23::CLOSED[Wind_exploration_no_code],
+  PR_#25::CLOSED[superseded_CLI+wrong_I2_removal+stale_agents],
+  PR_#34::REVIEWED[quality_report_debated+issues_created],
+  PR_#42::MERGED[Issue_#36_cognition_role_normalization],
+  PR_#43::MERGED[Issue_#37_mediated_picks_enforcement],
+  PR_#44::MERGED[Issue_#38_synthesis_semantics],
+  PR_#45::MERGED[Issue_#39_atomic_persistence],
+  PR_#46::MERGED[Issue_#40_audit_trail_tombstone],
+  PR_#47::MERGED[PROJECT_CONTEXT_update],
+  PR_#51::MERGED[cross_platform_os_replace],
+  PR_#52::MERGED[Issues_#48_#49_#50_retrospective_review_fixes],
+  PR_#53::MERGED[Issue_#48_cross_platform_filelock]
+]
+
+REPO_URL::https://github.com/elevanaltd/debate-hall-mcp
 
 ===END_PROJECT_CONTEXT===

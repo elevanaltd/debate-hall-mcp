@@ -550,3 +550,259 @@ The concept of blockedness does not apply here.
         # Should PASS - "BLOCKEDNESS" should not match due to word boundary
         assert result.level == "PASS"
         assert len(result.violations) == 0
+
+
+class TestRoleCognitionEnforcement:
+    """Test role/cognition pairing enforcement (Issue #36).
+
+    Validates that:
+    - Wind requires PATHOS cognition
+    - Wall requires ETHOS cognition
+    - Door requires LOGOS cognition
+    - Mismatches WARN in non-strict mode
+    - Mismatches BLOCK in strict mode
+    - None cognition is allowed for backward compatibility
+    """
+
+    # === Valid Pairings ===
+
+    def test_wind_with_pathos_passes(self) -> None:
+        """Wind with PATHOS is a valid pairing."""
+        validator = CognitionValidator()
+        content = """
+1. Option A
+2. Option B
+
+What should we choose?
+"""
+        result = validator.validate(role="Wind", content=content, cognition="PATHOS")
+        assert result.level == "PASS"
+
+    def test_wall_with_ethos_passes(self) -> None:
+        """Wall with ETHOS is a valid pairing."""
+        validator = CognitionValidator()
+        content = """
+[VERDICT]
+APPROVED
+
+[EVIDENCE]
+- Tests passing
+"""
+        result = validator.validate(role="Wall", content=content, cognition="ETHOS")
+        assert result.level == "PASS"
+
+    def test_door_with_logos_passes(self) -> None:
+        """Door with LOGOS is a valid pairing."""
+        validator = CognitionValidator()
+        content = """
+[TENSION]
+Speed vs quality
+
+1. Analyze first
+2. Implement second
+3. Verify third
+"""
+        result = validator.validate(role="Door", content=content, cognition="LOGOS")
+        assert result.level == "PASS"
+
+    # === Invalid Pairings - Non-Strict Mode (WARN) ===
+
+    def test_wind_with_ethos_warns_nonstrict(self) -> None:
+        """Wind with ETHOS warns in non-strict mode."""
+        validator = CognitionValidator()
+        # Content valid for ETHOS but role is Wind
+        content = """
+[VERDICT]
+APPROVED
+
+[EVIDENCE]
+- Tests passing
+"""
+        result = validator.validate(role="Wind", content=content, cognition="ETHOS", strict=False)
+        assert result.level == "WARN"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+        assert any("wind" in v.lower() and "pathos" in v.lower() for v in result.violations)
+
+    def test_wind_with_logos_warns_nonstrict(self) -> None:
+        """Wind with LOGOS warns in non-strict mode."""
+        validator = CognitionValidator()
+        content = """
+[TENSION]
+Speed vs quality
+
+1. Analyze first
+2. Implement second
+3. Verify third
+"""
+        result = validator.validate(role="Wind", content=content, cognition="LOGOS", strict=False)
+        assert result.level == "WARN"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+
+    def test_wall_with_pathos_warns_nonstrict(self) -> None:
+        """Wall with PATHOS warns in non-strict mode."""
+        validator = CognitionValidator()
+        content = """
+1. Option A
+2. Option B
+
+What should we choose?
+"""
+        result = validator.validate(role="Wall", content=content, cognition="PATHOS", strict=False)
+        assert result.level == "WARN"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+        assert any("wall" in v.lower() and "ethos" in v.lower() for v in result.violations)
+
+    def test_wall_with_logos_warns_nonstrict(self) -> None:
+        """Wall with LOGOS warns in non-strict mode."""
+        validator = CognitionValidator()
+        content = """
+[TENSION]
+Speed vs quality
+
+1. Analyze first
+2. Implement second
+3. Verify third
+"""
+        result = validator.validate(role="Wall", content=content, cognition="LOGOS", strict=False)
+        assert result.level == "WARN"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+
+    def test_door_with_pathos_warns_nonstrict(self) -> None:
+        """Door with PATHOS warns in non-strict mode."""
+        validator = CognitionValidator()
+        content = """
+1. Option A
+2. Option B
+
+What should we choose?
+"""
+        result = validator.validate(role="Door", content=content, cognition="PATHOS", strict=False)
+        assert result.level == "WARN"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+        assert any("door" in v.lower() and "logos" in v.lower() for v in result.violations)
+
+    def test_door_with_ethos_warns_nonstrict(self) -> None:
+        """Door with ETHOS warns in non-strict mode."""
+        validator = CognitionValidator()
+        content = """
+[VERDICT]
+APPROVED
+
+[EVIDENCE]
+- Tests passing
+"""
+        result = validator.validate(role="Door", content=content, cognition="ETHOS", strict=False)
+        assert result.level == "WARN"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+
+    # === Invalid Pairings - Strict Mode (BLOCK) ===
+
+    def test_wind_with_ethos_blocks_strict(self) -> None:
+        """Wind with ETHOS blocks in strict mode."""
+        validator = CognitionValidator()
+        content = """
+[VERDICT]
+APPROVED
+
+[EVIDENCE]
+- Tests passing
+"""
+        result = validator.validate(role="Wind", content=content, cognition="ETHOS", strict=True)
+        assert result.level == "BLOCK"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+
+    def test_wall_with_pathos_blocks_strict(self) -> None:
+        """Wall with PATHOS blocks in strict mode."""
+        validator = CognitionValidator()
+        content = """
+1. Option A
+2. Option B
+
+What should we choose?
+"""
+        result = validator.validate(role="Wall", content=content, cognition="PATHOS", strict=True)
+        assert result.level == "BLOCK"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+
+    def test_door_with_ethos_blocks_strict(self) -> None:
+        """Door with ETHOS blocks in strict mode."""
+        validator = CognitionValidator()
+        content = """
+[VERDICT]
+APPROVED
+
+[EVIDENCE]
+- Tests passing
+"""
+        result = validator.validate(role="Door", content=content, cognition="ETHOS", strict=True)
+        assert result.level == "BLOCK"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+
+    # === Backward Compatibility ===
+
+    def test_none_cognition_allowed_nonstrict(self) -> None:
+        """None cognition is allowed in non-strict mode (backward compatibility)."""
+        validator = CognitionValidator()
+        content = "Any content without cognition validation"
+        # All roles should pass with None cognition in non-strict mode
+        for role in ["Wind", "Wall", "Door"]:
+            result = validator.validate(role=role, content=content, cognition=None, strict=False)
+            assert result.level == "PASS", f"Role {role} should pass with None cognition"
+
+    def test_none_cognition_blocks_strict(self) -> None:
+        """None cognition blocks in strict mode (existing behavior)."""
+        validator = CognitionValidator()
+        content = "Any content"
+        result = validator.validate(role="Wind", content=content, cognition=None, strict=True)
+        assert result.level == "BLOCK"
+        assert any("no cognition" in v.lower() for v in result.violations)
+
+    # === Case Insensitivity ===
+
+    def test_role_cognition_case_insensitive(self) -> None:
+        """Role and cognition matching is case-insensitive."""
+        validator = CognitionValidator()
+        content = """
+1. Option A
+2. Option B
+
+What should we choose?
+"""
+        # Test lowercase role with uppercase cognition
+        result = validator.validate(role="wind", content=content, cognition="PATHOS")
+        assert result.level == "PASS"
+
+        # Test uppercase role with lowercase cognition
+        result = validator.validate(role="WIND", content=content, cognition="pathos")
+        assert result.level == "PASS"
+
+        # Test mixed case
+        result = validator.validate(role="Wind", content=content, cognition="Pathos")
+        assert result.level == "PASS"
+
+    # === Mismatch takes priority over content validation ===
+
+    def test_mismatch_warn_not_blocked_by_content_pass(self) -> None:
+        """Role/cognition mismatch WARN is returned even if content passes cognition validation."""
+        validator = CognitionValidator()
+        # Valid PATHOS content (has options and questions)
+        content = """
+1. Option A
+2. Option B
+
+What should we choose?
+"""
+        # Wall with PATHOS content should WARN on mismatch, not pass
+        result = validator.validate(role="Wall", content=content, cognition="PATHOS", strict=False)
+        assert result.level == "WARN"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
+
+    def test_mismatch_block_takes_priority_over_content_block(self) -> None:
+        """Role/cognition BLOCK takes priority over content validation BLOCK in strict mode."""
+        validator = CognitionValidator()
+        # Invalid PATHOS content (missing options and questions)
+        content = "Simple statement without options or questions."
+        # Wind with ETHOS should BLOCK on mismatch, mentioning role/cognition
+        result = validator.validate(role="Wind", content=content, cognition="ETHOS", strict=True)
+        assert result.level == "BLOCK"
+        assert any("role" in v.lower() and "cognition" in v.lower() for v in result.violations)
