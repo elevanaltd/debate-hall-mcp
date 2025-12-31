@@ -2,33 +2,46 @@
 
 Canonical agent definitions for structured debate using the Wind/Wall/Door methodology.
 
-## Layered Identity Architecture
+## Agent Configuration Tiers
 
-Agent identity is composed from three layers. Use as much depth as you need:
+Evidence from replication studies shows specialist agents search **different solution spaces** than basic agents. Choose your tier based on debate complexity:
 
-| Layer | Purpose | Size | Files |
-|-------|---------|------|-------|
-| **Cognitions** | Universal behavioral contracts | ~50 lines | `cognitions/*.oct.md` |
-| **Agents** | Complete debate-ready implementations | ~130 lines | `*.oct.md` |
-| **Specialists** | Full HestAI methodology binding | 200+ lines | Bring your own |
+### Tier 1: Basic (Included)
+| Agent | Cognition | Behavior |
+|-------|-----------|----------|
+| `wind-agent.oct.md` | PATHOS | Explores obvious paths |
+| `wall-agent.oct.md` | ETHOS | Balanced judgment |
+| `door-agent.oct.md` | LOGOS | Balanced integration |
 
-### Composition Patterns
+**Use for:** Quick decisions, standard debates
 
-```
-MINIMAL:   Cognition only     → "Wind acts as PATHOS explorer"
-STANDARD:  Full agent file    → "Wind with response format and boundaries"
-ADVANCED:  Your own agents    → Custom specialists mapped to Wind/Wall/Door roles
-```
+### Tier 2: Specialist (Recommended for complex debates)
+| Specialist | Maps to | Behavioral Difference |
+|------------|---------|----------------------|
+| `ideator` | Wind | Converges to minimal elegant solutions |
+| `edge-optimizer` | Wind | Discovers hidden vectors others miss |
+| `validator` | Wall | Cold truth, uncompromising reality |
+| `critical-engineer` | Wall | Production readiness focus |
+| `synthesizer` | Door | Breakthrough transcendence (1+1=3) |
 
-### Using Specialists
+**Use for:** Architectural decisions, security reviews, innovation
 
-Specialist agents (ideator, validator, synthesizer, etc.) can participate in debates by mapping to their cognition's role:
+### Tier 3: Domain Mix
+Combine specialists based on the topic:
+- **Security:** edge-optimizer + critical-engineer + technical-architect
+- **Innovation:** ideator + validator + synthesizer
+- **Architecture:** ideator + critical-engineer + holistic-orchestrator
 
-- **PATHOS specialists** (ideator, edge-optimizer) → speak as **Wind**
-- **ETHOS specialists** (validator, critical-engineer) → speak as **Wall**
-- **LOGOS specialists** (synthesizer, technical-architect) → speak as **Door**
+### Using Specialists in Debates
 
-Pass specialist identity via `agent_role` metadata in `debate_turn()` for audit trails.
+Specialists map to their cognition's debate role:
+- **PATHOS specialists** → speak as **Wind**
+- **ETHOS specialists** → speak as **Wall**
+- **LOGOS specialists** → speak as **Door**
+
+Pass identity via `agent_role` metadata in `debate_turn()` for audit trails.
+
+See [multi-model-debate-patterns.md](../docs/examples/multi-model-debate-patterns.md) for evidence and recipes.
 
 ## Files
 
