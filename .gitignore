@@ -77,8 +77,8 @@ venv.bak/
 .hestai/.hestai-state-*
 .hestai/last_cleanup
 
-# Debates (local development)
-debates/
+# Debates (local development - JSON files are ephemeral, OCTAVE transcripts are committed)
+debates/*.json
 
 # mypy
 .mypy_cache/
