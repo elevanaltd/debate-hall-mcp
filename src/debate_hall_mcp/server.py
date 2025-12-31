@@ -96,12 +96,21 @@ def create_server() -> FastMCP:
         )
 
     @server.tool()
-    def close_debate(thread_id: str, synthesis: str) -> dict[str, Any]:
-        """Finalize debate. synthesis:Door's final resolution→closes room."""
+    def close_debate(
+        thread_id: str,
+        synthesis: str,
+        output_format: str = "json",
+    ) -> dict[str, Any] | str:
+        """Finalize debate. synthesis:Door's final resolution->closes room.
+
+        Args:
+            output_format: 'json' (default), 'octave', or 'both'
+        """
         return debate_close(
             thread_id=thread_id,
             synthesis=synthesis,
             state_dir=DEFAULT_STATE_DIR,
+            output_format=output_format,  # type: ignore[arg-type]
         )
 
     @server.tool()
