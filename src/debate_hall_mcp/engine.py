@@ -5,6 +5,7 @@ This module implements:
 - Resource limit enforcement (I3: Finite Dialectic Closure)
 - Termination logic (synthesis, stalemate, exhaustion, force_close)
 - Debate state transitions
+- Synthesis validation (Issue #38: LOGOS semantics enforcement)
 
 Immutables Compliance:
 - I3 (FINITE_DIALECTIC_CLOSURE): Hard resource limits enforced
@@ -15,6 +16,11 @@ from datetime import UTC, datetime
 from enum import Enum
 
 from debate_hall_mcp.state import DebateMode, DebateRoom, DebateStatus, Turn
+from debate_hall_mcp.validation import CognitionValidator, ValidationResult
+
+# Minimum synthesis length for LOGOS validation (backward compat)
+# Short synthesis (<100 chars) skips validation to support existing closes
+MIN_SYNTHESIS_LENGTH_FOR_VALIDATION = 100
 
 
 class TerminationReason(str, Enum):
@@ -175,15 +181,22 @@ class DebateEngine:
         # Add to room
         self.room.turns.append(turn)
 
-    def close_debate(self, reason: TerminationReason, synthesis: str | None = None) -> None:
+    def close_debate(
+        self, reason: TerminationReason, synthesis: str | None = None
+    ) -> ValidationResult | None:
         """Close debate with specified termination reason.
 
         Args:
             reason: Why debate is ending
             synthesis: Final Door synthesis (required for SYNTHESIS reason)
 
+        Returns:
+            ValidationResult if synthesis was validated (SYNTHESIS reason only),
+            None for other termination reasons.
+
         Raises:
             ValueError: If debate already closed
+            ValueError: If synthesis fails validation in strict_cognition mode
 
         Side effects:
             - Updates room.status
@@ -193,6 +206,12 @@ class DebateEngine:
             raise ValueError(
                 f"Cannot close debate: already closed (status={self.room.status.value})"
             )
+
+        validation_result: ValidationResult | None = None
+
+        # Validate synthesis for SYNTHESIS termination (Issue #38)
+        if reason == TerminationReason.SYNTHESIS and synthesis is not None:
+            validation_result = self._validate_synthesis(synthesis)
 
         # Map termination reason to status
         status_map = {
@@ -206,3 +225,48 @@ class DebateEngine:
 
         if synthesis is not None:
             self.room.synthesis = synthesis
+
+        return validation_result
+
+    def _validate_synthesis(self, synthesis: str) -> ValidationResult:
+        """Validate synthesis content against LOGOS rules (Issue #38).
+
+        Synthesis is the final Door output and must follow LOGOS cognition:
+        - Numbered reasoning steps (BLOCK if missing in strict mode)
+        - Synthesis markers like TENSION, PATTERN, CLARITY (WARN if missing)
+
+        Backward compatibility: Short synthesis (<100 chars) skips validation.
+
+        Args:
+            synthesis: Synthesis content to validate
+
+        Returns:
+            ValidationResult with level and any violations/hints
+
+        Raises:
+            ValueError: If synthesis fails validation in strict_cognition mode
+        """
+        # Backward compatibility: short synthesis skips validation
+        if len(synthesis.strip()) < MIN_SYNTHESIS_LENGTH_FOR_VALIDATION:
+            if self.room.strict_cognition:
+                # In strict mode, even short synthesis must follow LOGOS rules
+                pass  # Fall through to validation
+            else:
+                # Non-strict: allow short synthesis without validation
+                return ValidationResult(level="PASS", violations=[], hints=[])
+
+        # Validate using LOGOS rules (Door cognition)
+        validator = CognitionValidator()
+        result = validator.validate(
+            role="Door",
+            content=synthesis,
+            cognition="LOGOS",
+            strict=self.room.strict_cognition,
+        )
+
+        # In strict mode, BLOCK-level violations raise ValueError
+        if self.room.strict_cognition and result.level == "BLOCK":
+            violations_str = "; ".join(result.violations)
+            raise ValueError(f"Synthesis validation failed: {violations_str}")
+
+        return result
