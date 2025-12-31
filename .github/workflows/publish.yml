@@ -122,12 +122,18 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Extract version (strip v prefix)
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "VERSION=${VERSION#v}" >> $GITHUB_OUTPUT
+
       - name: Wait for package to be available
         run: |
           # Wait up to 5 minutes for package to propagate
           for i in {1..30}; do
-            if pip index versions debate-hall-mcp | grep -q "${{ github.ref_name }}"; then
-              echo "Package version ${{ github.ref_name }} is available on PyPI"
+            if pip index versions debate-hall-mcp | grep -q "${{ steps.version.outputs.VERSION }}"; then
+              echo "Package version ${{ steps.version.outputs.VERSION }} is available on PyPI"
               exit 0
             fi
             echo "Waiting for package to be available (attempt $i/30)..."
@@ -138,7 +144,7 @@ jobs:
 
       - name: Install from PyPI
         run: |
-          pip install debate-hall-mcp==${{ github.ref_name }}
+          pip install debate-hall-mcp==${{ steps.version.outputs.VERSION }}
 
       - name: Verify installation
         run: |
@@ -157,6 +163,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Extract version (strip v prefix)
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "VERSION=${VERSION#v}" >> $GITHUB_OUTPUT
+
       - name: Update release notes
         uses: softprops/action-gh-release@v2
         with:
@@ -166,7 +178,7 @@ jobs:
 
             Install from PyPI:
             ```bash
-            pip install debate-hall-mcp==${{ github.ref_name }}
+            pip install debate-hall-mcp==${{ steps.version.outputs.VERSION }}
             ```
 
             ## Documentation
@@ -176,4 +188,4 @@ jobs:
 
             ## PyPI
 
-            View on PyPI: https://pypi.org/project/debate-hall-mcp/${{ github.ref_name }}/
+            View on PyPI: https://pypi.org/project/debate-hall-mcp/${{ steps.version.outputs.VERSION }}/
