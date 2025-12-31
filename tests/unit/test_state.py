@@ -587,3 +587,64 @@ class TestAtomicPersistence:
         # Verify original state is intact - no partial writes
         final_content = (state_dir / "partial-001.json").read_text()
         assert final_content == original_content
+
+
+class TestFileLocking:
+    """Tests for file-based concurrency control (Issue #48)."""
+
+    def test_save_creates_lock_file(self, tmp_path: Path) -> None:
+        """Save creates a .lock file for concurrency control."""
+        room = DebateRoom(
+            thread_id="lock-001",
+            topic="Lock Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "states"
+        state_dir.mkdir(parents=True)
+
+        save_debate_state(room, state_dir)
+
+        # Lock file should exist
+        lock_file = state_dir / "lock-001.lock"
+        assert lock_file.exists()
+
+    def test_load_creates_lock_file(self, tmp_path: Path) -> None:
+        """Load creates a .lock file for concurrency control."""
+        room = DebateRoom(
+            thread_id="lock-002",
+            topic="Lock Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "states"
+        state_dir.mkdir(parents=True)
+
+        save_debate_state(room, state_dir)
+
+        # Remove lock file manually to test load creates it
+        lock_file = state_dir / "lock-002.lock"
+        lock_file.unlink()
+        assert not lock_file.exists()
+
+        # Load should recreate lock file
+        load_debate_state("lock-002", state_dir)
+        assert lock_file.exists()
+
+    def test_multiple_saves_use_same_lock_file(self, tmp_path: Path) -> None:
+        """Multiple saves to same thread use same lock file."""
+        room = DebateRoom(
+            thread_id="lock-003",
+            topic="Lock Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "states"
+        state_dir.mkdir(parents=True)
+
+        # Save twice
+        save_debate_state(room, state_dir)
+        room.topic = "Updated Topic"
+        save_debate_state(room, state_dir)
+
+        # Only one lock file should exist
+        lock_files = list(state_dir.glob("*.lock"))
+        assert len(lock_files) == 1
+        assert lock_files[0].name == "lock-003.lock"

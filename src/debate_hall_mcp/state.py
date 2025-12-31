@@ -12,10 +12,12 @@ Immutables Compliance:
 """
 
 import contextlib
+import fcntl
 import hashlib
 import json
 import os
 import tempfile
+from collections.abc import Generator
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -209,6 +211,41 @@ def _validate_thread_id_for_filesystem(thread_id: str) -> None:
             raise ValueError(f"Invalid thread_id '{thread_id}': contains path-unsafe characters")
 
 
+@contextlib.contextmanager
+def _file_lock(lock_file: Path, exclusive: bool = True) -> Generator[None, None, None]:
+    """Context manager for file-based locking (Issue #48 - Concurrency Control).
+
+    Uses fcntl for POSIX advisory locking. Prevents race conditions when
+    multiple processes access the same debate state simultaneously.
+
+    Args:
+        lock_file: Path to the lock file (typically {thread_id}.lock)
+        exclusive: If True, acquire exclusive (write) lock. If False, shared (read) lock.
+
+    Yields:
+        None - lock is held for the duration of the context
+
+    Note:
+        Advisory locks only work if all processes use the same locking mechanism.
+        This is appropriate for debate-hall-mcp where all access goes through this module.
+    """
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create lock file if it doesn't exist
+    fd = os.open(str(lock_file), os.O_RDWR | os.O_CREAT)
+    try:
+        # Acquire lock (blocks until available)
+        lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        fcntl.flock(fd, lock_type)
+        try:
+            yield
+        finally:
+            # Release lock
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
 def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
     """Save debate room state to JSON file using atomic write pattern.
 
@@ -216,13 +253,17 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
 
     Format: Pydantic model JSON with hash chain preserved.
 
-    Atomic Write Pattern (Issue #39 - Crash Recovery):
-    1. Write to temporary file in the same directory
-    2. Call fsync() to ensure data is flushed to disk
-    3. Atomically rename temp file to final location (POSIX guarantees atomicity)
-    4. Clean up temp file on any failure
+    Concurrency Control (Issue #48):
+    Uses file-based locking to prevent race conditions during concurrent access.
 
-    This prevents data corruption from interrupted writes (power loss, crashes).
+    Atomic Write Pattern (Issue #39 - Crash Recovery):
+    1. Acquire exclusive file lock
+    2. Write to temporary file in the same directory
+    3. Call fsync() to ensure data is flushed to disk
+    4. Atomically rename temp file to final location
+    5. Release lock and clean up temp file on any failure
+
+    This prevents data corruption from interrupted writes and concurrent access.
 
     Security: Validates thread_id to prevent path traversal attacks.
 
@@ -235,28 +276,34 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
 
     state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / f"{room.thread_id}.json"
+    lock_file = state_dir / f"{room.thread_id}.lock"
 
-    # Create temp file in same directory (required for atomic rename on same filesystem)
-    fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
-    try:
-        # Write to temp file with fsync for durability
-        with os.fdopen(fd, "w") as f:
-            f.write(room.model_dump_json(indent=2))
-            f.flush()
-            os.fsync(f.fileno())  # Ensure data is on disk before rename
+    # Acquire exclusive lock for write operation
+    with _file_lock(lock_file, exclusive=True):
+        # Create temp file in same directory (required for atomic rename on same filesystem)
+        fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
+        try:
+            # Write to temp file with fsync for durability
+            with os.fdopen(fd, "w") as f:
+                f.write(room.model_dump_json(indent=2))
+                f.flush()
+                os.fsync(f.fileno())  # Ensure data is on disk before rename
 
-        # Atomic replace - works cross-platform (POSIX and Windows)
-        # os.replace is atomic on same filesystem and overwrites existing file
-        os.replace(tmp_path, str(state_file))
-    except Exception:
-        # Clean up temp file on any failure - preserve original file
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)  # May not exist if mkstemp failed
-        raise
+            # Atomic replace - works cross-platform (POSIX and Windows)
+            # os.replace is atomic on same filesystem and overwrites existing file
+            os.replace(tmp_path, str(state_file))
+        except Exception:
+            # Clean up temp file on any failure - preserve original file
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)  # May not exist if mkstemp failed
+            raise
 
 
 def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     """Load debate room state from JSON file.
+
+    Concurrency Control (Issue #48):
+    Uses shared file lock to allow concurrent reads but block during writes.
 
     Security: Validates thread_id to prevent path traversal attacks.
 
@@ -268,11 +315,13 @@ def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     _validate_thread_id_for_filesystem(thread_id)
 
     state_file = state_dir / f"{thread_id}.json"
+    lock_file = state_dir / f"{thread_id}.lock"
 
     if not state_file.exists():
         raise FileNotFoundError(f"No state file found for thread {thread_id}")
 
-    with open(state_file) as f:
+    # Acquire shared lock for read operation (allows concurrent reads, blocks writes)
+    with _file_lock(lock_file, exclusive=False), open(state_file) as f:
         data = json.load(f)
 
     return DebateRoom.model_validate(data)

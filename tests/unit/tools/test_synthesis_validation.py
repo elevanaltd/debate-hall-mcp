@@ -384,3 +384,21 @@ Resolution achieved.
         engine.close_debate(TerminationReason.FORCE_CLOSE, synthesis=None)
 
         assert room.status.value == "force_closed"
+
+    def test_engine_synthesis_termination_requires_synthesis(self) -> None:
+        """Engine.close_debate with SYNTHESIS reason requires synthesis content (Issue #49)."""
+        from debate_hall_mcp.engine import DebateEngine, TerminationReason
+        from debate_hall_mcp.state import DebateMode, DebateRoom
+
+        room = DebateRoom(
+            thread_id="2025-01-01-engine-synth-req-001",
+            topic="Test topic",
+            mode=DebateMode.FIXED,
+            strict_cognition=False,
+        )
+
+        engine = DebateEngine(room)
+
+        # Closing with SYNTHESIS reason but no synthesis should raise
+        with pytest.raises(ValueError, match="Synthesis content is required"):
+            engine.close_debate(TerminationReason.SYNTHESIS, synthesis=None)

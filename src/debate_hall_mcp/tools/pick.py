@@ -16,7 +16,8 @@ from typing import Any
 
 from debate_hall_mcp.state import DebateMode, DebateStatus, load_debate_state, save_debate_state
 
-VALID_ROLES = {"Wind", "Wall", "Door"}
+# Use tuple for deterministic ordering in error messages (Issue #50)
+VALID_ROLES = ("Wind", "Wall", "Door")
 
 
 def debate_pick(
