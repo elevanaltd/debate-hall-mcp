@@ -224,7 +224,7 @@ debate-hall-mcp is built on five unchangeable principles:
 
 ```bash
 # Clone and install
-git clone https://github.com/hestai/debate-hall-mcp
+git clone https://github.com/elevanaltd/debate-hall-mcp
 cd debate-hall-mcp
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"

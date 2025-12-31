@@ -43,10 +43,10 @@ dev = [
 debate-hall-mcp = "debate_hall_mcp.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/hestai/debate-hall-mcp"
-Documentation = "https://github.com/hestai/debate-hall-mcp#readme"
-Repository = "https://github.com/hestai/debate-hall-mcp.git"
-Issues = "https://github.com/hestai/debate-hall-mcp/issues"
+Homepage = "https://github.com/elevanaltd/debate-hall-mcp"
+Documentation = "https://github.com/elevanaltd/debate-hall-mcp#readme"
+Repository = "https://github.com/elevanaltd/debate-hall-mcp.git"
+Issues = "https://github.com/elevanaltd/debate-hall-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/debate_hall_mcp"]
