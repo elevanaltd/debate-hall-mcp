@@ -11,8 +11,11 @@ Immutables Compliance:
 - I4 (VERIFIABLE_EVENT_LEDGER): Append-only hash chain for turn history
 """
 
+import contextlib
 import hashlib
 import json
+import os
+import tempfile
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -170,16 +173,25 @@ def _validate_thread_id_for_filesystem(thread_id: str) -> None:
 
 
 def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
-    """Save debate room state to JSON file.
+    """Save debate room state to JSON file using atomic write pattern.
 
     File location: {state_dir}/{thread_id}.json
 
     Format: Pydantic model JSON with hash chain preserved.
 
+    Atomic Write Pattern (Issue #39 - Crash Recovery):
+    1. Write to temporary file in the same directory
+    2. Call fsync() to ensure data is flushed to disk
+    3. Atomically rename temp file to final location (POSIX guarantees atomicity)
+    4. Clean up temp file on any failure
+
+    This prevents data corruption from interrupted writes (power loss, crashes).
+
     Security: Validates thread_id to prevent path traversal attacks.
 
     Raises:
         ValueError: If thread_id contains path-unsafe characters
+        OSError: If atomic rename fails (original file preserved)
     """
     # Security: Validate thread_id before using in file path
     _validate_thread_id_for_filesystem(room.thread_id)
@@ -187,9 +199,22 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / f"{room.thread_id}.json"
 
-    # Serialize with Pydantic for proper datetime handling
-    with open(state_file, "w") as f:
-        f.write(room.model_dump_json(indent=2))
+    # Create temp file in same directory (required for atomic rename on same filesystem)
+    fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
+    try:
+        # Write to temp file with fsync for durability
+        with os.fdopen(fd, "w") as f:
+            f.write(room.model_dump_json(indent=2))
+            f.flush()
+            os.fsync(f.fileno())  # Ensure data is on disk before rename
+
+        # Atomic rename - POSIX guarantees this is atomic on same filesystem
+        os.rename(tmp_path, str(state_file))
+    except Exception:
+        # Clean up temp file on any failure - preserve original file
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)  # May not exist if mkstemp failed
+        raise
 
 
 def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
