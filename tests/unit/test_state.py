@@ -397,13 +397,13 @@ class TestAtomicPersistence:
 
         # Track calls to os.rename
         rename_calls: list[tuple[str, str]] = []
-        original_rename = os.rename
+        original_replace = os.replace
 
-        def tracking_rename(src: str, dst: str) -> None:
+        def tracking_replace(src: str, dst: str) -> None:
             rename_calls.append((src, dst))
-            original_rename(src, dst)
+            original_replace(src, dst)
 
-        monkeypatch.setattr("os.rename", tracking_rename)
+        monkeypatch.setattr("os.replace", tracking_replace)
 
         save_debate_state(room, state_dir)
 
@@ -573,13 +573,13 @@ class TestAtomicPersistence:
         save_debate_state(existing_room, state_dir)
         original_content = (state_dir / "partial-001.json").read_text()
 
-        # Make rename fail to simulate crash after write but before commit
-        def failing_rename(src: str, _dst: str) -> None:
+        # Make replace fail to simulate crash after write but before commit
+        def failing_replace(src: str, _dst: str) -> None:
             # Clean up temp file as the real implementation should
             Path(src).unlink(missing_ok=True)
             raise OSError("Simulated crash during rename")
 
-        monkeypatch.setattr("os.rename", failing_rename)
+        monkeypatch.setattr("os.replace", failing_replace)
 
         with pytest.raises(OSError, match="Simulated crash during rename"):
             save_debate_state(room, state_dir)

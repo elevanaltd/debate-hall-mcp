@@ -245,8 +245,9 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
             f.flush()
             os.fsync(f.fileno())  # Ensure data is on disk before rename
 
-        # Atomic rename - POSIX guarantees this is atomic on same filesystem
-        os.rename(tmp_path, str(state_file))
+        # Atomic replace - works cross-platform (POSIX and Windows)
+        # os.replace is atomic on same filesystem and overwrites existing file
+        os.replace(tmp_path, str(state_file))
     except Exception:
         # Clean up temp file on any failure - preserve original file
         with contextlib.suppress(OSError):
