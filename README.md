@@ -61,7 +61,7 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 ```
 User: Use init_debate to start a debate about whether to rewrite our backend in Rust
 
-Claude: [calls init_debate with thread_id="2025-01-01-rust-rewrite", topic="Should we rewrite our backend in Rust?"]
+Claude: [calls init_debate with thread_id="rust-rewrite", topic="Should we rewrite our backend in Rust?"]
 ```
 
 ### 3. Run the Dialectic
@@ -86,7 +86,7 @@ Client (Claude/Agent)
 | `init_debate` | `thread_id`, `topic`, `mode?`, `max_turns?`, `max_rounds?`, `strict_cognition?` | Create new debate |
 | `add_turn` | `thread_id`, `role`, `content`, `cognition?` | Record a turn |
 | `get_debate` | `thread_id`, `include_transcript?`, `context_lines?` | View state and transcript |
-| `close_debate` | `thread_id`, `synthesis`, `output_format?` | Finalize with synthesis |
+| `close_debate` | `thread_id`, `synthesis`, `output_format?` | Finalize with synthesis (json/octave/both) |
 
 ### Mediated Mode Tools
 
@@ -125,15 +125,33 @@ Use for: Dynamic debates, breaking deadlocks, skipping roles when appropriate.
 
 ## Persistence
 
-State is held **in-memory** by default. Debates do not survive server restart.
+Debates are persisted in `./debates/` with a dual-format strategy:
 
-| Aspect | Current | Future |
-|--------|---------|--------|
-| Storage | In-memory dict | Pluggable backends |
-| Survival | Lost on restart | Configurable persistence |
-| Export | Via `close_debate` | OCTAVE transcript files |
+| Format | Pattern | Git Status | Purpose |
+|--------|---------|------------|---------|
+| **JSON** | `{thread_id}.json` | Gitignored | Working state, survives restarts |
+| **OCTAVE** | `{thread_id}.oct.md` | Committed | Permanent record, decision artifact |
 
-For production use requiring persistence, export transcripts on close or implement a custom storage backend.
+### Dual-Format Lifecycle
+
+1. **During debate**: State saved to `{thread_id}.json` (ephemeral working file)
+2. **On close**: Use `output_format='octave'` or `'both'` to generate `.oct.md` transcript
+3. **After close**: JSON files can be deleted; OCTAVE files are the permanent record
+
+### Gitignore Pattern
+
+JSON files are gitignored; OCTAVE transcripts are committed:
+
+```gitignore
+# JSON files are ephemeral, OCTAVE transcripts are committed
+debates/*.json
+```
+
+This pattern applies consistently across HestAI:
+- `debates/*.json` → gitignored (working state)
+- `debates/*.oct.md` → committed (decision records)
+- `.hestai/sessions/archive/*.jsonl` → gitignored (raw logs)
+- `.hestai/sessions/archive/*.oct.md` → committed (compressed sessions)
 
 ## Resource Limits (I3 Immutable)
 
