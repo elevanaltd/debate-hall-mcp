@@ -9,12 +9,33 @@ Note: This tool is only valid for mediated mode debates.
 In fixed mode, role sequence is automatic (Wind->Wall->Door).
 
 Issue #37: Now persists expected_next_role for enforcement in debate_turn.
+Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
 """
 
+import os
 from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.state import DebateMode, DebateStatus, load_debate_state, save_debate_state
+
+# Environment variable for state directory (Issue #33)
+STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
+DEFAULT_STATE_DIR = Path("./debates")
+
+
+def get_state_dir() -> Path:
+    """Get state directory from environment or use default.
+
+    Returns:
+        Path to state directory. Uses DEBATE_HALL_STATE_DIR env var if set
+        and non-empty, otherwise falls back to ./debates for backwards
+        compatibility.
+    """
+    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
+    if env_value:
+        return Path(env_value)
+    return DEFAULT_STATE_DIR
+
 
 # Use tuple for deterministic ordering in error messages (Issue #50)
 VALID_ROLES = ("Wind", "Wall", "Door")
@@ -51,9 +72,9 @@ def debate_pick(
     if role not in VALID_ROLES:
         raise ValueError(f"Invalid role: {role}. Must be one of {', '.join(VALID_ROLES)}")
 
-    # Default state directory
+    # Default state directory (Issue #33: env var support)
     if state_dir is None:
-        state_dir = Path("./debates")
+        state_dir = get_state_dir()
 
     # Load state
     room = load_debate_state(thread_id, state_dir)

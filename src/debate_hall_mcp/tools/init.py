@@ -8,14 +8,36 @@ TDD: Implements minimal functionality to pass tests.
 
 Issue #30: Thread IDs must use date-first format (YYYY-MM-DD-subject)
 for chronological sorting and HestAI ecosystem alignment.
+
+Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
 """
 
+import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.state import DebateMode, DebateRoom, save_debate_state
+
+# Environment variable for state directory (Issue #33)
+STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
+DEFAULT_STATE_DIR = Path("./debates")
+
+
+def get_state_dir() -> Path:
+    """Get state directory from environment or use default.
+
+    Returns:
+        Path to state directory. Uses DEBATE_HALL_STATE_DIR env var if set
+        and non-empty, otherwise falls back to ./debates for backwards
+        compatibility.
+    """
+    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
+    if env_value:
+        return Path(env_value)
+    return DEFAULT_STATE_DIR
+
 
 # Pattern for date-first thread_id: YYYY-MM-DD-subject
 # Subject must start with alphanumeric, followed by alphanumeric, hyphens, underscores, or single dots
@@ -117,9 +139,9 @@ def debate_init(
     if mode not in ("fixed", "mediated"):
         raise ValueError(f"Invalid mode: {mode}. Must be 'fixed' or 'mediated'")
 
-    # Default state directory
+    # Default state directory (Issue #33: env var support)
     if state_dir is None:
-        state_dir = Path("./debates")
+        state_dir = get_state_dir()
 
     # Check if thread already exists
     state_file = state_dir / f"{thread_id}.json"

@@ -7,14 +7,34 @@ Immutables Compliance:
 TDD: Implements minimal functionality to pass tests.
 
 Issue #37: Enforces expected_next_role in mediated mode.
+Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
 """
 
+import os
 from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.engine import DebateEngine, get_next_speaker
 from debate_hall_mcp.state import DebateMode, load_debate_state, save_debate_state
 from debate_hall_mcp.validation import CognitionValidator
+
+# Environment variable for state directory (Issue #33)
+STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
+DEFAULT_STATE_DIR = Path("./debates")
+
+
+def get_state_dir() -> Path:
+    """Get state directory from environment or use default.
+
+    Returns:
+        Path to state directory. Uses DEBATE_HALL_STATE_DIR env var if set
+        and non-empty, otherwise falls back to ./debates for backwards
+        compatibility.
+    """
+    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
+    if env_value:
+        return Path(env_value)
+    return DEFAULT_STATE_DIR
 
 
 def debate_turn(
@@ -53,9 +73,9 @@ def debate_turn(
         Cognition enforcement mode (strict_cognition) is set at room creation time,
         not per-turn. This prevents callers from bypassing the behavioral firewall.
     """
-    # Default state directory
+    # Default state directory (Issue #33: env var support)
     if state_dir is None:
-        state_dir = Path("./debates")
+        state_dir = get_state_dir()
 
     # Load state
     room = load_debate_state(thread_id, state_dir)
