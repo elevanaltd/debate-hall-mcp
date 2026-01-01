@@ -283,16 +283,62 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
             raise
 
 
+def _verify_hash_chain_links(turns: list[Turn]) -> None:
+    """Verify hash chain link integrity (Issue #58).
+
+    Checks that each turn's previous_hash matches the prior turn's hash.
+    This is a LINK verification only - does NOT re-compute content hashes.
+
+    Critical for tombstone compatibility: Tombstoned turns have different
+    content but preserve their original hash. Re-computing would break
+    the chain for redacted turns.
+
+    Args:
+        turns: List of Turn objects to verify
+
+    Raises:
+        ValueError: If hash chain is broken with clear diagnostic message
+    """
+    if not turns:
+        return  # Empty chain is valid
+
+    # First turn must have null/empty previous_hash
+    first_turn = turns[0]
+    if first_turn.previous_hash is not None and first_turn.previous_hash != "":
+        raise ValueError(
+            f"Hash chain integrity error: First turn (index 0) has non-null previous_hash. "
+            f"Expected: None/empty, Found: {first_turn.previous_hash[:16]}..."
+        )
+
+    # Verify each subsequent turn links to prior turn
+    for i in range(1, len(turns)):
+        current_turn = turns[i]
+        prior_turn = turns[i - 1]
+
+        if current_turn.previous_hash != prior_turn.hash:
+            raise ValueError(
+                f"Hash chain integrity error at turn index {i}: "
+                f"previous_hash does not match prior turn's hash. "
+                f"Expected: {prior_turn.hash[:16]}..., "
+                f"Found: {current_turn.previous_hash[:16] if current_turn.previous_hash else 'None'}..."
+            )
+
+
 def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     """Load debate room state from JSON file.
 
     Concurrency Control (Issue #48):
     Uses shared file lock to allow concurrent reads but block during writes.
 
+    Hash Chain Verification (Issue #58):
+    Verifies hash chain link integrity on load. Fails fast with clear error
+    if chain is broken. Only verifies LINKS (previous_hash continuity),
+    does NOT re-compute content hashes (tombstone compatibility).
+
     Security: Validates thread_id to prevent path traversal attacks.
 
     Raises:
-        ValueError: If thread_id contains path-unsafe characters
+        ValueError: If thread_id contains path-unsafe characters or hash chain broken
         FileNotFoundError: If state file doesn't exist.
     """
     # Security: Validate thread_id before using in file path
@@ -309,4 +355,9 @@ def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     with _get_file_lock(lock_file), open(state_file) as f:
         data = json.load(f)
 
-    return DebateRoom.model_validate(data)
+    room = DebateRoom.model_validate(data)
+
+    # Verify hash chain integrity (Issue #58)
+    _verify_hash_chain_links(room.turns)
+
+    return room
