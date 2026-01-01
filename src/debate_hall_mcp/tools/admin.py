@@ -6,9 +6,12 @@ Immutables Compliance:
 - Issue #40: Audit trail and tombstone context preservation
 
 TDD: Implements minimal functionality to pass tests.
+
+Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
 """
 
 import hashlib
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +23,24 @@ from debate_hall_mcp.state import (
     load_debate_state,
     save_debate_state,
 )
+
+# Environment variable for state directory (Issue #33)
+STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
+DEFAULT_STATE_DIR = Path("./debates")
+
+
+def get_state_dir() -> Path:
+    """Get state directory from environment or use default.
+
+    Returns:
+        Path to state directory. Uses DEBATE_HALL_STATE_DIR env var if set
+        and non-empty, otherwise falls back to ./debates for backwards
+        compatibility.
+    """
+    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
+    if env_value:
+        return Path(env_value)
+    return DEFAULT_STATE_DIR
 
 
 def debate_force_close(
@@ -46,9 +67,9 @@ def debate_force_close(
     Raises:
         FileNotFoundError: If thread doesn't exist
     """
-    # Default state directory
+    # Default state directory (Issue #33: env var support)
     if state_dir is None:
-        state_dir = Path("./debates")
+        state_dir = get_state_dir()
 
     # Load state
     room = load_debate_state(thread_id, state_dir)
@@ -104,9 +125,9 @@ def debate_tombstone(
         FileNotFoundError: If thread doesn't exist
         ValueError: If turn_index is invalid
     """
-    # Default state directory
+    # Default state directory (Issue #33: env var support)
     if state_dir is None:
-        state_dir = Path("./debates")
+        state_dir = get_state_dir()
 
     # Load state
     room = load_debate_state(thread_id, state_dir)

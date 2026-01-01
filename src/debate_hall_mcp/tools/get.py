@@ -6,14 +6,36 @@ Difference: include_transcript parameter controls transcript inclusion.
 Immutables Compliance:
 - I1 (COGNITIVE_STATE_ISOLATION): State managed exclusively in Hall server
 - I3 (FINITE_DIALECTIC_CLOSURE): Resource limits visible
+
+Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
 """
 
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.engine import get_next_speaker
 from debate_hall_mcp.state import DebateStatus, load_debate_state
+
+# Environment variable for state directory (Issue #33)
+STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
+DEFAULT_STATE_DIR = Path("./debates")
+
+
+def get_state_dir() -> Path:
+    """Get state directory from environment or use default.
+
+    Returns:
+        Path to state directory. Uses DEBATE_HALL_STATE_DIR env var if set
+        and non-empty, otherwise falls back to ./debates for backwards
+        compatibility.
+    """
+    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
+    if env_value:
+        return Path(env_value)
+    return DEFAULT_STATE_DIR
+
 
 # View-layer only: never stored in DB, never affects hash chain
 OCTAVE_PREAMBLE_CONTENT = """===PROTOCOL===
@@ -47,8 +69,9 @@ def debate_get(
     Raises:
         FileNotFoundError: If thread doesn't exist
     """
+    # Default state directory (Issue #33: env var support)
     if state_dir is None:
-        state_dir = Path("./debates")
+        state_dir = get_state_dir()
 
     room = load_debate_state(thread_id, state_dir)
 

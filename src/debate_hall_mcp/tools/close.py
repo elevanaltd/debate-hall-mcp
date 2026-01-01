@@ -14,14 +14,36 @@ Issue #38: Synthesis semantics validation
 Issue #29: OCTAVE auto-generate on close
 - output_format parameter: 'json' (default), 'octave', 'both'
 - Generates compressed OCTAVE transcript representation
+
+Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
 """
 
+import os
 from pathlib import Path
 from typing import Any, Literal
 
 from debate_hall_mcp.engine import DebateEngine, TerminationReason
 from debate_hall_mcp.octave_formatter import format_debate_as_octave
 from debate_hall_mcp.state import load_debate_state, save_debate_state
+
+# Environment variable for state directory (Issue #33)
+STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
+DEFAULT_STATE_DIR = Path("./debates")
+
+
+def get_state_dir() -> Path:
+    """Get state directory from environment or use default.
+
+    Returns:
+        Path to state directory. Uses DEBATE_HALL_STATE_DIR env var if set
+        and non-empty, otherwise falls back to ./debates for backwards
+        compatibility.
+    """
+    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
+    if env_value:
+        return Path(env_value)
+    return DEFAULT_STATE_DIR
+
 
 # Valid output format values
 OutputFormat = Literal["json", "octave", "both"]
@@ -68,9 +90,9 @@ def debate_close(
             f"Invalid output_format '{output_format}'. Must be one of: {valid_formats}"
         )
 
-    # Default state directory
+    # Default state directory (Issue #33: env var support)
     if state_dir is None:
-        state_dir = Path("./debates")
+        state_dir = get_state_dir()
 
     # Load state
     room = load_debate_state(thread_id, state_dir)
