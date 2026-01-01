@@ -59,9 +59,9 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 ### 2. Start a Debate
 
 ```
-User: Use init_debate to start a debate about whether to rewrite our backend in Rust
+User: Use debate_init to start a debate about whether to rewrite our backend in Rust
 
-Claude: [calls init_debate with thread_id="2025-01-01-rust-rewrite", topic="Should we rewrite our backend in Rust?"]
+Claude: [calls debate_init with thread_id="rust-rewrite", topic="Should we rewrite our backend in Rust?"]
 ```
 
 ### 3. Run the Dialectic
@@ -70,11 +70,11 @@ In **fixed mode**, the sequence is automatic: Wind → Wall → Door → (repeat
 
 ```
 Client (Claude/Agent)
-  ├── init_debate(topic)      → creates debate room
-  ├── get_debate()            → view state and next speaker
-  ├── [generates content]     → add_turn(role, content)
+  ├── debate_init(topic)      → creates debate room
+  ├── debate_next()           → receives "You are WIND..."
+  ├── [generates content]     → debate_turn(role, content)
   ├── [repeat for Wall, Door]
-  └── close_debate(synthesis) → finalizes with decision
+  └── debate_close(synthesis) → finalizes with decision
 ```
 
 ## MCP Tools
@@ -83,23 +83,24 @@ Client (Claude/Agent)
 
 | Tool | Parameters | Purpose |
 |------|------------|---------|
-| `init_debate` | `thread_id`, `topic`, `mode?`, `max_turns?`, `max_rounds?`, `strict_cognition?` | Create new debate |
-| `add_turn` | `thread_id`, `role`, `content`, `cognition?` | Record a turn |
-| `get_debate` | `thread_id`, `include_transcript?`, `context_lines?` | View state and transcript |
-| `close_debate` | `thread_id`, `synthesis`, `output_format?` | Finalize with synthesis |
+| `debate_init` | `thread_id`, `topic`, `mode?`, `max_turns?`, `max_rounds?` | Create new debate |
+| `debate_turn` | `thread_id`, `role`, `content` | Record a turn |
+| `debate_next` | `thread_id`, `context_lines?` | Get prompt for next role |
+| `debate_status` | `thread_id` | View current state |
+| `debate_close` | `thread_id`, `synthesis`, `output_format?` | Finalize with synthesis (json/octave/both) |
 
 ### Mediated Mode Tools
 
 | Tool | Parameters | Purpose |
 |------|------------|---------|
-| `pick_next_speaker` | `thread_id`, `role` | Set next speaker (mediated mode only) |
+| `debate_pick` | `thread_id`, `role` | Override next role (mediated mode only) |
 
 ### Admin Tools
 
 | Tool | Parameters | Purpose |
 |------|------------|---------|
-| `force_close_debate` | `thread_id`, `reason` | Emergency shutdown (I5 kill switch) |
-| `tombstone_turn` | `thread_id`, `turn_index`, `reason` | Redact turn (preserves hash chain) |
+| `debate_force_close` | `thread_id`, `reason` | Emergency shutdown (I5 kill switch) |
+| `debate_tombstone` | `thread_id`, `turn_index`, `reason` | Redact turn (preserves hash chain) |
 
 ## Modes
 
@@ -125,15 +126,33 @@ Use for: Dynamic debates, breaking deadlocks, skipping roles when appropriate.
 
 ## Persistence
 
-State is held **in-memory** by default. Debates do not survive server restart.
+Debates are persisted in `./debates/` with a dual-format strategy:
 
-| Aspect | Current | Future |
-|--------|---------|--------|
-| Storage | In-memory dict | Pluggable backends |
-| Survival | Lost on restart | Configurable persistence |
-| Export | Via `close_debate` | OCTAVE transcript files |
+| Format | Pattern | Git Status | Purpose |
+|--------|---------|------------|---------|
+| **JSON** | `{thread_id}.json` | Gitignored | Working state, survives restarts |
+| **OCTAVE** | `{thread_id}.oct.md` | Committed | Permanent record, decision artifact |
 
-For production use requiring persistence, export transcripts on close or implement a custom storage backend.
+### Dual-Format Lifecycle
+
+1. **During debate**: State saved to `{thread_id}.json` (ephemeral working file)
+2. **On close**: Use `output_format='octave'` or `'both'` to generate `.oct.md` transcript
+3. **After close**: JSON files can be deleted; OCTAVE files are the permanent record
+
+### Gitignore Pattern
+
+JSON files are gitignored; OCTAVE transcripts are committed:
+
+```gitignore
+# JSON files are ephemeral, OCTAVE transcripts are committed
+debates/*.json
+```
+
+This pattern applies consistently across HestAI:
+- `debates/*.json` → gitignored (working state)
+- `debates/*.oct.md` → committed (decision records)
+- `.hestai/sessions/archive/*.jsonl` → gitignored (raw logs)
+- `.hestai/sessions/archive/*.oct.md` → committed (compressed sessions)
 
 ## Resource Limits (I3 Immutable)
 
