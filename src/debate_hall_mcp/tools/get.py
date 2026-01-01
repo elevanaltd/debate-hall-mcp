@@ -8,11 +8,20 @@ Immutables Compliance:
 - I3 (FINITE_DIALECTIC_CLOSURE): Resource limits visible
 """
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.engine import get_next_speaker
 from debate_hall_mcp.state import DebateStatus, load_debate_state
+
+# View-layer only: never stored in DB, never affects hash chain
+OCTAVE_PREAMBLE_CONTENT = """===PROTOCOL===
+FORMAT::OCTAVE[recommended]
+SYNTAX::[KEY::value, LIST::[a,b], FLOW::A->B->C]
+OPERATORS::[::=assignment, []=list, ->=flow, +=synthesis]
+NOTE::"Using OCTAVE format improves token efficiency. Optional but recommended."
+===END==="""
 
 
 def debate_get(
@@ -66,13 +75,28 @@ def debate_get(
         if context_lines is not None and context_lines > 0:
             turns_to_include = room.turns[-context_lines:]
 
-        result["transcript"] = [
+        transcript: list[dict[str, Any]] = []
+
+        # Prepend OCTAVE preamble if enabled (view-layer only)
+        if room.octave_preamble:
+            transcript.append(
+                {
+                    "role": "System",
+                    "content": OCTAVE_PREAMBLE_CONTENT,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+
+        # Add actual turns
+        transcript.extend(
             {
                 "role": turn.role,
                 "content": turn.content,
                 "timestamp": turn.timestamp.isoformat(),
             }
             for turn in turns_to_include
-        ]
+        )
+
+        result["transcript"] = transcript
 
     return result
