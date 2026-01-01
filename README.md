@@ -59,9 +59,9 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 ### 2. Start a Debate
 
 ```
-User: Use debate_init to start a debate about whether to rewrite our backend in Rust
+User: Use init_debate to start a debate about whether to rewrite our backend in Rust
 
-Claude: [calls debate_init with thread_id="rust-rewrite", topic="Should we rewrite our backend in Rust?"]
+Claude: [calls init_debate with thread_id="2025-01-01-rust-rewrite", topic="Should we rewrite our backend in Rust?"]
 ```
 
 ### 3. Run the Dialectic
@@ -71,7 +71,7 @@ In **fixed mode**, the sequence is automatic: Wind → Wall → Door → (repeat
 ```
 Client (Claude/Agent)
   ├── init_debate(topic)      → creates debate room
-  ├── get_next_prompt()       → receives "You are WIND..."
+  ├── get_debate()            → view state and next speaker
   ├── [generates content]     → add_turn(role, content)
   ├── [repeat for Wall, Door]
   └── close_debate(synthesis) → finalizes with decision
@@ -83,24 +83,23 @@ Client (Claude/Agent)
 
 | Tool | Parameters | Purpose |
 |------|------------|---------|
-| `debate_init` | `thread_id`, `topic`, `mode?`, `max_turns?`, `max_rounds?` | Create new debate |
-| `debate_turn` | `thread_id`, `role`, `content` | Record a turn |
-| `debate_next` | `thread_id`, `context_lines?` | Get prompt for next role |
-| `debate_status` | `thread_id` | View current state |
-| `debate_close` | `thread_id`, `synthesis` | Finalize with synthesis |
+| `init_debate` | `thread_id`, `topic`, `mode?`, `max_turns?`, `max_rounds?`, `strict_cognition?` | Create new debate |
+| `add_turn` | `thread_id`, `role`, `content`, `cognition?` | Record a turn |
+| `get_debate` | `thread_id`, `include_transcript?`, `context_lines?` | View state and transcript |
+| `close_debate` | `thread_id`, `synthesis`, `output_format?` | Finalize with synthesis |
 
 ### Mediated Mode Tools
 
 | Tool | Parameters | Purpose |
 |------|------------|---------|
-| `debate_pick` | `thread_id`, `role` | Override next role (mediated mode only) |
+| `pick_next_speaker` | `thread_id`, `role` | Set next speaker (mediated mode only) |
 
 ### Admin Tools
 
 | Tool | Parameters | Purpose |
 |------|------------|---------|
-| `debate_force_close` | `thread_id`, `reason` | Emergency shutdown (I5 kill switch) |
-| `debate_tombstone` | `thread_id`, `turn_index`, `reason` | Redact turn (preserves hash chain) |
+| `force_close_debate` | `thread_id`, `reason` | Emergency shutdown (I5 kill switch) |
+| `tombstone_turn` | `thread_id`, `turn_index`, `reason` | Redact turn (preserves hash chain) |
 
 ## Modes
 

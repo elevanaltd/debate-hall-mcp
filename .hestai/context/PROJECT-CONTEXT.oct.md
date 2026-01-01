@@ -77,8 +77,7 @@ SOURCE_CODE::[
   src/debate_hall_mcp/tools/__init__.py,
   src/debate_hall_mcp/tools/init.py,
   src/debate_hall_mcp/tools/turn.py,
-  src/debate_hall_mcp/tools/next.py,
-  src/debate_hall_mcp/tools/status.py,
+  src/debate_hall_mcp/tools/get.py,
   src/debate_hall_mcp/tools/close.py,
   src/debate_hall_mcp/tools/pick.py,
   src/debate_hall_mcp/tools/admin.py
@@ -93,8 +92,7 @@ TESTS::[
   tests/unit/test_server.py,
   tests/unit/tools/test_init.py,
   tests/unit/tools/test_turn.py,
-  tests/unit/tools/test_next.py,
-  tests/unit/tools/test_status.py,
+  tests/unit/tools/test_get.py,
   tests/unit/tools/test_close.py,
   tests/unit/tools/test_pick.py,
   tests/unit/tools/test_admin.py,
@@ -121,20 +119,19 @@ GOVERNANCE::[
 §6::MCP_TOOLS_SUMMARY
 
 CORE_TOOLS::[
-  debate_init::create_debate_room,
-  debate_turn::record_agent_turn,
-  debate_next::get_next_speaker_prompt,
-  debate_status::view_debate_state,
-  debate_close::finalize_with_synthesis
+  init_debate::create_debate_room,
+  add_turn::record_agent_turn,
+  get_debate::view_state_and_transcript,
+  close_debate::finalize_with_synthesis
 ]
 
 MEDIATED_TOOLS::[
-  debate_pick::set_next_speaker
+  pick_next_speaker::set_next_speaker
 ]
 
 ADMIN_TOOLS::[
-  debate_force_close::I5_kill_switch,
-  debate_tombstone::I4_redaction
+  force_close_debate::I5_kill_switch,
+  tombstone_turn::I4_redaction
 ]
 
 §7::META_VALIDATION

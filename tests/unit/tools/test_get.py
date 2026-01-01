@@ -104,6 +104,7 @@ class TestDebateGetWithTranscript:
             thread_id="2025-01-01-test-transcript-1",
             topic="Test",
             mode="fixed",
+            octave_preamble=False,  # Disable to test core transcript
             state_dir=tmp_path,
         )
         debate_turn(
@@ -131,6 +132,7 @@ class TestDebateGetWithTranscript:
             thread_id="2025-01-01-test-context-1",
             topic="Test",
             mode="fixed",
+            octave_preamble=False,  # Disable to test context_lines logic
             state_dir=tmp_path,
         )
         # Add 3 turns
@@ -154,11 +156,12 @@ class TestDebateGetWithTranscript:
         assert result["transcript"][1]["role"] == "Door"
 
     def test_debate_get_empty_transcript(self, tmp_path: Path) -> None:
-        """Transcript is empty list for new debate."""
+        """Transcript is empty list for new debate (with preamble disabled)."""
         debate_init(
             thread_id="2025-01-01-test-empty-1",
             topic="Test",
             mode="fixed",
+            octave_preamble=False,  # Disable to test empty state
             state_dir=tmp_path,
         )
 
@@ -184,3 +187,97 @@ class TestDebateGetWithTranscript:
 
         assert result["max_turns"] == 20
         assert result["max_rounds"] == 5
+
+
+class TestDebateGetOctavePreamble:
+    """Tests for OCTAVE preamble in transcript (view-layer only)."""
+
+    def test_octave_preamble_prepended_when_enabled(self, tmp_path: Path) -> None:
+        """Preamble is prepended to transcript when octave_preamble=True."""
+        debate_init(
+            thread_id="2025-01-01-test-preamble-1",
+            topic="Test",
+            mode="fixed",
+            octave_preamble=True,  # Explicit (also default)
+            state_dir=tmp_path,
+        )
+        debate_turn(
+            thread_id="2025-01-01-test-preamble-1",
+            role="Wind",
+            content="Test content",
+            state_dir=tmp_path,
+        )
+
+        result = debate_get(
+            thread_id="2025-01-01-test-preamble-1",
+            include_transcript=True,
+            state_dir=tmp_path,
+        )
+
+        assert len(result["transcript"]) == 2
+        assert result["transcript"][0]["role"] == "System"
+        assert "===PROTOCOL===" in result["transcript"][0]["content"]
+        assert "FORMAT::OCTAVE" in result["transcript"][0]["content"]
+        assert result["transcript"][1]["role"] == "Wind"
+
+    def test_octave_preamble_not_present_when_disabled(self, tmp_path: Path) -> None:
+        """Preamble is NOT added when octave_preamble=False."""
+        debate_init(
+            thread_id="2025-01-01-test-preamble-2",
+            topic="Test",
+            mode="fixed",
+            octave_preamble=False,
+            state_dir=tmp_path,
+        )
+        debate_turn(
+            thread_id="2025-01-01-test-preamble-2",
+            role="Wind",
+            content="Test content",
+            state_dir=tmp_path,
+        )
+
+        result = debate_get(
+            thread_id="2025-01-01-test-preamble-2",
+            include_transcript=True,
+            state_dir=tmp_path,
+        )
+
+        assert len(result["transcript"]) == 1
+        assert result["transcript"][0]["role"] == "Wind"
+
+    def test_octave_preamble_appears_for_empty_debate(self, tmp_path: Path) -> None:
+        """Preamble appears even with no turns when enabled."""
+        debate_init(
+            thread_id="2025-01-01-test-preamble-3",
+            topic="Test",
+            mode="fixed",
+            octave_preamble=True,
+            state_dir=tmp_path,
+        )
+
+        result = debate_get(
+            thread_id="2025-01-01-test-preamble-3",
+            include_transcript=True,
+            state_dir=tmp_path,
+        )
+
+        assert len(result["transcript"]) == 1
+        assert result["transcript"][0]["role"] == "System"
+
+    def test_octave_preamble_not_included_without_transcript(self, tmp_path: Path) -> None:
+        """Preamble is NOT added when include_transcript=False."""
+        debate_init(
+            thread_id="2025-01-01-test-preamble-4",
+            topic="Test",
+            mode="fixed",
+            octave_preamble=True,
+            state_dir=tmp_path,
+        )
+
+        result = debate_get(
+            thread_id="2025-01-01-test-preamble-4",
+            include_transcript=False,
+            state_dir=tmp_path,
+        )
+
+        assert "transcript" not in result
