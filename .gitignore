@@ -74,6 +74,8 @@ venv.bak/
 
 # HestAI (per ADR-0046: velocity-layered-fragments)
 .hestai/sessions/active/
+.hestai/sessions/archive/*.json
+.hestai/sessions/archive/*.jsonl
 .hestai/.hestai-state-*
 .hestai/last_cleanup
 
