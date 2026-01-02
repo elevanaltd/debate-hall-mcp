@@ -1,5 +1,7 @@
 # debate-hall-mcp
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 Production-grade MCP server for Wind/Wall/Door multi-perspective debate orchestration.
 
 > A deterministic crucible where subjective cognitive friction is transmuted into objective structural truth through finite, governed, and verifiable dialectic.
@@ -292,7 +294,7 @@ debate-hall-mcp/
 
 ## License
 
-MIT
+Apache-2.0
 
 ---
 

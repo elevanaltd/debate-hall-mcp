@@ -7,7 +7,7 @@ name = "debate-hall-mcp"
 version = "0.1.1"
 description = "Production-grade MCP server for Wind/Wall/Door multi-perspective debate orchestration"
 readme = "README.md"
-license = "MIT"
+license = {text = "Apache-2.0"}
 requires-python = ">=3.11"
 authors = [
     { name = "HestAI", email = "dev@hestai.com" }
@@ -16,7 +16,7 @@ keywords = ["mcp", "debate", "wind-wall-door", "ai", "orchestration", "pathos", 
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
