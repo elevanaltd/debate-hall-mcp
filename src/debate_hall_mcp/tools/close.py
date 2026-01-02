@@ -53,7 +53,7 @@ def debate_close(
     thread_id: str,
     synthesis: str,
     state_dir: Path | None = None,
-    output_format: OutputFormat = "json",
+    output_format: OutputFormat | None = None,
 ) -> dict[str, Any] | str:
     """Close debate with final synthesis.
 
@@ -65,7 +65,9 @@ def debate_close(
         thread_id: Thread identifier
         synthesis: Final Door synthesis content
         state_dir: Directory for state files (defaults to ./debates)
-        output_format: Output format - 'json' (default), 'octave', or 'both'
+        output_format: Output format - 'json', 'octave', or 'both'.
+            If not specified, defaults to 'octave' when octave_mode=True,
+            otherwise 'json' (Issue #26)
 
     Returns:
         Depends on output_format:
@@ -83,9 +85,9 @@ def debate_close(
     if not synthesis or not synthesis.strip():
         raise ValueError("Synthesis required for debate close")
 
-    # Validate output_format
+    # Validate output_format if explicitly provided
     valid_formats = ("json", "octave", "both")
-    if output_format not in valid_formats:
+    if output_format is not None and output_format not in valid_formats:
         raise ValueError(
             f"Invalid output_format '{output_format}'. Must be one of: {valid_formats}"
         )
@@ -96,6 +98,16 @@ def debate_close(
 
     # Load state
     room = load_debate_state(thread_id, state_dir)
+
+    # Determine effective output format (Issue #26: octave_mode support)
+    # If not explicitly specified, use "octave" when octave_mode=True, else "json"
+    effective_format: OutputFormat
+    if output_format is not None:
+        effective_format = output_format
+    elif room.octave_mode:
+        effective_format = "octave"
+    else:
+        effective_format = "json"
 
     # Close debate via engine (validates active state and synthesis content)
     engine = DebateEngine(room)
@@ -115,12 +127,12 @@ def debate_close(
     if validation_result is not None and validation_result.violations:
         json_result["validation_warnings"] = validation_result.violations
 
-    # Return based on output_format
-    if output_format == "json":
+    # Return based on effective_format (Issue #26: respects octave_mode default)
+    if effective_format == "json":
         return json_result
-    elif output_format == "octave":
+    elif effective_format == "octave":
         return format_debate_as_octave(room)
-    else:  # output_format == "both"
+    else:  # effective_format == "both"
         return {
             "json": json_result,
             "octave": format_debate_as_octave(room),

@@ -88,6 +88,7 @@ def debate_get(
         "max_turns": room.max_turns,
         "max_rounds": room.max_rounds,
         "next_role": next_role,
+        "octave_mode": room.octave_mode,
     }
 
     if room.synthesis is not None:
