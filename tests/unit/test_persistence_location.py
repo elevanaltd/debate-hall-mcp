@@ -119,6 +119,7 @@ class TestDebateCloseEnvVar:
         debate_init(
             thread_id="2025-01-01-close-env-test",
             topic="Close env test",
+            octave_mode=False,  # Use JSON output for this test
             state_dir=custom_dir,
         )
 

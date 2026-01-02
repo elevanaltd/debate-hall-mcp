@@ -18,6 +18,7 @@ def test_debate_close_with_synthesis(tmp_path: Path) -> None:
     debate_init(
         thread_id="2025-01-01-test-thread-001",
         topic="Test topic",
+        octave_mode=False,  # Use JSON output for this test
         state_dir=tmp_path,
     )
 

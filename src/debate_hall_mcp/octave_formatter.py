@@ -27,28 +27,87 @@ SYNTHESIS::"..."
 ===END===
 """
 
+import re
+from enum import Enum
+from typing import Any
+
 from debate_hall_mcp.state import DebateRoom
 
 
-def _compress_content(content: str, max_length: int = 80) -> str:
+class OutputMode(Enum):
+    """Output mode for OCTAVE content formatting.
+
+    FULL: Preserve complete content (default). Use for archival.
+    SUMMARY: Truncate to 80 chars with ellipsis. Use for dashboards.
+    """
+
+    FULL = "full"
+    SUMMARY = "summary"
+
+
+def _sanitize_value(value: Any) -> str:
+    """Sanitize untrusted strings to prevent OCTAVE structure injection.
+
+    Prevents injection attacks where malicious input could:
+    - Inject envelope markers (===XXX===) to create fake sections
+
+    Note: Newline/CR escaping is handled by _escape_octave_string to avoid
+    double-escaping. This function focuses only on structural injection prevention.
+
+    Pattern adapted from octave-mcp/mcp/debate_convert.py.
+
+    Args:
+        value: Untrusted value from user input (will be converted to string if needed)
+
+    Returns:
+        Sanitized string safe for OCTAVE output
+
+    Examples:
+        >>> _sanitize_value("normal text")
+        'normal text'
+        >>> _sanitize_value("has===END===marker")
+        'hasESCAPED_ENVELOPE_ENDmarker'
+    """
+    if not isinstance(value, str):
+        return str(value)
+
+    # Escape envelope markers (===XXX===) to prevent structure injection
+    # Replace with visually similar but safe representation
+    sanitized = re.sub(
+        r"===([A-Z_]+)===",
+        r"ESCAPED_ENVELOPE_\1",
+        value,
+    )
+
+    return sanitized
+
+
+def _compress_content(
+    content: str,
+    max_length: int = 80,
+    mode: OutputMode = OutputMode.FULL,
+) -> str:
     """Compress content for OCTAVE output.
 
-    Semantic compression: Remove redundancy while preserving meaning.
-    - Truncate to max_length with ellipsis
-    - Replace newlines with spaces
-    - Collapse multiple spaces
+    Semantic compression behavior depends on mode:
+    - FULL mode (default): Preserve content verbatim (no whitespace normalization)
+    - SUMMARY mode: Normalize whitespace and truncate to max_length with ellipsis
 
     Args:
         content: Original content string
-        max_length: Maximum length before truncation
+        max_length: Maximum length before truncation (only applies in SUMMARY mode)
+        mode: OutputMode.FULL (preserve content) or OutputMode.SUMMARY (truncate)
 
     Returns:
-        Compressed content string
+        Processed content string
     """
-    # Normalize whitespace
+    # FULL mode: preserve content verbatim (no whitespace normalization)
+    if mode == OutputMode.FULL:
+        return content
+
+    # SUMMARY mode: normalize whitespace and truncate
     compressed = " ".join(content.split())
 
-    # Truncate if needed
     if len(compressed) > max_length:
         compressed = compressed[: max_length - 3] + "..."
 
@@ -79,11 +138,16 @@ def _escape_octave_string(value: str) -> str:
     return f'"{escaped}"'
 
 
-def format_debate_as_octave(room: DebateRoom) -> str:
+def format_debate_as_octave(
+    room: DebateRoom,
+    output_mode: OutputMode = OutputMode.FULL,
+) -> str:
     """Generate OCTAVE format transcript from debate room.
 
     Args:
         room: DebateRoom instance with debate state
+        output_mode: OutputMode.FULL (preserve content, default) or
+                     OutputMode.SUMMARY (truncate to 80 chars)
 
     Returns:
         OCTAVE-formatted string representation
@@ -115,8 +179,10 @@ def format_debate_as_octave(room: DebateRoom) -> str:
         lines.append("TURNS::[")
         for i, turn in enumerate(room.turns, 1):
             cognition = turn.cognition or "UNKNOWN"
-            compressed = _compress_content(turn.content)
-            lines.append(f"  T{i}::{turn.role}[{cognition}]::{_escape_octave_string(compressed)},")
+            # Compress (based on mode) then sanitize for security
+            compressed = _compress_content(turn.content, mode=output_mode)
+            sanitized = _sanitize_value(compressed)
+            lines.append(f"  T{i}::{turn.role}[{cognition}]::{_escape_octave_string(sanitized)},")
         lines.append("]")
     else:
         lines.append("TURNS::[]")

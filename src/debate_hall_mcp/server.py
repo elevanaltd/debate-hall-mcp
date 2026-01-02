@@ -64,8 +64,9 @@ def create_server() -> FastMCP:
         max_turns: int = 12,
         max_rounds: int = 4,
         strict_cognition: bool = False,
+        octave_mode: bool = True,
     ) -> dict[str, Any]:
-        """Create room. mode:fixed|mediated. strict_cognition→validate turns."""
+        """Create room. mode:fixed|mediated. strict_cognition->validate turns."""
         return debate_init(
             thread_id=thread_id,
             topic=topic,
@@ -73,6 +74,7 @@ def create_server() -> FastMCP:
             max_turns=max_turns,
             max_rounds=max_rounds,
             strict_cognition=strict_cognition,
+            octave_mode=octave_mode,
             state_dir=DEFAULT_STATE_DIR,
         )
 
@@ -114,7 +116,7 @@ def create_server() -> FastMCP:
     def close_debate(
         thread_id: str,
         synthesis: str,
-        output_format: str = "json",
+        output_format: str | None = None,
     ) -> dict[str, Any] | str:
         """Finalize debate. synthesis:Door's final resolution->closes room.
 

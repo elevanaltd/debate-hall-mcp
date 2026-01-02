@@ -58,8 +58,8 @@ def _setup_debate_with_turns(tmp_path: Path, thread_id: str) -> None:
 # =============================================================================
 
 
-def test_close_debate_default_format_returns_json(tmp_path: Path) -> None:
-    """Test that omitting output_format returns dict (JSON-serializable)."""
+def test_close_debate_default_format_returns_octave(tmp_path: Path) -> None:
+    """Test that omitting output_format returns OCTAVE string (octave_mode=True default)."""
     _setup_debate_with_turns(tmp_path, "2025-01-01-octave-test-001")
 
     result = debate_close(
@@ -68,11 +68,10 @@ def test_close_debate_default_format_returns_json(tmp_path: Path) -> None:
         state_dir=tmp_path,
     )
 
-    # Should return dict (current behavior preserved)
-    assert isinstance(result, dict)
-    assert "thread_id" in result
-    assert "status" in result
-    assert "synthesis" in result
+    # Should return string (OCTAVE format) since octave_mode=True is default
+    assert isinstance(result, str)
+    assert "===DEBATE_TRANSCRIPT===" in result
+    assert "===END===" in result
 
 
 # =============================================================================
@@ -289,28 +288,49 @@ def test_octave_compression_ratio_under_30_percent(tmp_path: Path) -> None:
 
 
 def test_backwards_compatibility_no_format_param(tmp_path: Path) -> None:
-    """Test that existing code without output_format continues to work."""
+    """Test that existing code without output_format continues to work.
+
+    Note: With octave_mode=True as default, omitting output_format returns OCTAVE.
+    For JSON output, clients should explicitly set output_format='json' or octave_mode=False.
+    """
     debate_init(
         thread_id="2025-01-01-octave-test-010",
         topic="Backwards compatibility test",
         state_dir=tmp_path,
     )
 
-    # Call without output_format (simulating existing client code)
+    # Call without output_format (simulating new default behavior)
     result = debate_close(
         thread_id="2025-01-01-octave-test-010",
         synthesis="Simple synthesis.",
         state_dir=tmp_path,
     )
 
-    # Must return dict with expected keys (current behavior)
+    # Returns OCTAVE string since octave_mode=True is default
+    assert isinstance(result, str)
+    assert "===DEBATE_TRANSCRIPT===" in result
+
+
+def test_json_output_with_octave_mode_false(tmp_path: Path) -> None:
+    """Test that octave_mode=False produces JSON output by default."""
+    debate_init(
+        thread_id="2025-01-01-octave-test-010b",
+        topic="JSON mode test",
+        octave_mode=False,
+        state_dir=tmp_path,
+    )
+
+    result = debate_close(
+        thread_id="2025-01-01-octave-test-010b",
+        synthesis="Simple synthesis.",
+        state_dir=tmp_path,
+    )
+
+    # Must return dict with expected keys when octave_mode=False
     assert isinstance(result, dict)
     assert "thread_id" in result
     assert "status" in result
     assert "synthesis" in result
-    # Must NOT have 'json' or 'octave' keys (that's 'both' format)
-    assert "json" not in result
-    assert "octave" not in result
 
 
 # =============================================================================

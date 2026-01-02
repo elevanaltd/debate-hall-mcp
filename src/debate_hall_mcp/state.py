@@ -158,6 +158,10 @@ class DebateRoom(BaseModel):
         default=True,
         description="If True, prepend System turn with OCTAVE format guidance to transcripts (view-layer only)",
     )
+    octave_mode: bool = Field(
+        default=True,
+        description="Enable OCTAVE-mode debates with skills-based compression and OCTAVE output default on close (Issue #26). Set False for JSON output.",
+    )
     expected_next_role: str | None = Field(
         default=None,
         description="Expected next speaker role in mediated mode (set by debate_pick, cleared after turn)",
