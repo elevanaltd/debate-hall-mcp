@@ -1,0 +1,77 @@
+# Changelog
+
+All notable changes to debate-hall-mcp are documented here.
+
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- Claude Code skill for debate-hall orchestration (`.claude/skills/debate-hall/SKILL.md`)
+- This CHANGELOG.md for release history
+
+## [0.1.1] - 2025-01-01
+
+### Fixed
+- Cross-platform file locking using `filelock` library (Issue #48)
+- Cross-platform atomic file operations using `os.replace` (PR #51)
+- `.env` path calculation for repo root discovery (PR #71)
+
+### Changed
+- Updated pytest markers configuration for HestAI alignment (PR #72)
+
+## [0.1.0] - 2025-12-31
+
+### Added
+
+#### Core Features
+- `init_debate` - Create debate rooms with configurable limits
+- `add_turn` - Record Wind/Wall/Door turns with cognition validation
+- `get_debate` - View state, transcript, and next speaker
+- `close_debate` - Finalize with synthesis (JSON or OCTAVE format)
+- `pick_next_speaker` - Mediated mode speaker selection
+- `force_close_debate` - I5 safety kill switch
+- `tombstone_turn` - I4-compliant turn redaction
+
+#### GitHub Integration
+- `github_sync_debate` - Sync debate turns to GitHub Discussions/Issues
+- `ratify_rfc` - Generate ADR from synthesis and create PR
+- `human_interject` - Inject human GitHub comments into debate
+
+#### Architecture Immutables
+- I1: Cognitive State Isolation - Server-side state management
+- I3: Finite Dialectic Closure - Hard turn/round limits
+- I4: Verifiable Event Ledger - SHA-256 hash chain
+- I5: Sovereign Safety Override - Admin kill switch
+
+#### Enforcement Hardening (PRs #42-#46)
+- Role-cognition mapping (Wind/PATHOS, Wall/ETHOS, Door/LOGOS)
+- Mediated mode expected speaker persistence
+- Synthesis validation (LOGOS rules on close)
+- Atomic file writes (tempfile + rename + fsync)
+- Audit trail with tombstone context preservation
+
+### Quality
+- 262 tests (257 unit + 5 e2e)
+- 91.44% test coverage
+- mypy strict mode (0 errors)
+- ruff + black (0 violations)
+
+### Documentation
+- Comprehensive README with tool reference
+- Agent definitions (Wind, Wall, Door)
+- Specialist agents (Ideator, Validator, Synthesizer)
+- Wall Content Contract (OCTAVE semantic structure)
+- Multi-model debate patterns guide
+
+## Known Limitations
+
+### I2 Universal OCTAVE Binding (Partial)
+OCTAVE transcript generation is available via `output_format='octave'` on close, but auto-generation on close is not yet implemented (Issue #29). Full I2 compliance targeted for 0.2.0.
+
+---
+
+[Unreleased]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/elevanaltd/debate-hall-mcp/releases/tag/v0.1.0

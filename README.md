@@ -265,6 +265,37 @@ Your role:
 You speak third, closing the dialectic into decision.
 ```
 
+## For AI Agents
+
+If you're an AI agent integrating debate-hall-mcp, load the **debate-hall skill** for workflow guidance:
+
+```
+~/.claude/skills/debate-hall/SKILL.md
+```
+
+The skill teaches the `init→turn→get→close` workflow, mode selection, and best practices.
+
+For agent definitions (Wind/Wall/Door prompts), see [`agents/README.md`](agents/README.md).
+
+## What is OCTAVE?
+
+OCTAVE is a semantic compression format optimized for LLM audiences. It uses structured operators (`::`, `[]`, `→`) to express relationships more densely than prose.
+
+```octave
+===EXAMPLE===
+META::TYPE::"DECISION"|STATUS::APPROVED
+VERDICT::PROCEED_WITH_MODULAR_MONOLITH
+BECAUSE::[team_size_constraint+operational_simplicity]
+===END===
+```
+
+debate-hall-mcp can export transcripts in OCTAVE format for permanent, auditable records:
+```python
+close_debate(thread_id, synthesis, output_format="octave")
+```
+
+See [Wall Content Contract](docs/wall-content-contract.oct.md) for OCTAVE semantic patterns.
+
 ## Architecture Immutables
 
 debate-hall-mcp is built on five unchangeable principles:
