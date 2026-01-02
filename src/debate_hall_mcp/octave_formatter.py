@@ -82,6 +82,49 @@ def _sanitize_value(value: Any) -> str:
     return sanitized
 
 
+def _sanitize_token(value: Any) -> str:
+    """Sanitize unquoted tokens (role, cognition) for OCTAVE output.
+
+    For values that appear OUTSIDE quoted strings (like role names and cognition
+    markers), we need stricter sanitization than _sanitize_value:
+    - Envelope markers are escaped (prevents structure injection)
+    - Newlines/carriage returns are replaced with underscores (preserves line structure)
+
+    CRS BLOCKING: Role and cognition are emitted unescaped in TURNS section.
+    Attacker can inject newlines+envelope markers via malformed values.
+
+    Args:
+        value: Untrusted value for unquoted token field
+
+    Returns:
+        Sanitized string safe for unquoted OCTAVE token output
+
+    Examples:
+        >>> _sanitize_token("Wind")
+        'Wind'
+        >>> _sanitize_token("Wind===END===Fake")
+        'WindESCAPED_ENVELOPE_ENDFake'
+        >>> _sanitize_token("Wind\\nFake")
+        'Wind_Fake'
+    """
+    if not isinstance(value, str):
+        value = str(value)
+
+    # First escape envelope markers
+    sanitized = re.sub(
+        r"===([A-Z_]+)===",
+        r"ESCAPED_ENVELOPE_\1",
+        value,
+    )
+
+    # Replace newlines and carriage returns with underscores
+    # These would break line-structured OCTAVE format if emitted raw
+    sanitized = sanitized.replace("\n", "_")
+    sanitized = sanitized.replace("\r", "_")
+
+    return sanitized
+
+
 def _compress_content(
     content: str,
     max_length: int = 80,
@@ -166,8 +209,8 @@ def format_debate_as_octave(
     lines.append(f"  STATUS::{room.status.value}")
     lines.append("")
 
-    # PARTICIPANTS section - unique roles that participated
-    participants = sorted({turn.role for turn in room.turns})
+    # PARTICIPANTS section - unique roles that participated (sanitized for security)
+    participants = sorted({_sanitize_token(turn.role) for turn in room.turns})
     if participants:
         lines.append(f"PARTICIPANTS::[{','.join(participants)}]")
     else:
@@ -178,19 +221,24 @@ def format_debate_as_octave(
     if room.turns:
         lines.append("TURNS::[")
         for i, turn in enumerate(room.turns, 1):
-            cognition = turn.cognition or "UNKNOWN"
-            # Compress (based on mode) then sanitize for security
+            # Sanitize role and cognition - they appear outside quotes (CRS BLOCKING fix)
+            safe_role = _sanitize_token(turn.role)
+            safe_cognition = _sanitize_token(turn.cognition or "UNKNOWN")
+            # Compress (based on mode) then sanitize content for security
             compressed = _compress_content(turn.content, mode=output_mode)
             sanitized = _sanitize_value(compressed)
-            lines.append(f"  T{i}::{turn.role}[{cognition}]::{_escape_octave_string(sanitized)},")
+            lines.append(
+                f"  T{i}::{safe_role}[{safe_cognition}]::{_escape_octave_string(sanitized)},"
+            )
         lines.append("]")
     else:
         lines.append("TURNS::[]")
     lines.append("")
 
-    # SYNTHESIS section
+    # SYNTHESIS section - sanitize before escaping to prevent structure injection
     if room.synthesis:
-        lines.append(f"SYNTHESIS::{_escape_octave_string(room.synthesis)}")
+        sanitized_synthesis = _sanitize_value(room.synthesis)
+        lines.append(f"SYNTHESIS::{_escape_octave_string(sanitized_synthesis)}")
     else:
         lines.append("SYNTHESIS::null")
     lines.append("")

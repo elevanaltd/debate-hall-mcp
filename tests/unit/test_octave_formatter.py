@@ -755,3 +755,291 @@ def test_turn_content_is_sanitized_in_full_mode() -> None:
     assert "===END===" not in result.split("TURNS")[1].split("SYNTHESIS")[0]
     # The escaped version should be present
     assert "ESCAPED_ENVELOPE_END" in result
+
+
+# =============================================================================
+# Test: Synthesis sanitization security (Issue #26 security fix)
+# =============================================================================
+
+
+def test_synthesis_with_end_envelope_marker_is_sanitized() -> None:
+    """Test that synthesis containing ===END=== is sanitized.
+
+    SECURITY: Malicious synthesis containing ===END=== could inject structure
+    into OCTAVE output, causing downstream parsers to misread the document.
+
+    The synthesis field must be sanitized via _sanitize_value() before escaping.
+    """
+    from debate_hall_mcp.octave_formatter import format_debate_as_octave
+
+    # Synthesis containing malicious envelope marker
+    malicious_synthesis = "Final conclusion ===END=== injected content"
+    room = DebateRoom(
+        thread_id="2025-01-01-test-synthesis-security",
+        topic="Synthesis security test",
+        mode=DebateMode.FIXED,
+        status=DebateStatus.SYNTHESIS,
+        synthesis=malicious_synthesis,
+    )
+
+    result = format_debate_as_octave(room)
+
+    # Extract the SYNTHESIS line from the result
+    synthesis_lines = [line for line in result.split("\n") if line.startswith("SYNTHESIS::")]
+    assert len(synthesis_lines) == 1
+    synthesis_line = synthesis_lines[0]
+
+    # The malicious envelope marker should be escaped
+    assert "===END===" not in synthesis_line
+    assert "ESCAPED_ENVELOPE_END" in synthesis_line
+
+
+def test_synthesis_with_arbitrary_envelope_marker_is_sanitized() -> None:
+    """Test that synthesis containing arbitrary ===XXX=== markers is sanitized.
+
+    SECURITY: Any envelope marker pattern could potentially corrupt OCTAVE structure.
+    """
+    from debate_hall_mcp.octave_formatter import format_debate_as_octave
+
+    # Synthesis with fake section marker
+    malicious_synthesis = "Start ===FAKE_SECTION=== injected data"
+    room = DebateRoom(
+        thread_id="2025-01-01-test-synthesis-arbitrary",
+        topic="Arbitrary envelope test",
+        mode=DebateMode.FIXED,
+        status=DebateStatus.SYNTHESIS,
+        synthesis=malicious_synthesis,
+    )
+
+    result = format_debate_as_octave(room)
+
+    # Extract SYNTHESIS line
+    synthesis_lines = [line for line in result.split("\n") if line.startswith("SYNTHESIS::")]
+    synthesis_line = synthesis_lines[0]
+
+    # The arbitrary envelope marker should be escaped
+    assert "===FAKE_SECTION===" not in synthesis_line
+    assert "ESCAPED_ENVELOPE_FAKE_SECTION" in synthesis_line
+
+
+def test_synthesis_sanitization_matches_turn_sanitization() -> None:
+    """Test that synthesis and turn content use the same sanitization.
+
+    SECURITY: Both turn content and synthesis should be sanitized consistently.
+    This test verifies the fix for the inconsistency where turn content was
+    sanitized but synthesis was not.
+    """
+    from debate_hall_mcp.octave_formatter import format_debate_as_octave
+
+    # Same malicious content in both turn and synthesis
+    malicious_content = "Data ===METADATA=== injection"
+    room = DebateRoom(
+        thread_id="2025-01-01-test-consistency",
+        topic="Sanitization consistency",
+        mode=DebateMode.FIXED,
+        status=DebateStatus.SYNTHESIS,
+        synthesis=malicious_content,
+        turns=[
+            Turn(
+                role="Wind",
+                content=malicious_content,
+                timestamp=datetime.now(UTC),
+                cognition="PATHOS",
+            ),
+        ],
+    )
+
+    result = format_debate_as_octave(room)
+
+    # Both should be sanitized identically
+    turn_lines = [line for line in result.split("\n") if "T1::Wind" in line]
+    synthesis_lines = [line for line in result.split("\n") if line.startswith("SYNTHESIS::")]
+
+    # Neither should contain the raw envelope marker
+    assert "===METADATA===" not in turn_lines[0]
+    assert "===METADATA===" not in synthesis_lines[0]
+
+    # Both should contain the escaped version
+    assert "ESCAPED_ENVELOPE_METADATA" in turn_lines[0]
+    assert "ESCAPED_ENVELOPE_METADATA" in synthesis_lines[0]
+
+
+# =============================================================================
+# Test: Security - Role and cognition injection prevention (CRS BLOCKING)
+# =============================================================================
+
+
+def test_role_with_envelope_marker_is_sanitized() -> None:
+    """Test that role containing ===END=== is sanitized.
+
+    CRS BLOCKING: Role is emitted unescaped in mediated mode.
+    Attacker can inject envelope markers via malformed role value.
+    """
+    from debate_hall_mcp.octave_formatter import format_debate_as_octave
+
+    # Role containing malicious envelope marker
+    malicious_role = "Wind===END===Injected"
+    room = DebateRoom(
+        thread_id="2025-01-01-test-role-injection",
+        topic="Role injection test",
+        mode=DebateMode.FIXED,
+        turns=[
+            Turn(
+                role=malicious_role,
+                content="Normal content",
+                timestamp=datetime.now(UTC),
+                cognition="PATHOS",
+            ),
+        ],
+    )
+
+    result = format_debate_as_octave(room)
+
+    # Find the turn line
+    turn_lines = [line for line in result.split("\n") if "T1::" in line]
+    assert len(turn_lines) == 1
+    turn_line = turn_lines[0]
+
+    # The envelope marker should be escaped in the role
+    assert "===END===" not in turn_line
+    assert "ESCAPED_ENVELOPE_END" in turn_line
+
+
+def test_cognition_with_envelope_marker_is_sanitized() -> None:
+    """Test that cognition containing ===FAKE=== is sanitized.
+
+    CRS BLOCKING: Cognition is emitted unescaped outside quotes.
+    Attacker can inject newlines+envelope markers via malformed cognition value.
+    """
+    from debate_hall_mcp.octave_formatter import format_debate_as_octave
+
+    # Cognition containing malicious envelope marker
+    malicious_cognition = "PATHOS===FAKE===INJECTED"
+    room = DebateRoom(
+        thread_id="2025-01-01-test-cognition-injection",
+        topic="Cognition injection test",
+        mode=DebateMode.FIXED,
+        turns=[
+            Turn(
+                role="Wind",
+                content="Normal content",
+                timestamp=datetime.now(UTC),
+                cognition=malicious_cognition,
+            ),
+        ],
+    )
+
+    result = format_debate_as_octave(room)
+
+    # Find the turn line
+    turn_lines = [line for line in result.split("\n") if "T1::Wind" in line]
+    assert len(turn_lines) == 1
+    turn_line = turn_lines[0]
+
+    # The envelope marker should be escaped in cognition
+    assert "===FAKE===" not in turn_line
+    assert "ESCAPED_ENVELOPE_FAKE" in turn_line
+
+
+def test_role_with_newlines_is_sanitized() -> None:
+    """Test that role with newlines is handled safely.
+
+    CRS BLOCKING: Newlines in role could break line-structured format.
+    """
+    from debate_hall_mcp.octave_formatter import format_debate_as_octave
+
+    # Role with newlines that could break structure
+    malicious_role = 'Wind\nFake::Wall[ETHOS]::"injected"'
+    room = DebateRoom(
+        thread_id="2025-01-01-test-role-newline",
+        topic="Role newline injection test",
+        mode=DebateMode.FIXED,
+        turns=[
+            Turn(
+                role=malicious_role,
+                content="Normal content",
+                timestamp=datetime.now(UTC),
+                cognition="PATHOS",
+            ),
+        ],
+    )
+
+    result = format_debate_as_octave(room)
+
+    # The TURNS section should have exactly one turn entry (T1)
+    # Raw newlines in role should NOT create additional lines
+    turns_section = result.split("TURNS::[")[1].split("]")[0]
+    turn_entries = [
+        line.strip() for line in turns_section.split("\n") if line.strip().startswith("T")
+    ]
+    assert len(turn_entries) == 1, "Newlines in role should not create fake turn entries"
+
+
+def test_cognition_with_newlines_is_sanitized() -> None:
+    """Test that cognition with newlines is handled safely.
+
+    CRS BLOCKING: Newlines in cognition could break line-structured format.
+    """
+    from debate_hall_mcp.octave_formatter import format_debate_as_octave
+
+    # Cognition with newlines
+    malicious_cognition = "PATHOS\n]===END==="
+    room = DebateRoom(
+        thread_id="2025-01-01-test-cognition-newline",
+        topic="Cognition newline injection test",
+        mode=DebateMode.FIXED,
+        turns=[
+            Turn(
+                role="Wind",
+                content="Normal content",
+                timestamp=datetime.now(UTC),
+                cognition=malicious_cognition,
+            ),
+        ],
+    )
+
+    result = format_debate_as_octave(room)
+
+    # The TURNS section should have exactly one turn entry (T1)
+    turns_section = result.split("TURNS::[")[1].split("]")[0]
+    turn_entries = [
+        line.strip() for line in turns_section.split("\n") if line.strip().startswith("T")
+    ]
+    assert len(turn_entries) == 1, "Newlines in cognition should not create fake entries"
+
+    # Envelope marker should be escaped
+    assert "===END===" not in result.split("TURNS")[1].split("SYNTHESIS")[0]
+
+
+def test_participants_with_envelope_marker_is_sanitized() -> None:
+    """Test that PARTICIPANTS section also sanitizes role names.
+
+    CRS BLOCKING: Role names appear in PARTICIPANTS section too.
+    """
+    from debate_hall_mcp.octave_formatter import format_debate_as_octave
+
+    malicious_role = "Wind===META===Fake"
+    room = DebateRoom(
+        thread_id="2025-01-01-test-participants-injection",
+        topic="Participants injection test",
+        mode=DebateMode.FIXED,
+        turns=[
+            Turn(
+                role=malicious_role,
+                content="Normal content",
+                timestamp=datetime.now(UTC),
+                cognition="PATHOS",
+            ),
+        ],
+    )
+
+    result = format_debate_as_octave(room)
+
+    # Find the PARTICIPANTS line
+    participants_lines = [line for line in result.split("\n") if "PARTICIPANTS::" in line]
+    assert len(participants_lines) == 1
+    participants_line = participants_lines[0]
+
+    # The envelope marker should be escaped
+    assert "===META===" not in participants_line
+    assert "ESCAPED_ENVELOPE_META" in participants_line
