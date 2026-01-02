@@ -45,7 +45,7 @@ uv pip install debate-hall-mcp
 
 ### 1. Configure MCP Client
 
-Add to your Claude Desktop config (`claude_desktop_config.json`):
+Add to your Claude Desktop config (`claude_desktop_config.json`) or Claude Code config (`~/.claude.json`):
 
 ```json
 {
@@ -57,6 +57,20 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
   }
 }
 ```
+
+**For GitHub integration**, create a `.env` file in the debate-hall-mcp directory:
+
+```bash
+# Copy the example and edit
+cp .env.example .env
+
+# Add your GitHub token
+echo "GITHUB_TOKEN=ghp_your_token_here" >> .env
+```
+
+The server automatically loads `.env` on startup - no need to expose secrets in your MCP config!
+
+> **How to get a GitHub token**: Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token. Select scopes: `repo`, `write:discussion`.
 
 ### 2. Start a Debate
 
