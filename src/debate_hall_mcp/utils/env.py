@@ -20,22 +20,36 @@ except ImportError:  # pragma: no cover - optional in minimal installs
     dotenv_values = None  # type: ignore[assignment]
     load_dotenv = None  # type: ignore[assignment]
 
-# Project root is the directory containing server.py
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_ENV_PATH = _PROJECT_ROOT / ".env"
+# Path calculation:
+# This file: src/debate_hall_mcp/utils/env.py
+# parent    = src/debate_hall_mcp/utils
+# parent.parent = src/debate_hall_mcp (package root, contains server.py)
+# parent.parent.parent = src
+# parent.parent.parent.parent = repo root (contains pyproject.toml, .env.example)
 
-# Also check parent directories (for worktree support)
-_REPO_ROOT = _PROJECT_ROOT.parent.parent.parent  # src/debate_hall_mcp -> repo root
-_REPO_ENV_PATH = _REPO_ROOT / ".env"
+_UTILS_DIR = Path(__file__).resolve().parent  # src/debate_hall_mcp/utils
+_PACKAGE_ROOT = _UTILS_DIR.parent  # src/debate_hall_mcp (contains server.py)
+_SRC_DIR = _PACKAGE_ROOT.parent  # src
+_REPO_ROOT = _SRC_DIR.parent  # repo root (contains pyproject.toml, .env.example)
+
+# Primary location: repo root (where users place .env per README)
+_ENV_PATH = _REPO_ROOT / ".env"
+
+# Fallback: package directory (for installed packages without repo structure)
+_PACKAGE_ENV_PATH = _PACKAGE_ROOT / ".env"
 
 _DOTENV_VALUES: dict[str, str | None] = {}
 _LOADED = False
 
 
 def _find_env_file() -> Path | None:
-    """Find .env file, checking multiple locations."""
-    # Priority: package directory -> repo root -> worktree main repo
-    for path in [_ENV_PATH, _REPO_ENV_PATH]:
+    """Find .env file, checking multiple locations.
+
+    Search order:
+    1. Repo root (where README instructs users to place .env)
+    2. Package directory (fallback for installed packages)
+    """
+    for path in [_ENV_PATH, _PACKAGE_ENV_PATH]:
         if path.exists():
             return path
     return None

@@ -121,6 +121,42 @@ class TestEnvLoading:
         assert result is None or isinstance(result, Path)
 
 
+class TestPathCalculation:
+    """Tests for correct path calculation to find .env files."""
+
+    def test_repo_root_path_is_correct(self) -> None:
+        """_REPO_ROOT should point to the repository root containing pyproject.toml."""
+        from debate_hall_mcp.utils import env
+
+        # The repo root should contain pyproject.toml
+        pyproject_path = env._REPO_ROOT / "pyproject.toml"
+        assert pyproject_path.exists(), (
+            f"_REPO_ROOT ({env._REPO_ROOT}) should contain pyproject.toml, "
+            f"but {pyproject_path} does not exist"
+        )
+
+    def test_package_root_path_is_correct(self) -> None:
+        """_PACKAGE_ROOT should point to src/debate_hall_mcp containing server.py."""
+        from debate_hall_mcp.utils import env
+
+        # The package root should contain server.py
+        server_path = env._PACKAGE_ROOT / "server.py"
+        assert server_path.exists(), (
+            f"_PACKAGE_ROOT ({env._PACKAGE_ROOT}) should contain server.py, "
+            f"but {server_path} does not exist"
+        )
+
+    def test_env_example_found_at_repo_root(self) -> None:
+        """The .env.example file should be findable at repo root."""
+        from debate_hall_mcp.utils import env
+
+        env_example_path = env._REPO_ROOT / ".env.example"
+        assert env_example_path.exists(), (
+            f".env.example should exist at repo root ({env._REPO_ROOT}), "
+            f"but {env_example_path} does not exist"
+        )
+
+
 class TestGitHubTokenLoading:
     """Tests specifically for GITHUB_TOKEN loading pattern."""
 
