@@ -156,13 +156,14 @@ def test_format_debate_as_octave_contains_synthesis() -> None:
 # =============================================================================
 
 
-def test_compress_content_truncates_long_text() -> None:
-    """Test that long content is truncated with ellipsis."""
-    from debate_hall_mcp.octave_formatter import _compress_content
+def test_compress_content_truncates_long_text_in_summary_mode() -> None:
+    """Test that long content is truncated with ellipsis in SUMMARY mode."""
+    from debate_hall_mcp.octave_formatter import OutputMode, _compress_content
 
     long_text = "A" * 200  # 200 characters
 
-    result = _compress_content(long_text, max_length=80)
+    # Explicit SUMMARY mode truncates content
+    result = _compress_content(long_text, max_length=80, mode=OutputMode.SUMMARY)
 
     assert len(result) == 80
     assert result.endswith("...")
@@ -398,3 +399,207 @@ def test_format_debate_with_multiline_turn_content() -> None:
     assert len(turn_lines) == 1
     # The turn line should contain the compressed content in quotes
     assert '"Point 1 Point 2 Point 3"' in turn_lines[0]
+
+
+# =============================================================================
+# Test: OutputMode enum and content preservation (Issue #26)
+# =============================================================================
+
+
+def test_output_mode_enum_exists() -> None:
+    """Test that OutputMode enum is available with FULL and SUMMARY values.
+
+    RED: This test should fail until OutputMode is implemented.
+    """
+    from debate_hall_mcp.octave_formatter import OutputMode
+
+    # Verify enum values exist
+    assert OutputMode.FULL is not None
+    assert OutputMode.SUMMARY is not None
+    # Verify they are distinct
+    assert OutputMode.FULL != OutputMode.SUMMARY
+
+
+def test_full_mode_preserves_complete_content() -> None:
+    """Test that FULL mode preserves content verbatim (no truncation).
+
+    RED: This test should fail until OutputMode and _compress_content changes are implemented.
+    Agent-produced OCTAVE content should be preserved completely.
+    """
+    from debate_hall_mcp.octave_formatter import OutputMode, _compress_content
+
+    # Content longer than 80 chars - should NOT be truncated in FULL mode
+    long_content = "A" * 200
+
+    result = _compress_content(long_content, mode=OutputMode.FULL)
+
+    # In FULL mode, content should be preserved completely (only whitespace normalized)
+    assert len(result) == 200
+    assert result == long_content
+    assert not result.endswith("...")
+
+
+def test_summary_mode_truncates_content() -> None:
+    """Test that SUMMARY mode truncates content to 80 chars with ellipsis.
+
+    Provides backward compatibility for dashboard/summary use cases.
+    """
+    from debate_hall_mcp.octave_formatter import OutputMode, _compress_content
+
+    long_content = "A" * 200
+
+    result = _compress_content(long_content, mode=OutputMode.SUMMARY)
+
+    # SUMMARY mode should truncate to 80 chars
+    assert len(result) == 80
+    assert result.endswith("...")
+
+
+def test_compress_content_default_mode_is_full() -> None:
+    """Test that default mode is FULL (preserves content).
+
+    RED: This will fail until default is changed from current truncation behavior.
+    """
+    from debate_hall_mcp.octave_formatter import _compress_content
+
+    long_content = "A" * 200
+
+    # Call without mode parameter - should use FULL (preserve content)
+    result = _compress_content(long_content)
+
+    # Default should be FULL mode - no truncation
+    assert len(result) == 200
+    assert not result.endswith("...")
+
+
+def test_format_debate_accepts_output_mode_parameter() -> None:
+    """Test that format_debate_as_octave accepts optional output_mode parameter."""
+    from debate_hall_mcp.octave_formatter import (
+        OutputMode,
+        format_debate_as_octave,
+    )
+
+    long_turn_content = "A" * 200
+    room = DebateRoom(
+        thread_id="2025-01-01-test-mode",
+        topic="Test",
+        mode=DebateMode.FIXED,
+        turns=[
+            Turn(
+                role="Wind",
+                content=long_turn_content,
+                timestamp=datetime.now(UTC),
+                cognition="PATHOS",
+            ),
+        ],
+    )
+
+    # FULL mode should preserve complete content
+    result_full = format_debate_as_octave(room, output_mode=OutputMode.FULL)
+    assert ("A" * 200) in result_full
+
+    # SUMMARY mode should truncate
+    result_summary = format_debate_as_octave(room, output_mode=OutputMode.SUMMARY)
+    assert ("A" * 77 + "...") in result_summary  # 80 total: 77 + 3 for ellipsis
+
+
+# =============================================================================
+# Test: Security - Envelope injection prevention (Issue #26)
+# =============================================================================
+
+
+def test_sanitize_value_exists() -> None:
+    """Test that _sanitize_value function exists for security sanitization."""
+    from debate_hall_mcp.octave_formatter import _sanitize_value
+
+    # Basic test that function exists and returns string
+    result = _sanitize_value("normal text")
+    assert isinstance(result, str)
+
+
+def test_sanitize_value_escapes_envelope_markers() -> None:
+    """Test that envelope markers are escaped to prevent OCTAVE structure injection.
+
+    Security: Malicious content like ===END=== could corrupt document structure.
+    Pattern from octave-mcp/mcp/debate_convert.py.
+    """
+    from debate_hall_mcp.octave_formatter import _sanitize_value
+
+    # Content containing envelope marker that could inject structure
+    malicious_content = "Some text ===END=== more text"
+
+    result = _sanitize_value(malicious_content)
+
+    # Envelope marker should be escaped
+    assert "===END===" not in result
+    assert "ESCAPED_ENVELOPE_END" in result
+
+
+def test_sanitize_value_escapes_multiple_envelope_markers() -> None:
+    """Test that multiple envelope markers are all escaped."""
+    from debate_hall_mcp.octave_formatter import _sanitize_value
+
+    content = "===META=== injection ===DEBATE_TRANSCRIPT=== attack"
+
+    result = _sanitize_value(content)
+
+    assert "===META===" not in result
+    assert "===DEBATE_TRANSCRIPT===" not in result
+    assert "ESCAPED_ENVELOPE_META" in result
+    assert "ESCAPED_ENVELOPE_DEBATE_TRANSCRIPT" in result
+
+
+def test_sanitize_value_handles_newlines() -> None:
+    """Test that _sanitize_value escapes newlines."""
+    from debate_hall_mcp.octave_formatter import _sanitize_value
+
+    content = "Line 1\nLine 2\r\nLine 3"
+
+    result = _sanitize_value(content)
+
+    # No raw newlines should remain
+    assert "\n" not in result
+    assert "\r" not in result
+    # Should have escaped versions
+    assert "\\n" in result
+    assert "\\r" in result
+
+
+def test_sanitize_value_handles_non_strings() -> None:
+    """Test that _sanitize_value converts non-strings to strings."""
+    from debate_hall_mcp.octave_formatter import _sanitize_value
+
+    assert _sanitize_value(123) == "123"
+    assert _sanitize_value(None) == "None"
+    assert _sanitize_value(True) == "True"
+
+
+def test_turn_content_is_sanitized_in_full_mode() -> None:
+    """Test that turn content is sanitized for security even in FULL mode."""
+    from debate_hall_mcp.octave_formatter import (
+        OutputMode,
+        format_debate_as_octave,
+    )
+
+    # Turn content with malicious envelope marker
+    malicious_content = "My argument is ===END=== and more"
+    room = DebateRoom(
+        thread_id="2025-01-01-test-security",
+        topic="Security test",
+        mode=DebateMode.FIXED,
+        turns=[
+            Turn(
+                role="Wind",
+                content=malicious_content,
+                timestamp=datetime.now(UTC),
+                cognition="PATHOS",
+            ),
+        ],
+    )
+
+    result = format_debate_as_octave(room, output_mode=OutputMode.FULL)
+
+    # The malicious envelope marker should be escaped
+    assert "===END===" not in result.split("TURNS")[1].split("SYNTHESIS")[0]
+    # The escaped version should be present
+    assert "ESCAPED_ENVELOPE_END" in result
