@@ -67,7 +67,7 @@ We adopt a **Skills-Based Compression Architecture** where:
    - SUMMARY mode truncates to 80 chars (backward compatibility)
 
 2. **`init_debate`**:
-   - Added `octave_mode: bool = False` parameter
+   - Added `octave_mode: bool = True` parameter (OCTAVE output by default)
    - Stored in `DebateRoom` model
 
 3. **`close_debate`**:
@@ -80,17 +80,17 @@ We adopt a **Skills-Based Compression Architecture** where:
 ### Usage
 
 ```python
-# Standard debate (JSON output)
+# Default behavior (OCTAVE output - octave_mode=True is default)
 init_debate(thread_id="...", topic="...", mode="fixed")
-close_debate(thread_id="...", synthesis="...")  # -> JSON
-
-# OCTAVE-mode debate
-init_debate(thread_id="...", topic="...", mode="fixed", octave_mode=True)
 close_debate(thread_id="...", synthesis="...")  # -> OCTAVE
 
-# Override default
-init_debate(thread_id="...", topic="...", octave_mode=True)
-close_debate(thread_id="...", synthesis="...", output_format="json")  # -> JSON
+# JSON output (explicit opt-out)
+init_debate(thread_id="...", topic="...", mode="fixed", octave_mode=False)
+close_debate(thread_id="...", synthesis="...")  # -> JSON
+
+# Override output format explicitly
+init_debate(thread_id="...", topic="...")  # octave_mode=True by default
+close_debate(thread_id="...", synthesis="...", output_format="json")  # -> JSON override
 ```
 
 ## Consequences
@@ -101,7 +101,7 @@ close_debate(thread_id="...", synthesis="...", output_format="json")  # -> JSON
 - **Skill-Driven Evolution**: OCTAVE spec changes propagate via skill updates, not code changes
 - **No Content Loss**: Agent-produced OCTAVE preserved verbatim
 - **Security**: Envelope marker injection prevented
-- **Backward Compatible**: Existing debates unaffected (default JSON output)
+- **OCTAVE-First**: Default output is OCTAVE format, aligned with skills-based approach
 
 ### Negative
 

@@ -22,14 +22,14 @@ from debate_hall_mcp.state import DebateMode, DebateRoom
 class TestDebateRoomOctaveMode:
     """Test octave_mode field on DebateRoom model."""
 
-    def test_debate_room_octave_mode_defaults_to_false(self) -> None:
-        """octave_mode should default to False for backward compatibility."""
+    def test_debate_room_octave_mode_defaults_to_true(self) -> None:
+        """octave_mode should default to True for OCTAVE-first output."""
         room = DebateRoom(
             thread_id="2025-01-01-test",
             topic="Test topic",
             mode=DebateMode.FIXED,
         )
-        assert room.octave_mode is False
+        assert room.octave_mode is True
 
     def test_debate_room_octave_mode_can_be_set_true(self) -> None:
         """octave_mode can be explicitly set to True."""
@@ -65,7 +65,7 @@ class TestDebateRoomOctaveMode:
         assert room.octave_mode is True
 
     def test_debate_room_backward_compatible_without_octave_mode(self) -> None:
-        """Existing debates without octave_mode should deserialize with default False."""
+        """Existing debates without octave_mode should deserialize with default True."""
         data = {
             "thread_id": "2025-01-01-test",
             "topic": "Test topic",
@@ -73,14 +73,14 @@ class TestDebateRoomOctaveMode:
             # No octave_mode field - simulating old debate data
         }
         room = DebateRoom.model_validate(data)
-        assert room.octave_mode is False
+        assert room.octave_mode is True
 
 
 class TestInitDebateOctaveMode:
     """Test octave_mode parameter in init_debate."""
 
-    def test_init_debate_octave_mode_defaults_to_false(self, tmp_path: Path) -> None:
-        """init_debate without octave_mode should default to False."""
+    def test_init_debate_octave_mode_defaults_to_true(self, tmp_path: Path) -> None:
+        """init_debate without octave_mode should default to True."""
         from debate_hall_mcp.tools.init import debate_init
 
         result = debate_init(
@@ -90,13 +90,13 @@ class TestInitDebateOctaveMode:
         )
 
         assert "octave_mode" in result
-        assert result["octave_mode"] is False
+        assert result["octave_mode"] is True
 
         # Verify in state file
         state_file = tmp_path / "2025-01-01-test-octave-1.json"
         with open(state_file) as f:
             state_data = json.load(f)
-        assert state_data["octave_mode"] is False
+        assert state_data["octave_mode"] is True
 
     def test_init_debate_octave_mode_can_be_set_true(self, tmp_path: Path) -> None:
         """init_debate with octave_mode=True should set the flag."""

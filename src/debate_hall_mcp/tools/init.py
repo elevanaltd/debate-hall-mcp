@@ -100,7 +100,7 @@ def debate_init(
     max_rounds: int = 4,
     strict_cognition: bool = False,
     octave_preamble: bool = True,
-    octave_mode: bool = False,
+    octave_mode: bool = True,
     state_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Initialize a new debate thread.
@@ -115,8 +115,9 @@ def debate_init(
         max_rounds: Maximum rounds allowed (I3 compliance)
         strict_cognition: If True, BLOCK-level cognition violations reject turns (behavioral firewall)
         octave_preamble: If True, prepend OCTAVE format guidance to transcripts (default: True)
-        octave_mode: If True, enable OCTAVE-mode debates with skills-based compression
-            and OCTAVE output default on close (Issue #26). Default: False
+        octave_mode: Enable OCTAVE-mode debates with skills-based compression
+            and OCTAVE output default on close (Issue #26). Default: True.
+            Set False for JSON output.
         state_dir: Directory for state files (defaults to ./debates)
 
     Returns:

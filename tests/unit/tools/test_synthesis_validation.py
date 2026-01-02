@@ -33,6 +33,7 @@ class TestSynthesisValidationNonStrict:
             topic="Test topic",
             state_dir=tmp_path,
             strict_cognition=False,
+            octave_mode=False,  # Use JSON output for this test
         )
 
         # LOGOS-compliant synthesis: numbered steps + synthesis markers
@@ -67,6 +68,7 @@ The debate resolved through structured synthesis: quality emerges from constrain
             topic="Test topic",
             state_dir=tmp_path,
             strict_cognition=False,
+            octave_mode=False,  # Use JSON output for this test
         )
 
         # Invalid synthesis: missing numbered steps (LOGOS violation)
@@ -102,6 +104,7 @@ Done.
             topic="Test topic",
             state_dir=tmp_path,
             strict_cognition=False,
+            octave_mode=False,  # Use JSON output for this test
         )
 
         # Invalid synthesis: missing synthesis markers but has steps
@@ -139,6 +142,7 @@ All done.
             topic="Test topic",
             state_dir=tmp_path,
             strict_cognition=False,
+            octave_mode=False,  # Use JSON output for this test
         )
 
         # Short synthesis - backward compat
@@ -171,6 +175,7 @@ class TestSynthesisValidationStrict:
             topic="Test topic",
             state_dir=tmp_path,
             strict_cognition=True,
+            octave_mode=False,  # Use JSON output for this test
         )
 
         valid_synthesis = """
@@ -255,6 +260,7 @@ class TestSynthesisValidationEdgeCases:
             topic="Test topic",
             state_dir=tmp_path,
             strict_cognition=False,
+            octave_mode=False,  # Use JSON output for this test
         )
 
         # Content that would pass PATHOS but not LOGOS

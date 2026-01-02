@@ -64,7 +64,7 @@ def create_server() -> FastMCP:
         max_turns: int = 12,
         max_rounds: int = 4,
         strict_cognition: bool = False,
-        octave_mode: bool = False,
+        octave_mode: bool = True,
     ) -> dict[str, Any]:
         """Create room. mode:fixed|mediated. strict_cognition->validate turns."""
         return debate_init(
