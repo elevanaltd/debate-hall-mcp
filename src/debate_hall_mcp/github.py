@@ -2,6 +2,7 @@
 
 This module implements:
 - GitHubClient for posting comments to Discussions (GraphQL) and Issues (REST)
+- Branch/file creation and PR support for ratify_rfc (Issue #16)
 - Rate limit handling with exponential backoff
 - Comment formatting for debate turns
 
@@ -9,6 +10,7 @@ Immutables Compliance:
 - I4 (VERIFIABLE_EVENT_LEDGER): Comment IDs stored for reference
 """
 
+import base64
 import os
 import time
 from typing import Any
@@ -293,6 +295,237 @@ class GitHubClient:
             raise GitHubAPIError(f"REST API error: {message}")
 
         return dict(data)
+
+    def get_ref(self, repo: str, ref: str) -> dict[str, Any]:
+        """Get a Git reference (branch/tag) from a repository.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            ref: Reference path (e.g., "heads/main" for main branch)
+
+        Returns:
+            Dictionary with reference details including 'sha' and 'ref'
+
+        Raises:
+            GitHubAPIError: If the API returns an error (e.g., 404 not found)
+            GitHubRateLimitError: If rate limit exceeded
+        """
+        url = f"{GITHUB_REST_BASE_URL}/repos/{repo}/git/ref/{ref}"
+        response = self._request_with_retry("GET", url)
+
+        data = response.json()
+
+        if response.status_code >= 400:
+            message = data.get("message", f"HTTP {response.status_code}")
+            raise GitHubAPIError(f"REST API error: {message}")
+
+        return {
+            "ref": data.get("ref"),
+            "sha": data.get("object", {}).get("sha"),
+        }
+
+    def create_ref(self, repo: str, ref: str, sha: str) -> dict[str, Any]:
+        """Create a new Git reference (branch) in a repository.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            ref: Full reference path (e.g., "refs/heads/feature-branch")
+            sha: The SHA1 value for this reference to point to
+
+        Returns:
+            Dictionary with the created reference details
+
+        Raises:
+            GitHubAPIError: If the API returns an error (e.g., 422 already exists)
+            GitHubRateLimitError: If rate limit exceeded
+        """
+        url = f"{GITHUB_REST_BASE_URL}/repos/{repo}/git/refs"
+        payload = {"ref": ref, "sha": sha}
+
+        response = self._request_with_retry("POST", url, json=payload)
+
+        data = response.json()
+
+        if response.status_code >= 400:
+            message = data.get("message", f"HTTP {response.status_code}")
+            raise GitHubAPIError(f"REST API error: {message}")
+
+        return dict(data)
+
+    def create_file(
+        self,
+        repo: str,
+        path: str,
+        content: str,
+        message: str,
+        branch: str,
+    ) -> dict[str, Any]:
+        """Create or update a file in a repository via Contents API.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            path: Path to the file (e.g., "docs/adr/ADR-001.md")
+            content: The file content (will be Base64 encoded)
+            message: Commit message
+            branch: The branch to commit to
+
+        Returns:
+            Dictionary with commit and content details
+
+        Raises:
+            GitHubAPIError: If the API returns an error
+            GitHubRateLimitError: If rate limit exceeded
+        """
+        url = f"{GITHUB_REST_BASE_URL}/repos/{repo}/contents/{path}"
+        payload = {
+            "message": message,
+            "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
+            "branch": branch,
+        }
+
+        response = self._request_with_retry("PUT", url, json=payload)
+
+        data = response.json()
+
+        if response.status_code >= 400:
+            message_text = data.get("message", f"HTTP {response.status_code}")
+            raise GitHubAPIError(f"REST API error: {message_text}")
+
+        return dict(data)
+
+    def create_pull_request(
+        self,
+        repo: str,
+        title: str,
+        body: str,
+        head: str,
+        base: str,
+    ) -> dict[str, Any]:
+        """Create a pull request.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            title: PR title
+            body: PR body/description
+            head: The head branch (branch with changes)
+            base: The base branch (target branch)
+
+        Returns:
+            Dictionary with PR details including 'number' and 'html_url'
+
+        Raises:
+            GitHubAPIError: If the API returns an error
+            GitHubRateLimitError: If rate limit exceeded
+        """
+        url = f"{GITHUB_REST_BASE_URL}/repos/{repo}/pulls"
+        payload = {
+            "title": title,
+            "body": body,
+            "head": head,
+            "base": base,
+        }
+
+        response = self._request_with_retry("POST", url, json=payload)
+
+        data = response.json()
+
+        if response.status_code >= 400:
+            message = data.get("message", f"HTTP {response.status_code}")
+            raise GitHubAPIError(f"REST API error: {response.status_code} - {message}")
+
+        return dict(data)
+
+    def get_discussion_number(self, node_id: str) -> int:
+        """Get the human-readable discussion number from a node ID via GraphQL.
+
+        This enables constructing deep links like /discussions/15 from the
+        node ID (D_kwDO...) that is used internally by the GraphQL API.
+
+        Args:
+            node_id: The GraphQL node ID of the discussion (e.g., "D_kwDO...")
+
+        Returns:
+            The human-readable discussion number (e.g., 15 for discussions/15)
+
+        Raises:
+            GitHubAPIError: If the API returns an error, node doesn't exist,
+                           or node is not a Discussion
+            GitHubRateLimitError: If rate limit exceeded
+        """
+        query = """
+        query GetDiscussionNumber($nodeId: ID!) {
+            node(id: $nodeId) {
+                ... on Discussion {
+                    number
+                }
+            }
+        }
+        """
+
+        payload = {
+            "query": query,
+            "variables": {
+                "nodeId": node_id,
+            },
+        }
+
+        response = self._request_with_retry("POST", GITHUB_GRAPHQL_URL, json=payload)
+
+        # Validate HTTP status code first
+        if response.status_code >= 400:
+            try:
+                data = response.json()
+                message = data.get("message", f"HTTP {response.status_code}")
+            except Exception:
+                message = f"HTTP {response.status_code}"
+            raise GitHubAPIError(f"GraphQL API error: {response.status_code} - {message}")
+
+        data = response.json()
+
+        # Check for GraphQL errors
+        if "errors" in data:
+            error_messages = [e.get("message", str(e)) for e in data["errors"]]
+            raise GitHubAPIError(f"GraphQL error: {'; '.join(error_messages)}")
+
+        # Extract and validate node data
+        node_data = data.get("data", {}).get("node")
+
+        # Validate that we got a valid node
+        if node_data is None:
+            raise GitHubAPIError(
+                "GraphQL response has null node - discussion may be deleted or inaccessible"
+            )
+
+        # Validate that node has a number field (is a Discussion)
+        number = node_data.get("number")
+        if number is None:
+            raise GitHubAPIError(f"Node {node_id} is not a Discussion or is missing number field")
+
+        return int(number)
+
+    def get_default_branch(self, repo: str) -> str:
+        """Get the default branch name for a repository.
+
+        Args:
+            repo: Repository in "owner/repo" format
+
+        Returns:
+            The default branch name (e.g., "main" or "master")
+
+        Raises:
+            GitHubAPIError: If the API returns an error
+            GitHubRateLimitError: If rate limit exceeded
+        """
+        url = f"{GITHUB_REST_BASE_URL}/repos/{repo}"
+        response = self._request_with_retry("GET", url)
+
+        data = response.json()
+
+        if response.status_code >= 400:
+            message = data.get("message", f"HTTP {response.status_code}")
+            raise GitHubAPIError(f"REST API error: {message}")
+
+        return str(data.get("default_branch", "main"))
 
     def close(self) -> None:
         """Close the HTTP client."""

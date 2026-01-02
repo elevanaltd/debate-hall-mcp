@@ -21,6 +21,7 @@ from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.github_sync import github_sync_debate as github_sync_debate_impl
 from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.pick import debate_pick
+from debate_hall_mcp.tools.ratify import ratify_rfc as ratify_rfc_impl
 from debate_hall_mcp.tools.turn import debate_turn
 
 # Server metadata
@@ -34,10 +35,10 @@ DEFAULT_STATE_DIR = Path("./debates")
 def create_server() -> FastMCP:
     """Create debate-hall MCP server.
 
-    Tools (8):
+    Tools (9):
         init_debate, add_turn, get_debate, close_debate,
         pick_next_speaker, force_close_debate, tombstone_turn,
-        github_sync_debate
+        github_sync_debate, ratify_rfc
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -183,6 +184,37 @@ def create_server() -> FastMCP:
             repo=repo,
             target_id=target_id,
             target_type=target_type,
+            state_dir=DEFAULT_STATE_DIR,
+        )
+
+    @server.tool()
+    def ratify_rfc(
+        thread_id: str,
+        repo: str,
+        adr_number: int,
+        target_id: str | None = None,
+        adr_path: str = "docs/adr/",
+    ) -> dict[str, Any]:
+        """Generate ADR from Door synthesis and create PR.
+
+        Requires: Debate must be closed with synthesis.
+
+        Args:
+            thread_id: The debate thread to ratify
+            repo: Repository in owner/repo format
+            adr_number: Explicit ADR number (required to prevent collisions)
+            target_id: Optional reference ID for linking (e.g., discussion node ID)
+            adr_path: Path for ADR file in repo (default: docs/adr/)
+
+        Returns:
+            Dictionary with pr_url, pr_number, adr_path, branch_name
+        """
+        return ratify_rfc_impl(
+            thread_id=thread_id,
+            repo=repo,
+            adr_number=adr_number,
+            target_id=target_id,
+            adr_path=adr_path,
             state_dir=DEFAULT_STATE_DIR,
         )
 

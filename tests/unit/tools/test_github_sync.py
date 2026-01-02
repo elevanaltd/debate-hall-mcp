@@ -744,3 +744,175 @@ class TestGitHubSyncRepoMismatchDetection:
                 target_type="discussion",
                 state_dir=tmp_path,
             )
+
+
+class TestGitHubSyncDiscussionNumberPopulation:
+    """Test that github_sync_debate populates discussion_number for discussions.
+
+    BLOCKING ISSUE: The discussion_number field in GitHubBinding was never
+    populated, breaking deep-links in ratify_rfc. These tests ensure the
+    number is fetched via GraphQL and stored in the binding.
+    """
+
+    def test_sync_to_discussion_fetches_and_stores_discussion_number(self, tmp_path: Path) -> None:
+        """First sync to a discussion must fetch and store the discussion number."""
+        from debate_hall_mcp.state import load_debate_state
+        from debate_hall_mcp.tools.github_sync import github_sync_debate
+
+        room = create_test_room("2025-01-02-discussion-number")
+        room.turns.append(
+            Turn(
+                role="Wind",
+                content="Discussion content",
+                timestamp=datetime.now(UTC),
+                previous_hash=None,
+            )
+        )
+        save_debate_state(room, tmp_path)
+
+        with patch("debate_hall_mcp.tools.github_sync.GitHubClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.post_discussion_comment.return_value = {
+                "id": "DC_discussion",
+                "url": "https://github.com/test",
+            }
+            # Mock the get_discussion_number call
+            mock_client.get_discussion_number.return_value = 42
+
+            github_sync_debate(
+                thread_id="2025-01-02-discussion-number",
+                repo="owner/repo",
+                target_id="D_kwDO123",
+                target_type="discussion",
+                state_dir=tmp_path,
+            )
+
+        # Verify get_discussion_number was called with the target_id
+        mock_client.get_discussion_number.assert_called_once_with("D_kwDO123")
+
+        # Verify the discussion_number was stored in the binding
+        updated_room = load_debate_state("2025-01-02-discussion-number", tmp_path)
+        assert updated_room.github_binding is not None
+        assert updated_room.github_binding.discussion_number == 42
+
+    def test_sync_to_issue_does_not_fetch_discussion_number(self, tmp_path: Path) -> None:
+        """Syncing to an issue should NOT call get_discussion_number."""
+        from debate_hall_mcp.tools.github_sync import github_sync_debate
+
+        room = create_test_room("2025-01-02-issue-no-number")
+        room.turns.append(
+            Turn(
+                role="Wind",
+                content="Issue content",
+                timestamp=datetime.now(UTC),
+                previous_hash=None,
+            )
+        )
+        save_debate_state(room, tmp_path)
+
+        with patch("debate_hall_mcp.tools.github_sync.GitHubClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.post_issue_comment.return_value = {
+                "node_id": "IC_issue",
+                "html_url": "https://github.com/test",
+            }
+
+            github_sync_debate(
+                thread_id="2025-01-02-issue-no-number",
+                repo="owner/repo",
+                target_id="42",
+                target_type="issue",
+                state_dir=tmp_path,
+            )
+
+        # Verify get_discussion_number was NOT called for issues
+        mock_client.get_discussion_number.assert_not_called()
+
+    def test_sync_to_already_bound_discussion_preserves_discussion_number(
+        self, tmp_path: Path
+    ) -> None:
+        """If a discussion is already bound with a discussion_number, preserve it."""
+        from debate_hall_mcp.state import load_debate_state
+        from debate_hall_mcp.tools.github_sync import github_sync_debate
+
+        # Room already bound with discussion_number
+        binding = GitHubBinding(
+            repo="owner/repo",
+            target_id="D_kwDO123",
+            target_type="discussion",
+            last_synced_turn=1,
+            comment_ids=["DC_1"],
+            discussion_number=42,  # Already set
+        )
+        room = create_test_room("2025-01-02-already-bound", github_binding=binding)
+        for i in range(2):  # 2 turns, 1 already synced
+            room.turns.append(
+                Turn(
+                    role=["Wind", "Wall"][i],
+                    content=f"Turn {i + 1}",
+                    timestamp=datetime.now(UTC),
+                    previous_hash=room.turns[-1].hash if room.turns else None,
+                )
+            )
+        save_debate_state(room, tmp_path)
+
+        with patch("debate_hall_mcp.tools.github_sync.GitHubClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.post_discussion_comment.return_value = {
+                "id": "DC_new",
+                "url": "https://github.com/test",
+            }
+
+            github_sync_debate(
+                thread_id="2025-01-02-already-bound",
+                repo="owner/repo",
+                target_id="D_kwDO123",
+                target_type="discussion",
+                state_dir=tmp_path,
+            )
+
+        # get_discussion_number should NOT be called since binding already exists
+        mock_client.get_discussion_number.assert_not_called()
+
+        # Verify the discussion_number was preserved
+        updated_room = load_debate_state("2025-01-02-already-bound", tmp_path)
+        assert updated_room.github_binding is not None
+        assert updated_room.github_binding.discussion_number == 42
+
+    def test_sync_result_includes_discussion_number(self, tmp_path: Path) -> None:
+        """The sync result should include the discussion_number for discussions."""
+        from debate_hall_mcp.tools.github_sync import github_sync_debate
+
+        room = create_test_room("2025-01-02-result-number")
+        room.turns.append(
+            Turn(
+                role="Wind",
+                content="Content",
+                timestamp=datetime.now(UTC),
+                previous_hash=None,
+            )
+        )
+        save_debate_state(room, tmp_path)
+
+        with patch("debate_hall_mcp.tools.github_sync.GitHubClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.post_discussion_comment.return_value = {
+                "id": "DC_test",
+                "url": "https://github.com/test",
+            }
+            mock_client.get_discussion_number.return_value = 15
+
+            result = github_sync_debate(
+                thread_id="2025-01-02-result-number",
+                repo="owner/repo",
+                target_id="D_kwDO456",
+                target_type="discussion",
+                state_dir=tmp_path,
+            )
+
+        # Result should include discussion_number
+        assert result.get("discussion_number") == 15

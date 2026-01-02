@@ -496,3 +496,532 @@ class TestGitHubClientHTTPStatusValidation:
                 discussion_id="D_kwDO123",
                 body="Test",
             )
+
+
+class TestGitHubClientGetDiscussionNumber:
+    """Test fetching discussion number from node ID via GraphQL API."""
+
+    def test_get_discussion_number_success(self) -> None:
+        """Successfully fetch discussion number from node ID."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        # Mock the GraphQL response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "node": {
+                    "number": 42,
+                }
+            }
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.get_discussion_number(node_id="D_kwDO123abc")
+
+        assert result == 42
+
+    def test_get_discussion_number_formats_graphql_query(self) -> None:
+        """Verify the GraphQL query structure for fetching discussion number."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        captured_request: dict[str, Any] = {}
+
+        def capture_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            captured_request["method"] = method
+            captured_request["url"] = url
+            captured_request["kwargs"] = kwargs
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {"data": {"node": {"number": 15}}}
+            return response
+
+        with patch.object(client, "_make_request", side_effect=capture_request):
+            client.get_discussion_number(node_id="D_kwDO456def")
+
+        # Verify GraphQL query structure
+        assert captured_request["method"] == "POST"
+        assert "graphql" in captured_request["url"]
+        body = captured_request["kwargs"].get("json", {})
+        assert "query" in body
+        assert "node" in body["query"]
+        assert "Discussion" in body["query"]
+        assert "number" in body["query"]
+        assert body["variables"]["nodeId"] == "D_kwDO456def"
+
+    def test_get_discussion_number_handles_invalid_node(self) -> None:
+        """Handle error when node ID doesn't exist or isn't a discussion."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "errors": [{"message": "Could not resolve to a node with the global id of 'D_invalid'"}]
+        }
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="Could not resolve"),
+        ):
+            client.get_discussion_number(node_id="D_invalid")
+
+    def test_get_discussion_number_handles_null_node(self) -> None:
+        """Handle case where node is null (deleted or inaccessible)."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"data": {"node": None}}
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="node|null|missing"),
+        ):
+            client.get_discussion_number(node_id="D_kwDO_deleted")
+
+    def test_get_discussion_number_handles_missing_number_field(self) -> None:
+        """Handle case where node exists but has no number field (not a discussion)."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        # Node exists but isn't a Discussion (no number field)
+        mock_response.json.return_value = {"data": {"node": {}}}
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="number|missing|Discussion"),
+        ):
+            client.get_discussion_number(node_id="D_kwDO_not_discussion")
+
+
+class TestGitHubClientRepositoryOperations:
+    """Test GitHubClient repository operations for Issue #16 ratify_rfc support.
+
+    Tests the methods: get_ref, create_ref, create_file, create_pull_request,
+    get_default_branch. These were previously only tested at tool-level with mocks,
+    leaving implementation bugs (URL construction, Base64 encoding) uncaught.
+    """
+
+    def test_get_ref_success(self) -> None:
+        """Test fetching ref SHA from repository."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "ref": "refs/heads/main",
+            "object": {
+                "sha": "abc123def456",
+                "type": "commit",
+            },
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.get_ref(repo="owner/repo", ref="heads/main")
+
+        assert result["sha"] == "abc123def456"
+        assert result["ref"] == "refs/heads/main"
+
+    def test_get_ref_url_construction(self) -> None:
+        """Verify correct URL construction for get_ref."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        captured_request: dict[str, Any] = {}
+
+        def capture_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            captured_request["method"] = method
+            captured_request["url"] = url
+            captured_request["kwargs"] = kwargs
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {
+                "ref": "refs/heads/main",
+                "object": {"sha": "abc123"},
+            }
+            return response
+
+        with patch.object(client, "_make_request", side_effect=capture_request):
+            client.get_ref(repo="owner/repo", ref="heads/main")
+
+        assert captured_request["method"] == "GET"
+        assert "/repos/owner/repo/git/ref/heads/main" in captured_request["url"]
+
+    def test_get_ref_not_found(self) -> None:
+        """Test 404 handling when ref doesn't exist."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.json.return_value = {"message": "Not Found"}
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="Not Found"),
+        ):
+            client.get_ref(repo="owner/repo", ref="heads/nonexistent")
+
+    def test_create_ref_success(self) -> None:
+        """Test branch creation via create_ref."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "ref": "refs/heads/feature-branch",
+            "object": {
+                "sha": "abc123",
+                "type": "commit",
+            },
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.create_ref(
+                repo="owner/repo",
+                ref="refs/heads/feature-branch",
+                sha="abc123",
+            )
+
+        assert result["ref"] == "refs/heads/feature-branch"
+
+    def test_create_ref_url_and_payload(self) -> None:
+        """Verify correct URL and payload for create_ref."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        captured_request: dict[str, Any] = {}
+
+        def capture_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            captured_request["method"] = method
+            captured_request["url"] = url
+            captured_request["kwargs"] = kwargs
+            response = MagicMock()
+            response.status_code = 201
+            response.json.return_value = {"ref": "refs/heads/test", "object": {"sha": "xyz"}}
+            return response
+
+        with patch.object(client, "_make_request", side_effect=capture_request):
+            client.create_ref(
+                repo="owner/repo",
+                ref="refs/heads/test-branch",
+                sha="abc123def",
+            )
+
+        assert captured_request["method"] == "POST"
+        assert "/repos/owner/repo/git/refs" in captured_request["url"]
+        payload = captured_request["kwargs"].get("json", {})
+        assert payload["ref"] == "refs/heads/test-branch"
+        assert payload["sha"] == "abc123def"
+
+    def test_create_ref_already_exists_422(self) -> None:
+        """Test 422 handling when branch already exists."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.json.return_value = {
+            "message": "Reference already exists",
+            "documentation_url": "https://docs.github.com/rest/git/refs#create-a-reference",
+        }
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="Reference already exists"),
+        ):
+            client.create_ref(
+                repo="owner/repo",
+                ref="refs/heads/existing-branch",
+                sha="abc123",
+            )
+
+    def test_create_file_success(self) -> None:
+        """Test file commit via create_file."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "content": {
+                "name": "test.md",
+                "path": "docs/test.md",
+                "sha": "file_sha_123",
+            },
+            "commit": {
+                "sha": "commit_sha_456",
+                "message": "Add test file",
+            },
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.create_file(
+                repo="owner/repo",
+                path="docs/test.md",
+                content="# Test Content",
+                message="Add test file",
+                branch="feature-branch",
+            )
+
+        assert result["content"]["path"] == "docs/test.md"
+        assert result["commit"]["sha"] == "commit_sha_456"
+
+    def test_create_file_base64_encoding(self) -> None:
+        """Verify content is properly base64 encoded."""
+        import base64
+
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        captured_request: dict[str, Any] = {}
+        test_content = "# Hello World\n\nThis is test content with unicode: cafe"
+
+        def capture_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            captured_request["method"] = method
+            captured_request["url"] = url
+            captured_request["kwargs"] = kwargs
+            response = MagicMock()
+            response.status_code = 201
+            response.json.return_value = {
+                "content": {"path": "test.md", "sha": "abc"},
+                "commit": {"sha": "xyz"},
+            }
+            return response
+
+        with patch.object(client, "_make_request", side_effect=capture_request):
+            client.create_file(
+                repo="owner/repo",
+                path="test.md",
+                content=test_content,
+                message="Test commit",
+                branch="main",
+            )
+
+        assert captured_request["method"] == "PUT"
+        assert "/repos/owner/repo/contents/test.md" in captured_request["url"]
+        payload = captured_request["kwargs"].get("json", {})
+
+        # Verify base64 encoding
+        encoded_content = payload["content"]
+        decoded_content = base64.b64decode(encoded_content).decode("utf-8")
+        assert decoded_content == test_content
+
+        # Verify other payload fields
+        assert payload["message"] == "Test commit"
+        assert payload["branch"] == "main"
+
+    def test_create_file_url_construction(self) -> None:
+        """Verify correct URL construction for create_file with path."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        captured_request: dict[str, Any] = {}
+
+        def capture_request(method: str, url: str, **kwargs: Any) -> MagicMock:  # noqa: ARG001
+            captured_request["url"] = url
+            response = MagicMock()
+            response.status_code = 201
+            response.json.return_value = {
+                "content": {"path": "docs/adr/ADR-001.md"},
+                "commit": {"sha": "abc"},
+            }
+            return response
+
+        with patch.object(client, "_make_request", side_effect=capture_request):
+            client.create_file(
+                repo="owner/repo",
+                path="docs/adr/ADR-001.md",
+                content="content",
+                message="msg",
+                branch="branch",
+            )
+
+        # Verify nested path is preserved in URL
+        assert "/repos/owner/repo/contents/docs/adr/ADR-001.md" in captured_request["url"]
+
+    def test_create_pull_request_success(self) -> None:
+        """Test PR creation."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "number": 42,
+            "html_url": "https://github.com/owner/repo/pull/42",
+            "state": "open",
+            "title": "Test PR",
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.create_pull_request(
+                repo="owner/repo",
+                title="Test PR",
+                body="PR description",
+                head="feature-branch",
+                base="main",
+            )
+
+        assert result["number"] == 42
+        assert result["html_url"] == "https://github.com/owner/repo/pull/42"
+
+    def test_create_pull_request_payload(self) -> None:
+        """Verify correct payload structure for create_pull_request."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        captured_request: dict[str, Any] = {}
+
+        def capture_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            captured_request["method"] = method
+            captured_request["url"] = url
+            captured_request["kwargs"] = kwargs
+            response = MagicMock()
+            response.status_code = 201
+            response.json.return_value = {
+                "number": 1,
+                "html_url": "https://example.com/pull/1",
+            }
+            return response
+
+        with patch.object(client, "_make_request", side_effect=capture_request):
+            client.create_pull_request(
+                repo="owner/repo",
+                title="ADR-001: Test Decision",
+                body="This is the PR body",
+                head="adr/001-test",
+                base="main",
+            )
+
+        assert captured_request["method"] == "POST"
+        assert "/repos/owner/repo/pulls" in captured_request["url"]
+        payload = captured_request["kwargs"].get("json", {})
+        assert payload["title"] == "ADR-001: Test Decision"
+        assert payload["body"] == "This is the PR body"
+        assert payload["head"] == "adr/001-test"
+        assert payload["base"] == "main"
+
+    def test_create_pull_request_handles_errors(self) -> None:
+        """Test error handling for PR creation failures."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.json.return_value = {
+            "message": "Validation Failed",
+            "errors": [{"message": "A pull request already exists"}],
+        }
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="422.*Validation Failed"),
+        ):
+            client.create_pull_request(
+                repo="owner/repo",
+                title="Duplicate PR",
+                body="Body",
+                head="branch",
+                base="main",
+            )
+
+    def test_get_default_branch_success(self) -> None:
+        """Test fetching default branch name."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "name": "repo",
+            "full_name": "owner/repo",
+            "default_branch": "main",
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.get_default_branch(repo="owner/repo")
+
+        assert result == "main"
+
+    def test_get_default_branch_master(self) -> None:
+        """Test fetching default branch when it's master (not main)."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "name": "old-repo",
+            "default_branch": "master",
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.get_default_branch(repo="owner/old-repo")
+
+        assert result == "master"
+
+    def test_get_default_branch_url_construction(self) -> None:
+        """Verify correct URL for get_default_branch."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        captured_request: dict[str, Any] = {}
+
+        def capture_request(method: str, url: str, **kwargs: Any) -> MagicMock:  # noqa: ARG001
+            captured_request["method"] = method
+            captured_request["url"] = url
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {"default_branch": "main"}
+            return response
+
+        with patch.object(client, "_make_request", side_effect=capture_request):
+            client.get_default_branch(repo="owner/repo")
+
+        assert captured_request["method"] == "GET"
+        assert captured_request["url"].endswith("/repos/owner/repo")
+
+    def test_get_default_branch_not_found(self) -> None:
+        """Test error handling when repository doesn't exist."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.json.return_value = {"message": "Not Found"}
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="Not Found"),
+        ):
+            client.get_default_branch(repo="nonexistent/repo")

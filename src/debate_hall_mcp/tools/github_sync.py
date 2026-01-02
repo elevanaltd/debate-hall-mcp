@@ -122,18 +122,24 @@ def github_sync_debate(
             "target_id": target_id,
         }
 
+    # Initialize GitHub client
+    client = GitHubClient(token=github_token)
+
     # Create or update binding
     if room.github_binding is None:
+        # Fetch discussion_number for discussions (enables deep-linking)
+        discussion_number: int | None = None
+        if target_type == "discussion":
+            discussion_number = client.get_discussion_number(target_id)
+
         room.github_binding = GitHubBinding(
             repo=repo,
             target_id=target_id,
             target_type=target_type,
             last_synced_turn=0,
             comment_ids=[],
+            discussion_number=discussion_number,
         )
-
-    # Initialize GitHub client
-    client = GitHubClient(token=github_token)
 
     synced_count = 0
 
@@ -183,4 +189,5 @@ def github_sync_debate(
         "comment_ids": room.github_binding.comment_ids,
         "target_type": target_type,
         "target_id": target_id,
+        "discussion_number": room.github_binding.discussion_number,
     }

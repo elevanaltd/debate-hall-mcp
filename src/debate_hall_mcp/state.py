@@ -97,6 +97,7 @@ class GitHubBinding(BaseModel):
     - target_type: Type of target ("discussion" or "issue")
     - last_synced_turn: Index of last synced turn (0 = no turns synced)
     - comment_ids: List of posted comment node IDs for reference
+    - discussion_number: For discussions, the human-readable discussion number for deep linking
     """
 
     repo: str = Field(..., description="Repository in owner/repo format")
@@ -106,6 +107,10 @@ class GitHubBinding(BaseModel):
         default=0, description="Index of last synced turn (0 = no turns synced)"
     )
     comment_ids: list[str] = Field(default_factory=list, description="Posted comment node IDs")
+    discussion_number: int | None = Field(
+        default=None,
+        description="For discussions, the human-readable number for deep linking (e.g., 15 for discussions/15)",
+    )
 
     @field_validator("target_type")
     @classmethod
