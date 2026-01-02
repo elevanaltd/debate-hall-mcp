@@ -217,7 +217,13 @@ class TestGitHubClientIssueComments:
 
 
 class TestGitHubClientRateLimiting:
-    """Test rate limit handling with exponential backoff."""
+    """Test rate limit handling with exponential backoff.
+
+    GitHub returns rate limits via:
+    - 429 Too Many Requests (standard)
+    - 403 Forbidden with X-RateLimit-Remaining: 0 (primary rate limit)
+    - 403 Forbidden with "rate limit" in message (secondary rate limit)
+    """
 
     def test_rate_limit_retry_with_backoff(self) -> None:
         """Retry on rate limit with exponential backoff."""
@@ -257,6 +263,106 @@ class TestGitHubClientRateLimiting:
         assert result["node_id"] == "IC_success"
         assert call_count == 3
 
+    def test_rate_limit_403_with_remaining_zero(self) -> None:
+        """Retry on 403 when X-RateLimit-Remaining is 0 (primary rate limit)."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+        call_count = 0
+
+        def mock_request(_method: str, _url: str, **_kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+
+            response = MagicMock()
+            if call_count < 2:
+                # First call: 403 with rate limit headers
+                response.status_code = 403
+                response.headers = {
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": "0",  # Immediate reset for test
+                }
+                response.json.return_value = {"message": "API rate limit exceeded for user"}
+            else:
+                # Second call succeeds
+                response.status_code = 201
+                response.json.return_value = {
+                    "id": 123,
+                    "node_id": "IC_success",
+                    "html_url": "https://example.com",
+                }
+            return response
+
+        with patch.object(client, "_make_request", side_effect=mock_request):
+            result = client.post_issue_comment(
+                repo="owner/repo",
+                issue_number=1,
+                body="Test",
+            )
+
+        assert result["node_id"] == "IC_success"
+        assert call_count == 2
+
+    def test_rate_limit_403_with_secondary_rate_limit_message(self) -> None:
+        """Retry on 403 with 'secondary rate limit' in message."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+        call_count = 0
+
+        def mock_request(_method: str, _url: str, **_kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+
+            response = MagicMock()
+            if call_count < 2:
+                # First call: 403 with secondary rate limit message
+                response.status_code = 403
+                response.headers = {}  # No rate limit headers
+                response.json.return_value = {
+                    "message": "You have exceeded a secondary rate limit."
+                }
+            else:
+                # Second call succeeds
+                response.status_code = 201
+                response.json.return_value = {
+                    "id": 123,
+                    "node_id": "IC_success",
+                    "html_url": "https://example.com",
+                }
+            return response
+
+        with patch.object(client, "_make_request", side_effect=mock_request):
+            result = client.post_issue_comment(
+                repo="owner/repo",
+                issue_number=1,
+                body="Test",
+            )
+
+        assert result["node_id"] == "IC_success"
+        assert call_count == 2
+
+    def test_403_without_rate_limit_not_retried(self) -> None:
+        """403 without rate limit indicators should not be retried."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.headers = {"X-RateLimit-Remaining": "4999"}  # Not rate limited
+        mock_response.json.return_value = {"message": "Resource not accessible"}
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="Resource not accessible"),
+        ):
+            client.post_issue_comment(
+                repo="owner/repo",
+                issue_number=1,
+                body="Test",
+            )
+
     def test_rate_limit_max_retries_exceeded(self) -> None:
         """Raise error when max retries exceeded."""
         from debate_hall_mcp.github import GitHubClient, GitHubRateLimitError
@@ -279,6 +385,45 @@ class TestGitHubClientRateLimiting:
                 issue_number=1,
                 body="Test",
             )
+
+
+class TestGitHubToolsFeatureToggle:
+    """Test GITHUB_TOOLS_ENABLED environment variable toggle."""
+
+    def test_is_github_tools_enabled_default_true(self) -> None:
+        """GitHub tools enabled by default."""
+        from debate_hall_mcp.github import is_github_tools_enabled
+
+        with patch.dict("os.environ", {}, clear=True):
+            assert is_github_tools_enabled() is True
+
+    def test_is_github_tools_enabled_explicit_true(self) -> None:
+        """GitHub tools enabled when GITHUB_TOOLS_ENABLED=true."""
+        from debate_hall_mcp.github import is_github_tools_enabled
+
+        with patch.dict("os.environ", {"GITHUB_TOOLS_ENABLED": "true"}):
+            assert is_github_tools_enabled() is True
+
+    def test_is_github_tools_disabled_false(self) -> None:
+        """GitHub tools disabled when GITHUB_TOOLS_ENABLED=false."""
+        from debate_hall_mcp.github import is_github_tools_enabled
+
+        with patch.dict("os.environ", {"GITHUB_TOOLS_ENABLED": "false"}):
+            assert is_github_tools_enabled() is False
+
+    def test_is_github_tools_disabled_zero(self) -> None:
+        """GitHub tools disabled when GITHUB_TOOLS_ENABLED=0."""
+        from debate_hall_mcp.github import is_github_tools_enabled
+
+        with patch.dict("os.environ", {"GITHUB_TOOLS_ENABLED": "0"}):
+            assert is_github_tools_enabled() is False
+
+    def test_is_github_tools_disabled_no(self) -> None:
+        """GitHub tools disabled when GITHUB_TOOLS_ENABLED=no."""
+        from debate_hall_mcp.github import is_github_tools_enabled
+
+        with patch.dict("os.environ", {"GITHUB_TOOLS_ENABLED": "no"}):
+            assert is_github_tools_enabled() is False
 
 
 class TestGitHubClientAuthentication:

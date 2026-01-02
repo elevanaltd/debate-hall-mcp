@@ -118,6 +118,15 @@ These tools connect debates to GitHub Discussions and Issues, enabling team coll
 - `issues:write` for Issue comments
 - `contents:write` and `pull_requests:write` for `ratify_rfc`
 
+**Rate Limits**: GitHub has rate limits that these tools respect:
+- Primary: 5000 requests/hour for authenticated users
+- Secondary: ~80 content-creating requests/minute
+- Tools implement automatic retry with exponential backoff on 429/403
+
+**Feature Toggle**: Disable all GitHub tools by setting `GITHUB_TOOLS_ENABLED=false`
+
+See `.env.example` for configuration options.
+
 ## Modes
 
 ### Fixed Mode (Default)

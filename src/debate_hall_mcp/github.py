@@ -3,11 +3,21 @@
 This module implements:
 - GitHubClient for posting comments to Discussions (GraphQL) and Issues (REST)
 - Branch/file creation and PR support for ratify_rfc (Issue #16)
-- Rate limit handling with exponential backoff
+- Rate limit handling with exponential backoff (429 and 403 responses)
 - Comment formatting for debate turns
 
 Immutables Compliance:
 - I4 (VERIFIABLE_EVENT_LEDGER): Comment IDs stored for reference
+
+Rate Limiting Notes:
+- GitHub primary rate limit: 5000 requests/hour for authenticated users
+- GitHub secondary rate limit: varies by endpoint (e.g., 80 content-creating requests/minute)
+- Discussion comments: subject to secondary rate limits
+- Issue comments: subject to secondary rate limits
+- GitHub returns 429 (Too Many Requests) or 403 (Forbidden) for rate limiting
+
+Feature Toggle:
+- Set GITHUB_TOOLS_ENABLED=false to disable all GitHub integration tools
 """
 
 import base64
@@ -18,6 +28,17 @@ from typing import Any
 import httpx
 
 from debate_hall_mcp.state import Turn
+
+
+def is_github_tools_enabled() -> bool:
+    """Check if GitHub integration tools are enabled.
+
+    Returns:
+        True if enabled (default), False if GITHUB_TOOLS_ENABLED=false
+    """
+    value = os.environ.get("GITHUB_TOOLS_ENABLED", "true").lower()
+    return value not in ("false", "0", "no", "off", "disabled")
+
 
 # GitHub API endpoints
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
@@ -172,8 +193,45 @@ class GitHubClient:
         headers.update(self._get_headers())
         return self._client.request(method, url, headers=headers, **kwargs)
 
+    def _is_rate_limit_response(self, response: httpx.Response) -> bool:
+        """Check if response indicates rate limiting.
+
+        GitHub rate limits can return:
+        - 429 Too Many Requests (standard rate limit)
+        - 403 Forbidden with rate limit headers (primary/secondary rate limit)
+        - 403 with "rate limit" in message (GraphQL rate limit)
+
+        Args:
+            response: HTTP response to check
+
+        Returns:
+            True if this is a rate limit response that should be retried
+        """
+        # 429 is always rate limiting
+        if response.status_code == 429:
+            return True
+
+        # 403 may or may not be rate limiting - check headers and body
+        if response.status_code == 403:
+            # Check for rate limit headers
+            if response.headers.get("X-RateLimit-Remaining") == "0":
+                return True
+
+            # Check for rate limit message in response body
+            try:
+                data = response.json()
+                message = data.get("message", "").lower()
+                if "rate limit" in message or "secondary rate limit" in message:
+                    return True
+            except Exception:
+                pass
+
+        return False
+
     def _request_with_retry(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         """Make request with retry logic for rate limits.
+
+        Handles both 429 and 403 rate limit responses from GitHub.
 
         Args:
             method: HTTP method
@@ -189,16 +247,27 @@ class GitHubClient:
         for attempt in range(self._max_retries + 1):
             response = self._make_request(method, url, **kwargs)
 
-            if response.status_code != 429:
+            # Check if this is NOT a rate limit response - return immediately
+            if not self._is_rate_limit_response(response):
                 return response
 
             # Rate limited - check if we should retry
             if attempt >= self._max_retries:
                 break
 
-            # Get retry delay from header or use exponential backoff
+            # Get retry delay from headers or use exponential backoff
+            # GitHub uses Retry-After for 429, X-RateLimit-Reset for 403
             retry_after = response.headers.get("Retry-After")
-            delay = float(retry_after) if retry_after else self._base_delay * (2**attempt)
+            if retry_after:
+                delay = float(retry_after)
+            else:
+                # Check X-RateLimit-Reset (Unix timestamp)
+                reset_time = response.headers.get("X-RateLimit-Reset")
+                if reset_time:
+                    delay = max(0, int(reset_time) - int(time.time()) + 1)
+                else:
+                    # Fallback to exponential backoff
+                    delay = self._base_delay * (2**attempt)
 
             time.sleep(delay)
 
