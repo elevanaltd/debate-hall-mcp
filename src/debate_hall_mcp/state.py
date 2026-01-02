@@ -74,8 +74,97 @@ class AuditEvent(BaseModel):
 class DebateMode(str, Enum):
     """Debate orchestration mode."""
 
-    FIXED = "fixed"  # Wind→Wall→Door→Wind...
+    FIXED = "fixed"  # Wind->Wall->Door->Wind...
     MEDIATED = "mediated"  # Orchestrator picks next role
+
+
+class GitHubTargetType(str, Enum):
+    """Valid GitHub target types for debate sync (Issue #15)."""
+
+    DISCUSSION = "discussion"
+    ISSUE = "issue"
+
+
+class InjectionType(str, Enum):
+    """Valid injection types for human interjection context (Issue #17)."""
+
+    PATHOS = "pathos"  # Wind-related: emotion/intuition expansion
+    ETHOS = "ethos"  # Wall-related: ethics/evidence addition
+    LOGOS = "logos"  # Door-related: synthesis/clarification
+    GENERAL = "general"  # Discussion body or general context
+
+
+class InjectedContext(BaseModel):
+    """Context injected from human GitHub comments into active debates (Issue #17).
+
+    Enables human-in-the-loop participation by capturing GitHub comments
+    and injecting them as context for debate agents.
+
+    Fields:
+    - source: Origin of the context (e.g., "github_comment")
+    - comment_id: Unique identifier for the comment (node_id or issue comment id)
+    - content: The comment body text
+    - injection_type: Type of injection (pathos, ethos, logos, general)
+    - processed_at: When the injection was processed (UTC)
+    - author: Optional username of comment author
+    - replied_to_turn: Optional turn index if this is a reply to a debate comment
+    """
+
+    source: str = Field(..., description="Origin of the context")
+    comment_id: str = Field(..., description="Unique identifier for idempotency")
+    content: str = Field(..., description="The comment body text")
+    injection_type: str = Field(..., description="Type: pathos|ethos|logos|general")
+    processed_at: datetime = Field(..., description="UTC timestamp of processing")
+    author: str | None = Field(default=None, description="Username of comment author")
+    replied_to_turn: int | None = Field(
+        default=None, description="Turn index if reply to debate comment"
+    )
+
+    @field_validator("injection_type")
+    @classmethod
+    def validate_injection_type(cls, v: str) -> str:
+        """Validate injection_type is a valid type."""
+        valid_types = {t.value for t in InjectionType}
+        if v not in valid_types:
+            raise ValueError(f"Invalid injection_type '{v}': must be one of {sorted(valid_types)}")
+        return v
+
+
+class GitHubBinding(BaseModel):
+    """GitHub binding for syncing debate turns to Discussion/Issue comments (Issue #15).
+
+    Enables syncing debate turns to GitHub as formatted comments, supporting
+    both Discussions (GraphQL API) and Issues (REST API).
+
+    Fields:
+    - repo: Repository in "owner/repo" format
+    - target_id: GitHub node ID (Discussions) or issue number (Issues)
+    - target_type: Type of target ("discussion" or "issue")
+    - last_synced_turn: Index of last synced turn (0 = no turns synced)
+    - comment_ids: List of posted comment node IDs for reference
+    - discussion_number: For discussions, the human-readable discussion number for deep linking
+    """
+
+    repo: str = Field(..., description="Repository in owner/repo format")
+    target_id: str = Field(..., description="GitHub node ID or issue number")
+    target_type: str = Field(..., description="Target type: discussion or issue")
+    last_synced_turn: int = Field(
+        default=0, description="Index of last synced turn (0 = no turns synced)"
+    )
+    comment_ids: list[str] = Field(default_factory=list, description="Posted comment node IDs")
+    discussion_number: int | None = Field(
+        default=None,
+        description="For discussions, the human-readable number for deep linking (e.g., 15 for discussions/15)",
+    )
+
+    @field_validator("target_type")
+    @classmethod
+    def validate_target_type(cls, v: str) -> str:
+        """Validate target_type is a valid GitHub target type."""
+        valid_types = {t.value for t in GitHubTargetType}
+        if v not in valid_types:
+            raise ValueError(f"Invalid target_type '{v}': must be one of {sorted(valid_types)}")
+        return v
 
 
 class Turn(BaseModel):
@@ -173,6 +262,14 @@ class DebateRoom(BaseModel):
     audit_log: list[AuditEvent] = Field(
         default_factory=list,
         description="Immutable audit trail for administrative actions (Issue #40)",
+    )
+    github_binding: GitHubBinding | None = Field(
+        default=None,
+        description="Optional GitHub binding for syncing turns to Discussion/Issue (Issue #15)",
+    )
+    injected_context: list[InjectedContext] = Field(
+        default_factory=list,
+        description="Human-injected context from GitHub comments (Issue #17)",
     )
 
 

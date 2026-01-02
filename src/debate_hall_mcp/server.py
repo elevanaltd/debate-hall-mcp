@@ -14,13 +14,24 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from debate_hall_mcp.github import is_github_tools_enabled
 from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
 from debate_hall_mcp.tools.admin import debate_force_close, debate_tombstone
 from debate_hall_mcp.tools.close import debate_close
 from debate_hall_mcp.tools.get import debate_get
+from debate_hall_mcp.tools.github_sync import github_sync_debate as github_sync_debate_impl
 from debate_hall_mcp.tools.init import debate_init
+from debate_hall_mcp.tools.interject import human_interject as human_interject_impl
 from debate_hall_mcp.tools.pick import debate_pick
+from debate_hall_mcp.tools.ratify import ratify_rfc as ratify_rfc_impl
 from debate_hall_mcp.tools.turn import debate_turn
+
+
+class GitHubToolsDisabledError(Exception):
+    """Raised when GitHub tools are disabled via GITHUB_TOOLS_ENABLED=false."""
+
+    pass
+
 
 # Server metadata
 SERVER_NAME = "debate-hall-mcp"
@@ -33,9 +44,10 @@ DEFAULT_STATE_DIR = Path("./debates")
 def create_server() -> FastMCP:
     """Create debate-hall MCP server.
 
-    Tools (7):
+    Tools (10):
         init_debate, add_turn, get_debate, close_debate,
-        pick_next_speaker, force_close_debate, tombstone_turn
+        pick_next_speaker, force_close_debate, tombstone_turn,
+        github_sync_debate, ratify_rfc, human_interject
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -155,6 +167,107 @@ def create_server() -> FastMCP:
             thread_id=thread_id,
             turn_index=turn_index,
             reason=reason,
+            state_dir=DEFAULT_STATE_DIR,
+        )
+
+    @server.tool()
+    def github_sync_debate(
+        thread_id: str,
+        repo: str,
+        target_id: str,
+        target_type: str = "discussion",
+    ) -> dict[str, Any]:
+        """Sync debate turns to GitHub Discussion/Issue comments.
+
+        Posts new turns as formatted comments with cognition headers.
+        Idempotent: tracks synced turns to avoid duplicates.
+
+        Args:
+            thread_id: The debate thread to sync
+            repo: Repository in owner/repo format
+            target_id: GitHub node ID (discussions) or issue number (issues)
+            target_type: 'discussion' (GraphQL) or 'issue' (REST)
+
+        Note: Can be disabled by setting GITHUB_TOOLS_ENABLED=false
+        """
+        if not is_github_tools_enabled():
+            raise GitHubToolsDisabledError(
+                "GitHub tools are disabled. Set GITHUB_TOOLS_ENABLED=true to enable."
+            )
+        return github_sync_debate_impl(
+            thread_id=thread_id,
+            repo=repo,
+            target_id=target_id,
+            target_type=target_type,
+            state_dir=DEFAULT_STATE_DIR,
+        )
+
+    @server.tool()
+    def ratify_rfc(
+        thread_id: str,
+        repo: str,
+        adr_number: int,
+        target_id: str | None = None,
+        adr_path: str = "docs/adr/",
+    ) -> dict[str, Any]:
+        """Generate ADR from Door synthesis and create PR.
+
+        Requires: Debate must be closed with synthesis.
+
+        Args:
+            thread_id: The debate thread to ratify
+            repo: Repository in owner/repo format
+            adr_number: Explicit ADR number (required to prevent collisions)
+            target_id: Optional reference ID for linking (e.g., discussion node ID)
+            adr_path: Path for ADR file in repo (default: docs/adr/)
+
+        Returns:
+            Dictionary with pr_url, pr_number, adr_path, branch_name
+
+        Note: Can be disabled by setting GITHUB_TOOLS_ENABLED=false
+        """
+        if not is_github_tools_enabled():
+            raise GitHubToolsDisabledError(
+                "GitHub tools are disabled. Set GITHUB_TOOLS_ENABLED=true to enable."
+            )
+        return ratify_rfc_impl(
+            thread_id=thread_id,
+            repo=repo,
+            adr_number=adr_number,
+            target_id=target_id,
+            adr_path=adr_path,
+            state_dir=DEFAULT_STATE_DIR,
+        )
+
+    @server.tool()
+    def human_interject(
+        thread_id: str,
+        repo: str,
+        target_id: str,
+        comment_id: str,
+    ) -> dict[str, Any]:
+        """Inject human GitHub comment into active debate as context.
+
+        Fetches comment from GitHub and adds to debate context.
+        Detects which role was replied to for injection typing.
+
+        Args:
+            thread_id: The debate thread to inject into
+            repo: Repository in owner/repo format
+            target_id: GitHub node ID (discussions) or issue number (issues)
+            comment_id: Comment node ID (DC_...) or issue comment ID (numeric)
+
+        Note: Can be disabled by setting GITHUB_TOOLS_ENABLED=false
+        """
+        if not is_github_tools_enabled():
+            raise GitHubToolsDisabledError(
+                "GitHub tools are disabled. Set GITHUB_TOOLS_ENABLED=true to enable."
+            )
+        return human_interject_impl(
+            thread_id=thread_id,
+            repo=repo,
+            target_id=target_id,
+            comment_id=comment_id,
             state_dir=DEFAULT_STATE_DIR,
         )
 

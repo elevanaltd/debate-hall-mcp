@@ -648,3 +648,96 @@ class TestFileLocking:
         lock_files = list(state_dir.glob("*.lock"))
         assert len(lock_files) == 1
         assert lock_files[0].name == "lock-003.lock"
+
+
+class TestInjectedContext:
+    """Test InjectedContext model for human_interject (Issue #17)."""
+
+    def test_injected_context_creation(self) -> None:
+        """Create InjectedContext with all required fields."""
+        from debate_hall_mcp.state import InjectedContext
+
+        ctx = InjectedContext(
+            source="github_comment",
+            comment_id="DC_kwDOtest123",
+            content="This is a human comment",
+            injection_type="pathos",
+            processed_at=datetime.now(UTC),
+        )
+        assert ctx.source == "github_comment"
+        assert ctx.comment_id == "DC_kwDOtest123"
+        assert ctx.content == "This is a human comment"
+        assert ctx.injection_type == "pathos"
+        assert ctx.author is None
+        assert ctx.replied_to_turn is None
+
+    def test_injected_context_with_optional_fields(self) -> None:
+        """Create InjectedContext with all optional fields."""
+        from debate_hall_mcp.state import InjectedContext
+
+        ctx = InjectedContext(
+            source="github_comment",
+            comment_id="IC_kwDOtest456",
+            content="Human insight",
+            injection_type="ethos",
+            processed_at=datetime.now(UTC),
+            author="testuser",
+            replied_to_turn=2,
+        )
+        assert ctx.author == "testuser"
+        assert ctx.replied_to_turn == 2
+
+    def test_injected_context_validates_injection_type(self) -> None:
+        """InjectedContext validates injection_type is valid."""
+        from pydantic import ValidationError
+
+        from debate_hall_mcp.state import InjectedContext
+
+        with pytest.raises(ValidationError, match="injection_type"):
+            InjectedContext(
+                source="github_comment",
+                comment_id="DC_test",
+                content="Content",
+                injection_type="invalid_type",  # Invalid
+                processed_at=datetime.now(UTC),
+            )
+
+    def test_debate_room_has_injected_context_list(self) -> None:
+        """DebateRoom includes injected_context list field."""
+        room = DebateRoom(
+            thread_id="inject-001",
+            topic="Injection Test",
+            mode=DebateMode.FIXED,
+        )
+        assert hasattr(room, "injected_context")
+        assert room.injected_context == []
+
+    def test_debate_room_injected_context_persistence(self, tmp_path: Path) -> None:
+        """InjectedContext persists with room state."""
+        from debate_hall_mcp.state import InjectedContext
+
+        room = DebateRoom(
+            thread_id="inject-persist-001",
+            topic="Persistence Test",
+            mode=DebateMode.FIXED,
+        )
+
+        ctx = InjectedContext(
+            source="github_comment",
+            comment_id="DC_persist123",
+            content="Persisted comment",
+            injection_type="logos",
+            processed_at=datetime.now(UTC),
+            author="persistuser",
+            replied_to_turn=1,
+        )
+        room.injected_context.append(ctx)
+
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        loaded_room = load_debate_state("inject-persist-001", state_dir)
+        assert len(loaded_room.injected_context) == 1
+        assert loaded_room.injected_context[0].comment_id == "DC_persist123"
+        assert loaded_room.injected_context[0].author == "persistuser"
+        assert loaded_room.injected_context[0].injection_type == "logos"

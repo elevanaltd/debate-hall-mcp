@@ -339,6 +339,7 @@ version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "filelock" },
+    { name = "httpx" },
     { name = "mcp" },
     { name = "pydantic" },
 ]
@@ -358,6 +359,7 @@ dev = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
     { name = "filelock", specifier = ">=3.0.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "inline-snapshot", marker = "extra == 'dev'", specifier = ">=0.15.0" },
     { name = "mcp", specifier = ">=1.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
