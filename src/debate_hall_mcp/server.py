@@ -7,6 +7,15 @@ This module implements:
 - Transport setup (stdio default)
 
 B2 Phase Complete: All debate tools registered.
+
+Environment Configuration:
+    The server loads .env file from the project root at startup.
+    This allows configuration without exposing secrets in MCP client configs.
+
+    Supported variables:
+    - GITHUB_TOKEN: GitHub personal access token for GitHub integration tools
+    - GITHUB_TOOLS_ENABLED: Set to 'false' to disable GitHub tools (default: true)
+    - DEBATE_HALL_STATE_DIR: Custom state directory (default: ./debates)
 """
 
 from pathlib import Path
@@ -14,6 +23,11 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+# isort: off
+# Load .env before other debate_hall imports that may need env vars
+from debate_hall_mcp.utils import env as _env  # noqa: F401
+
+# isort: on
 from debate_hall_mcp.github import is_github_tools_enabled
 from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
 from debate_hall_mcp.tools.admin import debate_force_close, debate_tombstone

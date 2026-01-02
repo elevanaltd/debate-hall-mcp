@@ -58,23 +58,19 @@ Add to your Claude Desktop config (`claude_desktop_config.json`) or Claude Code 
 }
 ```
 
-**For GitHub integration**, add your token to the server's environment:
+**For GitHub integration**, create a `.env` file in the debate-hall-mcp directory:
 
-```json
-{
-  "mcpServers": {
-    "debate-hall": {
-      "command": "debate-hall-mcp",
-      "args": [],
-      "env": {
-        "GITHUB_TOKEN": "ghp_your_token_here"
-      }
-    }
-  }
-}
+```bash
+# Copy the example and edit
+cp .env.example .env
+
+# Add your GitHub token
+echo "GITHUB_TOKEN=ghp_your_token_here" >> .env
 ```
 
-> **Note**: MCP servers run as separate processes and cannot read `.env` files from your project directory. Environment variables must be passed via the `env` configuration.
+The server automatically loads `.env` on startup - no need to expose secrets in your MCP config!
+
+> **How to get a GitHub token**: Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token. Select scopes: `repo`, `write:discussion`.
 
 ### 2. Start a Debate
 
