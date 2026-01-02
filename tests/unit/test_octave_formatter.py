@@ -180,15 +180,28 @@ def test_compress_content_preserves_short_text() -> None:
     assert result == short_text
 
 
-def test_compress_content_normalizes_whitespace() -> None:
-    """Test that multiple whitespace is collapsed."""
+def test_compress_content_normalizes_whitespace_in_summary_mode() -> None:
+    """Test that multiple whitespace is collapsed in SUMMARY mode only."""
+    from debate_hall_mcp.octave_formatter import OutputMode, _compress_content
+
+    text_with_whitespace = "Word1   Word2\n\nWord3\t\tWord4"
+
+    # SUMMARY mode normalizes whitespace
+    result = _compress_content(text_with_whitespace, mode=OutputMode.SUMMARY)
+
+    assert result == "Word1 Word2 Word3 Word4"
+
+
+def test_compress_content_preserves_whitespace_in_full_mode() -> None:
+    """Test that whitespace is preserved in FULL mode (default)."""
     from debate_hall_mcp.octave_formatter import _compress_content
 
     text_with_whitespace = "Word1   Word2\n\nWord3\t\tWord4"
 
+    # FULL mode (default) preserves whitespace
     result = _compress_content(text_with_whitespace)
 
-    assert result == "Word1 Word2 Word3 Word4"
+    assert result == text_with_whitespace
 
 
 # =============================================================================
@@ -370,8 +383,8 @@ def test_octave_output_is_single_line_per_field() -> None:
     assert "Step 1: Analysis\\nStep 2: Decision\\nStep 3: Action" in synthesis_line
 
 
-def test_format_debate_with_multiline_turn_content() -> None:
-    """Test that multiline turn content is handled via compression and escaping."""
+def test_format_debate_with_multiline_turn_content_full_mode() -> None:
+    """Test that multiline turn content is preserved and escaped in FULL mode (default)."""
     from debate_hall_mcp.octave_formatter import format_debate_as_octave
 
     room = DebateRoom(
@@ -390,15 +403,151 @@ def test_format_debate_with_multiline_turn_content() -> None:
 
     result = format_debate_as_octave(room)
 
-    # Turn content with newlines should be compressed (newlines become spaces)
-    # and the output should be valid line-structured OCTAVE format
+    # In FULL mode (default), newlines are PRESERVED but ESCAPED
+    # The output should contain escaped newlines (\\n), not spaces
+    assert "Point 1\\nPoint 2\\nPoint 3" in result
+
+    # Find the specific turn line and verify it's properly formatted
+    turn_lines = [line for line in result.split("\n") if "T1::Wind" in line]
+    assert len(turn_lines) == 1
+    # The turn line should contain the escaped content in quotes
+    assert '"Point 1\\nPoint 2\\nPoint 3"' in turn_lines[0]
+
+
+def test_format_debate_with_multiline_turn_content_summary_mode() -> None:
+    """Test that multiline turn content is normalized in SUMMARY mode."""
+    from debate_hall_mcp.octave_formatter import OutputMode, format_debate_as_octave
+
+    room = DebateRoom(
+        thread_id="2025-01-01-test-multiline-turn-summary",
+        topic="Test",
+        mode=DebateMode.FIXED,
+        turns=[
+            Turn(
+                role="Wind",
+                content="Point 1\nPoint 2\nPoint 3",
+                timestamp=datetime.now(UTC),
+                cognition="PATHOS",
+            ),
+        ],
+    )
+
+    result = format_debate_as_octave(room, output_mode=OutputMode.SUMMARY)
+
+    # In SUMMARY mode, newlines are NORMALIZED to spaces
     assert "Point 1 Point 2 Point 3" in result
 
     # Find the specific turn line and verify it's properly formatted
     turn_lines = [line for line in result.split("\n") if "T1::Wind" in line]
     assert len(turn_lines) == 1
-    # The turn line should contain the compressed content in quotes
+    # The turn line should contain the space-separated content in quotes
     assert '"Point 1 Point 2 Point 3"' in turn_lines[0]
+
+
+# =============================================================================
+# Test: FULL mode preserves formatting (Issue #26 CE BLOCKING fix)
+# =============================================================================
+
+
+def test_full_mode_preserves_newlines_and_tabs() -> None:
+    """Test that FULL mode preserves newlines and tabs verbatim.
+
+    CE BLOCKING: FULL mode was destroying formatting by unconditionally
+    normalizing whitespace (joining with single space).
+
+    Expected: FULL mode should NOT normalize whitespace.
+    """
+    from debate_hall_mcp.octave_formatter import OutputMode, _compress_content
+
+    # Content with newlines and tabs that should be preserved
+    content_with_formatting = "Line 1\nLine 2\n\tIndented line\nLine 4"
+
+    result = _compress_content(content_with_formatting, mode=OutputMode.FULL)
+
+    # In FULL mode, newlines and tabs should be PRESERVED
+    assert "\n" in result, "FULL mode must preserve newlines"
+    assert "\t" in result, "FULL mode must preserve tabs"
+    assert result == content_with_formatting, "FULL mode must return content verbatim"
+
+
+def test_full_mode_preserves_code_block_indentation() -> None:
+    """Test that FULL mode preserves code block indentation.
+
+    CE BLOCKING: Code snippets, Markdown lists were flattened into single line.
+    """
+    from debate_hall_mcp.octave_formatter import OutputMode, _compress_content
+
+    code_block = """def hello():
+    print("Hello")
+    return True"""
+
+    result = _compress_content(code_block, mode=OutputMode.FULL)
+
+    # Code block formatting must be preserved
+    assert result == code_block
+    assert "    print" in result  # Indentation preserved
+    assert "\n" in result  # Newlines preserved
+
+
+def test_summary_mode_still_normalizes_whitespace() -> None:
+    """Test that SUMMARY mode continues to normalize whitespace.
+
+    Backward compatibility: SUMMARY mode should collapse whitespace.
+    """
+    from debate_hall_mcp.octave_formatter import OutputMode, _compress_content
+
+    text_with_whitespace = "Word1   Word2\n\nWord3\t\tWord4"
+
+    result = _compress_content(text_with_whitespace, mode=OutputMode.SUMMARY)
+
+    # SUMMARY mode should normalize whitespace
+    assert result == "Word1 Word2 Word3 Word4"
+    assert "\n" not in result
+    assert "\t" not in result
+
+
+def test_full_mode_content_escapes_properly_in_octave_output() -> None:
+    """Test that preserved newlines in FULL mode are escaped in final OCTAVE output.
+
+    Content flow: FULL mode preserves newlines -> _escape_octave_string escapes them
+    The escaped newlines should appear as \\n in the final OCTAVE string.
+    """
+    from datetime import UTC, datetime
+
+    from debate_hall_mcp.octave_formatter import (
+        OutputMode,
+        format_debate_as_octave,
+    )
+    from debate_hall_mcp.state import DebateMode, DebateRoom, Turn
+
+    # Turn content with newlines that should be preserved then escaped
+    multiline_content = "Point 1\nPoint 2\nPoint 3"
+    room = DebateRoom(
+        thread_id="2025-01-01-test-full-escape",
+        topic="Test",
+        mode=DebateMode.FIXED,
+        turns=[
+            Turn(
+                role="Wind",
+                content=multiline_content,
+                timestamp=datetime.now(UTC),
+                cognition="PATHOS",
+            ),
+        ],
+    )
+
+    result = format_debate_as_octave(room, output_mode=OutputMode.FULL)
+
+    # In FULL mode, newlines should be PRESERVED (not normalized to spaces)
+    # But they should be ESCAPED as \\n in the final output
+    # So we should see "Point 1\\nPoint 2\\nPoint 3" not "Point 1 Point 2 Point 3"
+    assert (
+        "Point 1\\nPoint 2\\nPoint 3" in result
+    ), "Newlines should be escaped, not normalized to spaces"
+    # Should NOT have the space-normalized version
+    assert (
+        "Point 1 Point 2 Point 3" not in result
+    ), "FULL mode should NOT normalize newlines to spaces"
 
 
 # =============================================================================
@@ -549,20 +698,23 @@ def test_sanitize_value_escapes_multiple_envelope_markers() -> None:
     assert "ESCAPED_ENVELOPE_DEBATE_TRANSCRIPT" in result
 
 
-def test_sanitize_value_handles_newlines() -> None:
-    """Test that _sanitize_value escapes newlines."""
+def test_sanitize_value_passes_through_newlines() -> None:
+    """Test that _sanitize_value preserves newlines (escaping is done by _escape_octave_string).
+
+    Note: Newline escaping was moved to _escape_octave_string to avoid double-escaping.
+    _sanitize_value now focuses only on structural injection prevention (envelope markers).
+    """
     from debate_hall_mcp.octave_formatter import _sanitize_value
 
     content = "Line 1\nLine 2\r\nLine 3"
 
     result = _sanitize_value(content)
 
-    # No raw newlines should remain
-    assert "\n" not in result
-    assert "\r" not in result
-    # Should have escaped versions
-    assert "\\n" in result
-    assert "\\r" in result
+    # Newlines should be PRESERVED by _sanitize_value
+    # (escaping happens later in _escape_octave_string)
+    assert "\n" in result
+    assert "\r" in result
+    assert result == content
 
 
 def test_sanitize_value_handles_non_strings() -> None:

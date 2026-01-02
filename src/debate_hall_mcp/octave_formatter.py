@@ -49,9 +49,10 @@ def _sanitize_value(value: Any) -> str:
     """Sanitize untrusted strings to prevent OCTAVE structure injection.
 
     Prevents injection attacks where malicious input could:
-    - Inject newlines to break OCTAVE structure
     - Inject envelope markers (===XXX===) to create fake sections
-    - Inject control characters to corrupt document parsing
+
+    Note: Newline/CR escaping is handled by _escape_octave_string to avoid
+    double-escaping. This function focuses only on structural injection prevention.
 
     Pattern adapted from octave-mcp/mcp/debate_convert.py.
 
@@ -64,25 +65,18 @@ def _sanitize_value(value: Any) -> str:
     Examples:
         >>> _sanitize_value("normal text")
         'normal text'
-        >>> _sanitize_value("has\\nnewline")
-        'has\\\\nnewline'
         >>> _sanitize_value("has===END===marker")
         'hasESCAPED_ENVELOPE_ENDmarker'
     """
     if not isinstance(value, str):
         return str(value)
 
-    # Escape newlines and carriage returns
-    sanitized = value.replace("\r\n", "\\r\\n")
-    sanitized = sanitized.replace("\n", "\\n")
-    sanitized = sanitized.replace("\r", "\\r")
-
     # Escape envelope markers (===XXX===) to prevent structure injection
     # Replace with visually similar but safe representation
     sanitized = re.sub(
         r"===([A-Z_]+)===",
         r"ESCAPED_ENVELOPE_\1",
-        sanitized,
+        value,
     )
 
     return sanitized
@@ -95,10 +89,9 @@ def _compress_content(
 ) -> str:
     """Compress content for OCTAVE output.
 
-    Semantic compression: Remove redundancy while preserving meaning.
-    - Normalize whitespace (collapse multiple spaces, replace newlines with spaces)
-    - In SUMMARY mode: truncate to max_length with ellipsis
-    - In FULL mode: preserve complete content (default)
+    Semantic compression behavior depends on mode:
+    - FULL mode (default): Preserve content verbatim (no whitespace normalization)
+    - SUMMARY mode: Normalize whitespace and truncate to max_length with ellipsis
 
     Args:
         content: Original content string
@@ -106,13 +99,16 @@ def _compress_content(
         mode: OutputMode.FULL (preserve content) or OutputMode.SUMMARY (truncate)
 
     Returns:
-        Compressed content string
+        Processed content string
     """
-    # Normalize whitespace
+    # FULL mode: preserve content verbatim (no whitespace normalization)
+    if mode == OutputMode.FULL:
+        return content
+
+    # SUMMARY mode: normalize whitespace and truncate
     compressed = " ".join(content.split())
 
-    # Truncate only in SUMMARY mode
-    if mode == OutputMode.SUMMARY and len(compressed) > max_length:
+    if len(compressed) > max_length:
         compressed = compressed[: max_length - 3] + "..."
 
     return compressed
