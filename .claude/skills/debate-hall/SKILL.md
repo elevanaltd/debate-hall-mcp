@@ -149,8 +149,93 @@ Redact a turn while preserving hash chain integrity.
 tombstone_turn(thread_id, turn_index=2, reason="Contained PII")
 ```
 
+## Advanced Patterns
+
+### Flash Debate (Quick Decisions)
+
+For simple decisions, run a complete 3-turn cycle in one sequence:
+
+```python
+# 1. Initialize
+init_debate(thread_id="quick-decision-{timestamp}", topic="Which logging library?")
+
+# 2. Generate all three perspectives (caller provides content)
+add_turn(thread_id, role="Wind", content="What if we used structlog? Schema-free, context propagation...")
+add_turn(thread_id, role="Wall", content="Yes, but stdlib logging is zero-dep, team already knows it...")
+add_turn(thread_id, role="Door", content="Therefore: stdlib for now, structlog when we need structured output...")
+
+# 3. Close immediately
+close_debate(thread_id, synthesis="Use stdlib logging initially...")
+```
+
+**Key constraint**: The server orchestrates state, not content. You supply all turn content.
+
+### Socratic Pattern (Premise Clarification)
+
+Before taking positions, clarify the question:
+
+```
+Round 1 (Questions Only):
+  Wind: "What does 'scalable' mean here? Users? Data volume? Team size?"
+  Wall: "What are the actual load projections? Do we have metrics?"
+  Door: "Let me consolidate: We need to define scale dimensions before debating solutions."
+
+Round 2+ (Positions):
+  Wind: "Given 10K users target, what if we..."
+  Wall: "Yes, but our current infra handles..."
+  Door: "Therefore..."
+```
+
+This is a **convention**, not server-enforced. Discipline produces better debates.
+
+### Multi-Model Specialist Debates
+
+Use different models for each cognition:
+
+```python
+# Wind: Creative exploration (Gemini)
+mcp__pal__clink(cli_name="gemini", role="ideator", prompt="PATHOS exploration: {topic}")
+add_turn(thread_id, role="Wind", content=ideator_response, agent_role="ideator", model="gemini")
+
+# Wall: Reality validation (Codex)
+mcp__pal__clink(cli_name="codex", role="validator", prompt="ETHOS validation: {topic}")
+add_turn(thread_id, role="Wall", content=validator_response, agent_role="validator", model="codex")
+
+# Door: Synthesis (Claude)
+# Synthesize directly as the calling agent
+add_turn(thread_id, role="Door", content=synthesis, agent_role="synthesizer", model="claude")
+```
+
+## When to Use Debate-Hall
+
+### Trigger Conditions (from ho-orchestrate)
+
+Use debate-hall when you encounter:
+
+| Trigger | Example |
+|---------|---------|
+| **Complex architectural decision** | "Microservices vs monolith?" |
+| **Multiple valid approaches** | "Redux vs Zustand vs Context?" |
+| **Unclear tradeoffs** | "Speed vs safety?" |
+| **Disagreement between reviewers** | CE and CRS have conflicting feedback |
+| **High-risk implementation** | Security model, data migration |
+
+### Integration with Orchestration
+
+If you're an orchestrating agent (HO, IL), escalate to debate-hall when solo analysis is insufficient:
+
+```python
+# Detect complexity trigger
+if complex_decision or multiple_approaches or reviewer_disagreement:
+    # Escalate to structured debate
+    init_debate(thread_id=f"ho-{task}-{timestamp}", topic=decision_point, mode="mediated")
+    # Run Wind/Wall/Door cycle
+    # Apply synthesis to task
+```
+
 ## Related Resources
 
 - [Agent Definitions](agents/README.md) - Wind/Wall/Door agent files
 - [Wall Content Contract](docs/wall-content-contract.oct.md) - Semantic structure for blocking
 - [Multi-Model Patterns](docs/examples/multi-model-debate-patterns.md) - Real debate examples
+- [ho-orchestrate skill](~/.claude/skills/ho-orchestrate/SKILL.md) - Orchestration integration

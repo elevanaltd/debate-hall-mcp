@@ -10,6 +10,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 - Claude Code skill for debate-hall orchestration (`.claude/skills/debate-hall/SKILL.md`)
 - This CHANGELOG.md for release history
+- Advanced patterns in skill: Flash Debate, Socratic Pattern, Multi-Model Specialist
+- "When to Use Debate-Hall" trigger conditions (from ho-orchestrate integration)
+- README sections: "For AI Agents" and "What is OCTAVE?"
 
 ## [0.1.1] - 2025-01-01
 
