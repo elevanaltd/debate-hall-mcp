@@ -103,6 +103,21 @@ Client (Claude/Agent)
 | `force_close_debate` | `thread_id`, `reason` | Emergency shutdown (I5 kill switch) |
 | `tombstone_turn` | `thread_id`, `turn_index`, `reason` | Redact turn (preserves hash chain) |
 
+### GitHub Integration Tools
+
+These tools connect debates to GitHub Discussions and Issues, enabling team collaboration:
+
+| Tool | Parameters | Purpose |
+|------|------------|---------|
+| `github_sync_debate` | `thread_id`, `repo`, `target_id`, `target_type?` | Sync debate turns to GitHub as comments |
+| `ratify_rfc` | `thread_id`, `repo`, `adr_number`, `target_id?`, `adr_path?` | Generate ADR from synthesis and create PR |
+| `human_interject` | `thread_id`, `repo`, `target_id`, `comment_id` | Inject human GitHub comment into debate |
+
+**Requirements**: Set `GITHUB_TOKEN` environment variable with appropriate permissions:
+- `discussions:write` for Discussion comments
+- `issues:write` for Issue comments
+- `contents:write` and `pull_requests:write` for `ratify_rfc`
+
 ## Modes
 
 ### Fixed Mode (Default)
@@ -248,7 +263,7 @@ cd debate-hall-mcp
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# Run tests (94 tests, 91%+ coverage)
+# Run tests (450+ tests, 91%+ coverage)
 pytest
 
 # Quality checks
@@ -275,6 +290,42 @@ Topic: "Should we migrate to microservices?"
         while avoiding premature complexity."
 ```
 
+## Example: GitHub-Connected Debate Workflow
+
+Share AI debates with your team on GitHub and turn decisions into official docs:
+
+```
+1. Start debate
+   → init_debate(thread_id="api-versioning", topic="How should we version our API?")
+
+2. Run the dialectic (Wind → Wall → Door)
+   → add_turn(...) for each perspective
+
+3. Sync to GitHub Discussion
+   → github_sync_debate(thread_id="api-versioning", repo="myorg/myrepo",
+                        target_id="D_kwDOxxxx", target_type="discussion")
+
+   Team sees formatted comments:
+   ## 💨 Wind (PATHOS)
+   **Model**: claude-3 | **Turn**: 1/12
+   "What if we used URL versioning like /v1/users..."
+
+4. Human teammate comments on Discussion
+   → human_interject(thread_id="api-versioning", repo="myorg/myrepo",
+                     target_id="D_kwDOxxxx", comment_id="DC_kwDOyyyy")
+
+   Their input is now part of the debate context
+
+5. Close debate with synthesis
+   → close_debate(thread_id="api-versioning", synthesis="Use header versioning...")
+
+6. Create official ADR
+   → ratify_rfc(thread_id="api-versioning", repo="myorg/myrepo",
+                adr_number=15, adr_path="docs/adr/")
+
+   Creates PR with docs/adr/ADR-015-api-versioning.md
+```
+
 ## Project Structure
 
 ```
@@ -286,7 +337,7 @@ debate-hall-mcp/
 │   ├── server.py     # FastMCP server
 │   └── tools/        # MCP tool implementations
 ├── tests/
-│   ├── unit/         # 89 unit tests
+│   ├── unit/         # 450+ unit tests
 │   └── e2e/          # 5 E2E tests
 └── .hestai/
     └── workflow/     # NORTH STAR and orchestration
