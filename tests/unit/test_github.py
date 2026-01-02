@@ -1025,3 +1025,268 @@ class TestGitHubClientRepositoryOperations:
             pytest.raises(GitHubAPIError, match="Not Found"),
         ):
             client.get_default_branch(repo="nonexistent/repo")
+
+
+class TestGitHubClientGetDiscussionComment:
+    """Test fetching Discussion comments via GraphQL API (Issue #17)."""
+
+    def test_get_discussion_comment_success(self) -> None:
+        """Successfully fetch a discussion comment by node ID."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "node": {
+                    "body": "This is the comment content",
+                    "author": {"login": "testuser"},
+                    "replyTo": {"id": "DC_kwDOparent123"},
+                    "discussion": {"id": "D_kwDOtest456"},
+                }
+            }
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.get_discussion_comment(node_id="DC_kwDOtest123")
+
+        assert result["body"] == "This is the comment content"
+        assert result["author"] == "testuser"
+        assert result["reply_to_id"] == "DC_kwDOparent123"
+        assert result["discussion_id"] == "D_kwDOtest456"
+
+    def test_get_discussion_comment_returns_discussion_id_for_validation(self) -> None:
+        """get_discussion_comment must return discussion.id for source validation.
+
+        Security: Enables _validate_discussion_comment_source() to verify the
+        comment belongs to the expected discussion, preventing injection attacks.
+        """
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "node": {
+                    "body": "Comment content",
+                    "author": {"login": "user"},
+                    "replyTo": None,
+                    "discussion": {"id": "D_kwDOExpected123"},
+                }
+            }
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.get_discussion_comment(node_id="DC_test")
+
+        # CRITICAL: discussion_id must be present for source validation to work
+        assert (
+            "discussion_id" in result
+        ), "get_discussion_comment must return discussion_id for source validation"
+        assert result["discussion_id"] == "D_kwDOExpected123"
+
+    def test_get_discussion_comment_no_reply(self) -> None:
+        """Fetch a top-level discussion comment (not a reply)."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "node": {
+                    "body": "Top level comment",
+                    "author": {"login": "author1"},
+                    "replyTo": None,
+                    "discussion": {"id": "D_kwDOdiscussion"},
+                }
+            }
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.get_discussion_comment(node_id="DC_kwDOtop123")
+
+        assert result["body"] == "Top level comment"
+        assert result["author"] == "author1"
+        assert result["reply_to_id"] is None
+        assert result["discussion_id"] == "D_kwDOdiscussion"
+
+    def test_get_discussion_comment_formats_graphql_query(self) -> None:
+        """Verify the GraphQL query structure includes discussion.id for validation."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        captured_request: dict[str, Any] = {}
+
+        def capture_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            captured_request["method"] = method
+            captured_request["url"] = url
+            captured_request["kwargs"] = kwargs
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {
+                "data": {
+                    "node": {
+                        "body": "Content",
+                        "author": {"login": "user"},
+                        "replyTo": None,
+                        "discussion": {"id": "D_kwDO123"},
+                    }
+                }
+            }
+            return response
+
+        with patch.object(client, "_make_request", side_effect=capture_request):
+            client.get_discussion_comment(node_id="DC_kwDO123")
+
+        assert captured_request["method"] == "POST"
+        assert "graphql" in captured_request["url"]
+        body = captured_request["kwargs"].get("json", {})
+        assert "query" in body
+        assert "node" in body["query"]
+        assert "DiscussionComment" in body["query"]
+        # CRITICAL: Query must include discussion { id } for source validation
+        assert (
+            "discussion" in body["query"]
+        ), "GraphQL query must include 'discussion { id }' for source validation"
+        assert body["variables"]["nodeId"] == "DC_kwDO123"
+
+    def test_get_discussion_comment_not_found(self) -> None:
+        """Handle error when comment node ID doesn't exist."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"data": {"node": None}}
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="node|null|missing"),
+        ):
+            client.get_discussion_comment(node_id="DC_invalid")
+
+    def test_get_discussion_comment_handles_graphql_errors(self) -> None:
+        """Handle GraphQL errors gracefully."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"errors": [{"message": "Could not resolve to a node"}]}
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="Could not resolve"),
+        ):
+            client.get_discussion_comment(node_id="DC_invalid")
+
+
+class TestGitHubClientGetIssueComment:
+    """Test fetching Issue comments via REST API (Issue #17)."""
+
+    def test_get_issue_comment_success(self) -> None:
+        """Successfully fetch an issue comment by ID."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": 123456789,
+            "node_id": "IC_kwDOtest123",
+            "body": "This is the issue comment",
+            "user": {"login": "issueuser"},
+            "html_url": "https://github.com/owner/repo/issues/42#issuecomment-123456789",
+            "issue_url": "https://api.github.com/repos/owner/repo/issues/42",
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.get_issue_comment(repo="owner/repo", comment_id=123456789)
+
+        assert result["body"] == "This is the issue comment"
+        assert result["author"] == "issueuser"
+        assert result["node_id"] == "IC_kwDOtest123"
+        assert result["issue_url"] == "https://api.github.com/repos/owner/repo/issues/42"
+
+    def test_get_issue_comment_returns_issue_url_for_validation(self) -> None:
+        """get_issue_comment must return issue_url for source validation.
+
+        Security: Enables _validate_issue_comment_source() to verify the
+        comment belongs to the expected issue, preventing injection attacks.
+        """
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": 999,
+            "node_id": "IC_test",
+            "body": "Comment body",
+            "user": {"login": "user"},
+            "issue_url": "https://api.github.com/repos/owner/repo/issues/42",
+        }
+
+        with patch.object(client, "_make_request", return_value=mock_response):
+            result = client.get_issue_comment(repo="owner/repo", comment_id=999)
+
+        # CRITICAL: issue_url must be present for source validation to work
+        assert (
+            "issue_url" in result
+        ), "get_issue_comment must return issue_url for source validation"
+        assert result["issue_url"] == "https://api.github.com/repos/owner/repo/issues/42"
+
+    def test_get_issue_comment_uses_rest_api(self) -> None:
+        """Verify the REST API call structure."""
+        from debate_hall_mcp.github import GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        captured_request: dict[str, Any] = {}
+
+        def capture_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            captured_request["method"] = method
+            captured_request["url"] = url
+            captured_request["kwargs"] = kwargs
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = {
+                "id": 123,
+                "node_id": "IC_test",
+                "body": "Content",
+                "user": {"login": "user"},
+            }
+            return response
+
+        with patch.object(client, "_make_request", side_effect=capture_request):
+            client.get_issue_comment(repo="owner/repo", comment_id=123456)
+
+        assert captured_request["method"] == "GET"
+        assert "/repos/owner/repo/issues/comments/123456" in captured_request["url"]
+
+    def test_get_issue_comment_not_found(self) -> None:
+        """Handle 404 errors for non-existent comments."""
+        from debate_hall_mcp.github import GitHubAPIError, GitHubClient
+
+        client = GitHubClient(token="ghp_test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.json.return_value = {"message": "Not Found"}
+
+        with (
+            patch.object(client, "_make_request", return_value=mock_response),
+            pytest.raises(GitHubAPIError, match="Not Found"),
+        ):
+            client.get_issue_comment(repo="owner/repo", comment_id=99999999)

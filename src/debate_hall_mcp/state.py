@@ -85,6 +85,51 @@ class GitHubTargetType(str, Enum):
     ISSUE = "issue"
 
 
+class InjectionType(str, Enum):
+    """Valid injection types for human interjection context (Issue #17)."""
+
+    PATHOS = "pathos"  # Wind-related: emotion/intuition expansion
+    ETHOS = "ethos"  # Wall-related: ethics/evidence addition
+    LOGOS = "logos"  # Door-related: synthesis/clarification
+    GENERAL = "general"  # Discussion body or general context
+
+
+class InjectedContext(BaseModel):
+    """Context injected from human GitHub comments into active debates (Issue #17).
+
+    Enables human-in-the-loop participation by capturing GitHub comments
+    and injecting them as context for debate agents.
+
+    Fields:
+    - source: Origin of the context (e.g., "github_comment")
+    - comment_id: Unique identifier for the comment (node_id or issue comment id)
+    - content: The comment body text
+    - injection_type: Type of injection (pathos, ethos, logos, general)
+    - processed_at: When the injection was processed (UTC)
+    - author: Optional username of comment author
+    - replied_to_turn: Optional turn index if this is a reply to a debate comment
+    """
+
+    source: str = Field(..., description="Origin of the context")
+    comment_id: str = Field(..., description="Unique identifier for idempotency")
+    content: str = Field(..., description="The comment body text")
+    injection_type: str = Field(..., description="Type: pathos|ethos|logos|general")
+    processed_at: datetime = Field(..., description="UTC timestamp of processing")
+    author: str | None = Field(default=None, description="Username of comment author")
+    replied_to_turn: int | None = Field(
+        default=None, description="Turn index if reply to debate comment"
+    )
+
+    @field_validator("injection_type")
+    @classmethod
+    def validate_injection_type(cls, v: str) -> str:
+        """Validate injection_type is a valid type."""
+        valid_types = {t.value for t in InjectionType}
+        if v not in valid_types:
+            raise ValueError(f"Invalid injection_type '{v}': must be one of {sorted(valid_types)}")
+        return v
+
+
 class GitHubBinding(BaseModel):
     """GitHub binding for syncing debate turns to Discussion/Issue comments (Issue #15).
 
@@ -221,6 +266,10 @@ class DebateRoom(BaseModel):
     github_binding: GitHubBinding | None = Field(
         default=None,
         description="Optional GitHub binding for syncing turns to Discussion/Issue (Issue #15)",
+    )
+    injected_context: list[InjectedContext] = Field(
+        default_factory=list,
+        description="Human-injected context from GitHub comments (Issue #17)",
     )
 
 

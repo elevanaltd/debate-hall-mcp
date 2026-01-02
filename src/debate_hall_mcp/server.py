@@ -20,6 +20,7 @@ from debate_hall_mcp.tools.close import debate_close
 from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.github_sync import github_sync_debate as github_sync_debate_impl
 from debate_hall_mcp.tools.init import debate_init
+from debate_hall_mcp.tools.interject import human_interject as human_interject_impl
 from debate_hall_mcp.tools.pick import debate_pick
 from debate_hall_mcp.tools.ratify import ratify_rfc as ratify_rfc_impl
 from debate_hall_mcp.tools.turn import debate_turn
@@ -35,10 +36,10 @@ DEFAULT_STATE_DIR = Path("./debates")
 def create_server() -> FastMCP:
     """Create debate-hall MCP server.
 
-    Tools (9):
+    Tools (10):
         init_debate, add_turn, get_debate, close_debate,
         pick_next_speaker, force_close_debate, tombstone_turn,
-        github_sync_debate, ratify_rfc
+        github_sync_debate, ratify_rfc, human_interject
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -215,6 +216,32 @@ def create_server() -> FastMCP:
             adr_number=adr_number,
             target_id=target_id,
             adr_path=adr_path,
+            state_dir=DEFAULT_STATE_DIR,
+        )
+
+    @server.tool()
+    def human_interject(
+        thread_id: str,
+        repo: str,
+        target_id: str,
+        comment_id: str,
+    ) -> dict[str, Any]:
+        """Inject human GitHub comment into active debate as context.
+
+        Fetches comment from GitHub and adds to debate context.
+        Detects which role was replied to for injection typing.
+
+        Args:
+            thread_id: The debate thread to inject into
+            repo: Repository in owner/repo format
+            target_id: GitHub node ID (discussions) or issue number (issues)
+            comment_id: Comment node ID (DC_...) or issue comment ID (numeric)
+        """
+        return human_interject_impl(
+            thread_id=thread_id,
+            repo=repo,
+            target_id=target_id,
+            comment_id=comment_id,
             state_dir=DEFAULT_STATE_DIR,
         )
 

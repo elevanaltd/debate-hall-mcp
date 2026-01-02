@@ -527,6 +527,129 @@ class GitHubClient:
 
         return str(data.get("default_branch", "main"))
 
+    def get_discussion_comment(self, node_id: str) -> dict[str, Any]:
+        """Fetch a Discussion comment by node ID via GraphQL API (Issue #17).
+
+        Args:
+            node_id: The GraphQL node ID of the discussion comment (e.g., "DC_kwDO...")
+
+        Returns:
+            Dictionary with comment details:
+            - body: The comment body text
+            - author: Username of comment author
+            - reply_to_id: Node ID of parent comment if this is a reply, else None
+            - discussion_id: Node ID of the parent discussion (for source validation)
+
+        Raises:
+            GitHubAPIError: If the API returns an error or node doesn't exist
+            GitHubRateLimitError: If rate limit exceeded
+        """
+        query = """
+        query GetDiscussionComment($nodeId: ID!) {
+            node(id: $nodeId) {
+                ... on DiscussionComment {
+                    body
+                    author {
+                        login
+                    }
+                    replyTo {
+                        id
+                    }
+                    discussion {
+                        id
+                    }
+                }
+            }
+        }
+        """
+
+        payload = {
+            "query": query,
+            "variables": {
+                "nodeId": node_id,
+            },
+        }
+
+        response = self._request_with_retry("POST", GITHUB_GRAPHQL_URL, json=payload)
+
+        # Validate HTTP status code first
+        if response.status_code >= 400:
+            try:
+                data = response.json()
+                message = data.get("message", f"HTTP {response.status_code}")
+            except Exception:
+                message = f"HTTP {response.status_code}"
+            raise GitHubAPIError(f"GraphQL API error: {response.status_code} - {message}")
+
+        data = response.json()
+
+        # Check for GraphQL errors
+        if "errors" in data:
+            error_messages = [e.get("message", str(e)) for e in data["errors"]]
+            raise GitHubAPIError(f"GraphQL error: {'; '.join(error_messages)}")
+
+        # Extract and validate node data
+        node_data = data.get("data", {}).get("node")
+
+        if node_data is None:
+            raise GitHubAPIError(
+                "GraphQL response has null node - comment may be deleted or inaccessible"
+            )
+
+        # Extract fields
+        body = node_data.get("body", "")
+        author_data = node_data.get("author")
+        author = author_data.get("login") if author_data else None
+        reply_to_data = node_data.get("replyTo")
+        reply_to_id = reply_to_data.get("id") if reply_to_data else None
+        discussion_data = node_data.get("discussion")
+        discussion_id = discussion_data.get("id") if discussion_data else None
+
+        return {
+            "body": body,
+            "author": author,
+            "reply_to_id": reply_to_id,
+            "discussion_id": discussion_id,
+        }
+
+    def get_issue_comment(self, repo: str, comment_id: int) -> dict[str, Any]:
+        """Fetch an Issue comment by ID via REST API (Issue #17).
+
+        Args:
+            repo: Repository in "owner/repo" format
+            comment_id: The issue comment ID
+
+        Returns:
+            Dictionary with comment details:
+            - body: The comment body text
+            - author: Username of comment author
+            - node_id: GraphQL node ID of the comment
+            - issue_url: API URL of the parent issue (for source validation)
+
+        Raises:
+            GitHubAPIError: If the API returns an error (e.g., 404 not found)
+            GitHubRateLimitError: If rate limit exceeded
+        """
+        url = f"{GITHUB_REST_BASE_URL}/repos/{repo}/issues/comments/{comment_id}"
+        response = self._request_with_retry("GET", url)
+
+        data = response.json()
+
+        if response.status_code >= 400:
+            message = data.get("message", f"HTTP {response.status_code}")
+            raise GitHubAPIError(f"REST API error: {message}")
+
+        # Extract fields
+        user_data = data.get("user")
+        author = user_data.get("login") if user_data else None
+
+        return {
+            "body": data.get("body", ""),
+            "author": author,
+            "node_id": data.get("node_id"),
+            "issue_url": data.get("issue_url"),
+        }
+
     def close(self) -> None:
         """Close the HTTP client."""
         self._client.close()
