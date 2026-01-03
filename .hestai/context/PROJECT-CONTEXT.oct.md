@@ -47,9 +47,9 @@ I1::COGNITIVE_STATE_ISOLATION[
 ]
 
 I2::UNIVERSAL_OCTAVE_BINDING[
-  IMPLEMENTATION::PLANNED[Issue_#29_auto_generate_octave_on_close],
-  STATUS::cognition_validation_implemented+octave_export_pending,
-  VERIFICATION::north_star_debate_used_octave
+  IMPLEMENTATION::COMPLETE[output_format_parameter+octave_formatter.py],
+  STATUS::cognition_validation_implemented+octave_export_functional,
+  VERIFICATION::test_octave_formatter.py[1046_lines]+test_octave_output.py[356_lines]
 ]
 
 I3::FINITE_DIALECTIC_CLOSURE[
@@ -178,14 +178,18 @@ ENFORCEMENT_HARDENING_v010::[
 §10::OPEN_ISSUES
 
 DEFERRED_V020::[
-  hash_chain_verification::UNBLOCKED[tombstone_now_preserves_hash],
   genius_insights::READY[audit_foundation_complete]
 ]
 
-OTHER_PRIORITY::[
-  Issue_#29::OCTAVE_auto_generate_on_close[implements_I2_fully],
-  Issue_#33::storage_location_documentation[clarify_worktree_relative_behavior],
-  Issue_#26::OCTAVE_format_support[broader_integration_scope]
+REOPENED::[
+  Issue_#18::webhook_action_automation[not_implemented_during_v0.1.x]
+]
+
+RESOLVED_SINCE_LAST_UPDATE::[
+  Issue_#29::CLOSED[OCTAVE_auto_generate_complete],
+  Issue_#33::CLOSED[storage_location_fixed],
+  Issue_#26::CLOSED[OCTAVE_format_implemented],
+  Issue_#58::CLOSED[hash_chain_verification_on_load]
 ]
 
 CLOSED_PRS::[

@@ -71,8 +71,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Known Limitations
 
-### I2 Universal OCTAVE Binding (Partial)
-OCTAVE transcript generation is available via `output_format='octave'` on close, but auto-generation on close is not yet implemented (Issue #29). Full I2 compliance targeted for 0.2.0.
+### Issue #18: Webhook/Action Automation (Reopened)
+Automated debate triggering via GitHub webhooks/actions is not yet implemented. The three core GitHub tools (`github_sync_debate`, `ratify_rfc`, `human_interject`) are fully functional for manual orchestration.
 
 ---
 
