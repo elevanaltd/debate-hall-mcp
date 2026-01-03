@@ -1,10 +1,15 @@
-# Multi-Model Debate Patterns
+# Multi-Model Debate Examples
 
-Real-world examples of debate-hall-mcp used for architectural decisions.
+Real debates using debate-hall-mcp for architectural decisions. These demonstrate the Wind/Wall/Door pattern producing emergent solutions.
+
+> For configuration guidance (recipes, agent tiers, tuning), see [Usage Patterns](../guides/usage-patterns.md).
+> For empirical validation of the methodology, see [Evidence](../evidence/).
+
+---
 
 ## Example 1: OCTAVE Integration Strategy
 
-**Debate:** `debates/octave-integration-strategy-2024-12-28.json`
+**Thread:** `debates/octave-integration-strategy-2024-12-28.json`
 
 **Question:** How should debate-hall-mcp integrate OCTAVE skills for token efficiency?
 
@@ -15,7 +20,7 @@ Real-world examples of debate-hall-mcp used for architectural decisions.
 
 > **Note:** This debate used model assignments before the M019 study. For optimal results, see [Model Cognitive Optimization Study](../evidence/model-cognitive-optimization-study.md) which recommends: Claude→Wind, GPT→Wall, Gemini→Door.
 
-**Key Finding:** The synthesis produced "OCTAVE-Aware, Not OCTAVE-Dependent" - a third way that neither Wind nor Wall proposed alone.
+### The Dialectic
 
 ```
 WIND proposed: Cognitive Thermostat (dynamic injection based on token load)
@@ -23,85 +28,69 @@ WALL blocked: No token telemetry infrastructure exists
 DOOR synthesized: View-layer preamble that teaches by example without dependencies
 ```
 
-**Lesson:** Multi-model debates can find emergent solutions that single-model exploration misses.
+### Emergent Solution
+
+"OCTAVE-Aware, Not OCTAVE-Dependent" - a third way that neither Wind nor Wall proposed alone. The synthesis transcended the original either/or framing.
+
+**Lesson:** Multi-model debates find emergent solutions that single-model exploration misses.
 
 ---
 
-## Example 2: Archetype Differentiation Study
+## Example 2: Archetype Differentiation
 
-**Debates:**
+**Threads:**
 - `debates/octave-visibility-wind-variants-2024-12-28.json`
 - `debates/wind-archetype-replication-2024-12-28.json`
 
 **Question:** Do different Wind archetypes (same model, different prompts) produce meaningfully different outputs?
 
 **Participants (all Gemini-3-Pro):**
-- `wind-agent` - Standard explorer
-- `edge-optimizer` - Boundary finder
-- `ideator` - Creative catalyst
+| Archetype | Role | Behavioral Pattern |
+|-----------|------|-------------------|
+| `wind-agent` | Standard explorer | Explores obvious paths |
+| `edge-optimizer` | Boundary finder | Finds hidden vectors |
+| `ideator` | Creative catalyst | Converges to minimal solutions |
 
-**Results (replicated across 2 runs):**
+### Results (Replicated Across 2 Runs)
 
-| Archetype | Consistent Pattern | Example Ideas |
-|-----------|-------------------|---------------|
-| wind-agent | Explores obvious insertion points | Tool descriptions, Genesis Turn, Mirror Response |
-| edge-optimizer | Finds hidden vectors | Error message formatting, Identity as structure, Timestamps |
-| ideator | Converges to minimal solution | Holographic Preamble (~10 lines, same both runs) |
+| Archetype | Consistent Output Pattern |
+|-----------|--------------------------|
+| wind-agent | Tool descriptions, Genesis Turn, Mirror Response |
+| edge-optimizer | Error message formatting, Identity as structure, Timestamps |
+| ideator | Holographic Preamble (~10 lines, same both runs) |
 
 **Lesson:** Archetype framing produces consistent behavioral differentiation even with the same underlying model. Specialist agents search different solution spaces.
 
 ---
 
-## Patterns for Effective Debates
+## Example 3: Recipe-Based Configuration
 
-### 1. Use Different Models for Different Roles
+**Thread:** `debates/2024-12-31-agent-configuration-tiers.json`
 
-**Evidence-based assignment (M019 study, 29% quality improvement):**
-
-```
-Wind (PATHOS) → Claude Opus 4.5  (divergent thinking, metaphorical reasoning)
-Wall (ETHOS)  → GPT-5.2         (analytical rigor, structured evaluation)
-Door (LOGOS)  → Gemini 3 Pro    (pattern synthesis, emergent connections)
-```
-
-See [Model Cognitive Optimization Study](../evidence/model-cognitive-optimization-study.md) for detailed evidence.
-
-### 2. Mediated Mode for Controlled Experiments
-
-When testing hypotheses about agent behavior, use mediated mode to control turn order and isolate variables.
-
-### 3. Run Replication Studies
-
-One run could be a fluke. Run the same experiment twice to confirm patterns are consistent.
-
-### 4. Let Door Find the Third Way
-
-The best debates don't just pick Wind or Wall's position - Door synthesizes something neither proposed.
-
----
-
-## Example 3: Agent Configuration Tiers
-
-**Debate:** `debates/2024-12-31-agent-configuration-tiers.json`
-
-**Question:** What are the optimal agent configuration tiers for debate-hall-mcp debates?
+**Question:** What are the optimal agent configuration tiers for debate-hall-mcp?
 
 **Participants:**
 - Wind (Gemini-3-Pro) - Explored configuration topologies
 - Wall (Codex) - Validated against implementation constraints
 - Door (Claude Opus 4.5) - Synthesized recipe-based approach
 
-**Wind's Proposals:**
+### Wind's Proposals
+
 1. **T-Shirt Sizing** - Static tiers (Speed/Standard/Deep) via init params
 2. **Asymmetric Roster** - Fortress (3 Walls), Laboratory (3 Winds), Council (3 Doors)
 3. **Cognitive Fluidity** - Agents shift cognition between debate phases
 
-**Wall's Verdict:**
-- T-Shirt Sizing: **GO** - Implementable today as caller-side presets
-- Asymmetric Roster: **CONDITIONAL GO** - Only via mediated mode + `agent_role`/`model` metadata
-- Cognitive Fluidity: **BLOCKED** - `ROLE_COGNITION_MAP` binds Wind→PATHOS, Wall→ETHOS, Door→LOGOS permanently
+### Wall's Verdicts
 
-**Key Finding:** Door synthesized **RECIPE-BASED CONFIGURATION** - neither internal tiers (Wind) nor Hall modifications (impossible per Wall) but declarative orchestrator-level templates that compose existing Hall primitives.
+| Proposal | Verdict | Reason |
+|----------|---------|--------|
+| T-Shirt Sizing | **GO** | Implementable today as caller-side presets |
+| Asymmetric Roster | **CONDITIONAL GO** | Only via mediated mode + `agent_role`/`model` metadata |
+| Cognitive Fluidity | **BLOCKED** | `ROLE_COGNITION_MAP` binds Wind→PATHOS, Wall→ETHOS, Door→LOGOS permanently |
+
+### Door's Synthesis
+
+**RECIPE-BASED CONFIGURATION** - neither internal tiers (Wind) nor Hall modifications (impossible per Wall) but declarative orchestrator-level templates that compose existing Hall primitives.
 
 ```yaml
 # Example: recipes/fortress.yaml
@@ -128,23 +117,10 @@ sequence: [Wind, Wall, Wall, Wall, Door]
 
 ---
 
-## Configuration Reference
-
-For comprehensive configuration guidance including:
-- **Agent Tiers** (Basic → Specialist → Domain)
-- **Pre-built Recipes** (SPEED, STANDARD, DEEP, FORTRESS, LABORATORY, COUNCIL)
-- **Tuning Guide** (optimizing debate depth and balance)
-- **Cognition Prompts** (full prompt templates)
-
-See [Usage Patterns](../guides/usage-patterns.md).
-
----
-
 ## Raw Debate Files
 
-All debates are stored as JSON in the `debates/` directory:
-- Full transcript with hashes
-- Speaker metadata (agent_role, model, cognition)
-- Final synthesis
+All debates are stored in the `debates/` directory:
+- **JSON format**: Full transcript with hashes, speaker metadata
+- **OCTAVE format**: Committed decision records (`.oct.md`)
 
 These serve as both examples and audit trail.
