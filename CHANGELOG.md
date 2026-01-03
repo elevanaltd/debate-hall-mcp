@@ -7,13 +7,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-01-03
+
 ### Added
 - Platform-agnostic debate-hall skill (`skills/debate-hall/SKILL.md`)
-- This CHANGELOG.md for release history
+- CHANGELOG.md for release history
 - Advanced patterns in skill: Flash Debate, Socratic Pattern, Multi-Model Specialist
 - "When to Use Debate-Hall" trigger conditions (from ho-orchestrate integration)
-- README sections: "For AI Agents" and "What is OCTAVE?"
+- README sections: "For AI Agents" (prominent callout) and "What is OCTAVE?"
 - Skills README with installation instructions for Claude Code, Codex, Gemini
+- Prominent AI agent skill callout at top of README
+
+### Changed
+- I2 (OCTAVE Binding) now marked COMPLETE - all acceptance criteria met
+- PROJECT-CONTEXT updated with accurate issue status
+
+### Verified
+- All 20 closed issues validated with implementation evidence
+- 262 tests passing, 91.44% coverage maintained
 
 ## [0.1.1] - 2025-01-01
 
@@ -76,6 +87,7 @@ Automated debate triggering via GitHub webhooks/actions is not yet implemented. 
 
 ---
 
-[Unreleased]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/elevanaltd/debate-hall-mcp/releases/tag/v0.1.0
