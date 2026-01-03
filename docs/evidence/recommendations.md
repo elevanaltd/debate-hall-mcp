@@ -19,17 +19,26 @@ Actionable guidance based on empirical research.
 
 ---
 
-## From M019: Match Models to Cognitive Modes
+## From M019 + M021: Match Models to Roles
 
-**Evidence:** [Model Cognitive Optimization Study](./model-cognitive-optimization-study.md)
+**Evidence:** [Model Cognitive Optimization Study](./model-cognitive-optimization-study.md), [Unified Model-Role Study](./unified-model-role-study.md)
 
-**Finding:** 29% quality improvement with optimized model assignment.
+**Finding:** 29% quality improvement with optimized assignment. M021 validates with 100% assessor agreement.
+
+**Optimal Configuration:**
+```
+Wind (PATHOS):  Claude    - systematic creativity
+Wall (ETHOS):   GPT/Codex - structured validation
+Door (LOGOS):   Gemini    - conceptual synthesis
+```
+
+**Key Insight from M021:** Behavioral signatures describe HOW models work, not WHAT they excel at. Claude's systematic style enables exploration; Gemini's philosophical style enables synthesis.
 
 **Recommendations:**
 
-1. Use Claude for PATHOS/Wind (creative exploration)
-2. Use GPT for ETHOS/Wall (constraint validation)
-3. Use Gemini for LOGOS/Door (synthesis)
+1. Use the optimal configuration above for highest quality debates
+2. Don't confuse a model's "style" with its role fit
+3. For execution-focused synthesis, Claude as Door produces detailed implementation plans
 4. If using single model, Claude provides best all-around performance
 
 ---
@@ -39,5 +48,6 @@ Actionable guidance based on empirical research.
 | If you want... | Do this | Evidence |
 |----------------|---------|----------|
 | Emergent solutions | Use dialectic structure | M018 |
-| Better debate quality | Match models to cognitive modes | M019 |
-| Novel architectural insights | Let Door synthesize opposing tensions | M018, M019 |
+| Highest debate quality | Claude→Wind, GPT→Wall, Gemini→Door | M019, M021 |
+| Execution-focused synthesis | Use Claude as Door | M021 |
+| Understand model differences | Signatures ≠ role fit | M021 |
