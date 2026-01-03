@@ -229,6 +229,19 @@ Start with a recipe, then adjust based on results:
 
 Specialists map to roles by cognition: PATHOS→Wind, ETHOS→Wall, LOGOS→Door.
 
+## Empirical Evidence
+
+Research validates the Wind/Wall/Door approach:
+
+| Finding | Effect | Source |
+|---------|--------|--------|
+| Dialectic produces emergent solutions that iteration cannot | d=-4.6 (massive effect size) | [M018 Study](docs/evidence/dialectic-vs-iteration-study.md) |
+| Model assignment matters: Claude/PATHOS, GPT/ETHOS, Gemini/LOGOS | 29% quality improvement | [M019 Study](docs/evidence/model-cognitive-optimization-study.md) |
+
+**Key insight:** Both approaches had accumulated context. The dialectic's structured opposition (explore → constrain → synthesize) produced emergent solutions that pure iteration didn't achieve.
+
+See [docs/evidence/](docs/evidence/) for full methodology and results.
+
 ## Persistence
 
 Debates are persisted in `./debates/` with a dual-format strategy:
