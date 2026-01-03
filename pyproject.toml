@@ -43,7 +43,7 @@ dev = [
 ]
 
 [project.scripts]
-debate-hall-mcp = "debate_hall_mcp.cli:main"
+debate-hall-mcp = "debate_hall_mcp.server:main"
 
 [project.urls]
 Homepage = "https://github.com/elevanaltd/debate-hall-mcp"
