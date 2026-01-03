@@ -235,12 +235,12 @@ Research validates the Wind/Wall/Door approach:
 
 | Finding | Effect | Source |
 |---------|--------|--------|
-| Dialectic produces emergent solutions that iteration cannot | d=-4.6 (massive effect size) | [M018 Study](docs/evidence/dialectic-vs-iteration-study.md) |
+| Dialectic produces emergent solutions that iteration cannot | d=2.1 (large, controlled) | [M018 Study](docs/evidence/dialectic-vs-iteration-study.md) |
 | Model assignment matters: Claude/PATHOS, GPT/ETHOS, Gemini/LOGOS | 29% quality improvement | [M019 Study](docs/evidence/model-cognitive-optimization-study.md) |
 
-**Key insight:** Both approaches had accumulated context. The dialectic's structured opposition (explore → constrain → synthesize) produced emergent solutions that pure iteration didn't achieve.
+**Key insight:** The dialectic's structured opposition (explore → constrain → synthesize) produces emergent solutions that pure iteration doesn't achieve, independent of model choice.
 
-See [docs/evidence/](docs/evidence/) for full methodology and results.
+See [docs/evidence/](docs/evidence/) for full methodology and [recommendations](docs/evidence/recommendations.md) for actionable guidance.
 
 ## Persistence
 
