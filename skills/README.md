@@ -19,7 +19,7 @@ Enables agents to:
 - Use fixed or mediated mode
 - Apply Flash Debate pattern for quick decisions
 - Apply Socratic pattern for premise clarification
-- Integrate with multi-model specialist debates (Gemini Wind, Codex Wall, Claude Door)
+- Integrate with multi-model specialist debates (Claude Wind, GPT Wall, Gemini Door per M019)
 - Know when to escalate to debate-hall from orchestration workflows
 
 **Triggers**: `debate`, `wind wall door`, `dialectic`, `multi-perspective`, `structured decision`, `architecture decision`

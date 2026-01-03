@@ -8,10 +8,12 @@ Real-world examples of debate-hall-mcp used for architectural decisions.
 
 **Question:** How should debate-hall-mcp integrate OCTAVE skills for token efficiency?
 
-**Participants:**
+**Participants (pre-study assignments):**
 - Wind (Gemini) - Explored possibilities
 - Wall (GPT-5.1-Codex) - Identified failure modes
 - Door (Claude Opus 4.5) - Synthesized solution
+
+> **Note:** This debate used model assignments before the M019 study. For optimal results, see [Model Cognitive Optimization Study](../evidence/model-cognitive-optimization-study.md) which recommends: Claude→Wind, GPT→Wall, Gemini→Door.
 
 **Key Finding:** The synthesis produced "OCTAVE-Aware, Not OCTAVE-Dependent" - a third way that neither Wind nor Wall proposed alone.
 
@@ -54,11 +56,15 @@ DOOR synthesized: View-layer preamble that teaches by example without dependenci
 
 ### 1. Use Different Models for Different Roles
 
+**Evidence-based assignment (M019 study, 29% quality improvement):**
+
 ```
-Wind (exploration) → Use creative models (Gemini, Claude)
-Wall (critique) → Use analytical models (GPT-Codex, o3)
-Door (synthesis) → Use balanced models (Claude Opus, GPT-5)
+Wind (PATHOS) → Claude Opus 4.5  (divergent thinking, metaphorical reasoning)
+Wall (ETHOS)  → GPT-5.2         (analytical rigor, structured evaluation)
+Door (LOGOS)  → Gemini 3 Pro    (pattern synthesis, emergent connections)
 ```
+
+See [Model Cognitive Optimization Study](../evidence/model-cognitive-optimization-study.md) for detailed evidence.
 
 ### 2. Mediated Mode for Controlled Experiments
 
