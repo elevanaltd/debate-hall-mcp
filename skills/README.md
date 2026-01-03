@@ -56,4 +56,4 @@ Skills follow the OCTAVE skills specification:
 
 - **Agents**: `agents/README.md` for Wind/Wall/Door agent definitions
 - **Patterns**: `docs/examples/multi-model-debate-patterns.md` for real debate examples
-- **Contracts**: `docs/wall-content-contract.oct.md` for Wall semantic structure
+- **Contracts**: `docs/architecture/wall-content-contract.oct.md` for Wall semantic structure
