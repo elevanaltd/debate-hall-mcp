@@ -148,7 +148,7 @@ The MCP config above is sufficient for local debates.
 > **Token scopes needed:** `repo`, `write:discussion`
 > Get one at: GitHub → Settings → Developer settings → Personal access tokens
 
-See [docs/usage-patterns.md](docs/usage-patterns.md) for detailed configuration options.
+See [Usage Patterns](docs/guides/usage-patterns.md) for detailed configuration options.
 
 ## Example
 
@@ -171,7 +171,7 @@ Topic: "Should we migrate to microservices?"
 
 | Doc | Content |
 |-----|---------|
-| [Usage Patterns](docs/usage-patterns.md) | Recipes, tuning, agent tiers, cognition prompts |
+| [Usage Patterns](docs/guides/usage-patterns.md) | Recipes, tuning, agent tiers, cognition prompts |
 | [Evidence](docs/evidence/) | Empirical research validating the approach |
 | [Architecture](docs/architecture/) | Execution tiers, Wall content contract |
 | [Examples](docs/examples/) | Real multi-model debate patterns |

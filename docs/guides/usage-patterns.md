@@ -111,7 +111,7 @@ Mix specialists based on the debate topic:
 
 **Mapping:** Specialists map to roles by cognition: PATHOS→Wind, ETHOS→Wall, LOGOS→Door.
 
-See [agents/README.md](../agents/README.md) for full agent definitions.
+See [agents/README.md](../../agents/README.md) for full agent definitions.
 
 ## Cognition Prompts
 
@@ -147,7 +147,7 @@ Your role:
 You speak second, testing ideas against truth.
 ```
 
-> **Content Contract**: When blocking, Wall should distinguish between *constraints* (immutable reality) and *opportunities* (things that could be built). See [Wall Content Contract](architecture/wall-content-contract.oct.md) for the semantic structure that transforms blocking into construction specification.
+> **Content Contract**: When blocking, Wall should distinguish between *constraints* (immutable reality) and *opportunities* (things that could be built). See [Wall Content Contract](../architecture/wall-content-contract.oct.md) for the semantic structure that transforms blocking into construction specification.
 
 ### Door (LOGOS)
 
@@ -166,7 +166,7 @@ You speak third, closing the dialectic into decision.
 
 ### Ready-to-Use Cognition Files
 
-Pre-built cognition overlays are available in [agents/cognitions/](../agents/cognitions/):
+Pre-built cognition overlays are available in [agents/cognitions/](../../agents/cognitions/):
 
 - `wind-pathos.oct.md` - Full Wind cognition specification
 - `wall-ethos.oct.md` - Full Wall cognition specification
@@ -175,6 +175,6 @@ Pre-built cognition overlays are available in [agents/cognitions/](../agents/cog
 ---
 
 See also:
-- [Execution Tiers](architecture/execution-tiers.oct.md) - Two-tier execution model (Generic vs Bespoke)
-- [Multi-Model Debate Patterns](examples/multi-model-debate-patterns.md) - Real-world examples
-- [Evidence](evidence/README.md) - Empirical research validating the approach
+- [Execution Tiers](../architecture/execution-tiers.oct.md) - Two-tier execution model (Generic vs Bespoke)
+- [Multi-Model Debate Patterns](../examples/multi-model-debate-patterns.md) - Real-world examples
+- [Evidence](../evidence/README.md) - Empirical research validating the approach

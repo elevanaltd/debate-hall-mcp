@@ -130,7 +130,7 @@ For comprehensive configuration guidance including:
 - **Tuning Guide** (optimizing debate depth and balance)
 - **Cognition Prompts** (full prompt templates)
 
-See [docs/usage-patterns.md](../usage-patterns.md).
+See [Usage Patterns](../guides/usage-patterns.md).
 
 ---
 
