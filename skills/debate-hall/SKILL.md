@@ -69,7 +69,36 @@ META:
     WARNING::"Can bias outcomes if roles starved"
   ]
 
-§5::PATTERNS
+§5::AGENT_TIERS
+  // Choose tier based on debate complexity
+  TIER_1_BASIC::[
+    AGENTS::[wind-agent.oct.md,wall-agent.oct.md,door-agent.oct.md],
+    BEHAVIOR::[explores_obvious_paths,balanced_judgment,balanced_integration],
+    USE_FOR::[quick_decisions,standard_debates]
+  ]
+  TIER_2_SPECIALIST::[
+    PATHOS::[ideator[minimal_elegant],edge-optimizer[hidden_vectors]],
+    ETHOS::[validator[cold_truth],critical-engineer[production_readiness]],
+    LOGOS::[synthesizer[breakthrough_1+1=3]],
+    USE_FOR::[architectural_decisions,security_reviews,innovation]
+  ]
+  TIER_3_DOMAIN_MIX::[
+    SECURITY::edge-optimizer+critical-engineer+technical-architect,
+    INNOVATION::ideator+validator+synthesizer,
+    ARCHITECTURE::ideator+critical-engineer+holistic-orchestrator
+  ]
+  MAPPING::specialists→cognition_role[PATHOS→Wind,ETHOS→Wall,LOGOS→Door]
+
+§6::RECIPES
+  // Pre-defined configurations for common scenarios
+  SPEED::[turns:3,mode:fixed,ratio:1:1:1,agents:Tier_1],
+  STANDARD::[turns:12,mode:fixed,ratio:4:4:4,agents:Tier_1_or_2],
+  DEEP::[turns:36,mode:fixed,ratio:12:12:12,agents:Tier_2],
+  FORTRESS::[turns:9,mode:mediated,ratio:1:3:1,agents:edge-optimizer+critical-engineer×3+technical-architect],
+  LABORATORY::[turns:9,mode:mediated,ratio:3:1:1,agents:ideator+edge-optimizer+wind-agent+validator+synthesizer],
+  COUNCIL::[turns:12,mode:mediated,ratio:2:2:3,agents:Tier_2_multiple_Doors]
+
+§7::PATTERNS
   FLASH_DEBATE::[
     PURPOSE::"Quick 3-turn decision cycle",
     SEQUENCE::init→wind_turn→wall_turn→door_turn→close,
@@ -88,7 +117,7 @@ META:
     AUDIT::agent_role+model_in_turn_metadata
   ]
 
-§6::TRIGGERS
+§8::TRIGGERS
   // When to escalate to debate-hall
   CONDITIONS::[
     complex_architectural_decision,
@@ -104,7 +133,7 @@ META:
     APPLY::synthesis_to_task
   ]
 
-§7::ADMIN
+§9::ADMIN
   FORCE_CLOSE::[
     PURPOSE::"I5 safety kill switch",
     CALL::force_close_debate(thread_id,reason)
@@ -114,13 +143,13 @@ META:
     CALL::tombstone_turn(thread_id,turn_index,reason)
   ]
 
-§8::BEST_PRACTICES
+§10::BEST_PRACTICES
   SINGLE_AGENT::adopt_each_role_in_sequence["What if..."|"Yes, but..."|"Therefore..."]
   MULTI_AGENT::assign_models_per_cognition[creative→Wind,analytical→Wall,balanced→Door]
   THIRD_WAY::"Best debates synthesize what neither Wind nor Wall proposed alone"
   PERSISTENCE::output_format:'octave'→auditable_.oct.md_transcripts
 
-§9::EXAMPLE
+§11::EXAMPLE
   // Microservices decision
   INIT::init_debate("microservices-decision","Should we migrate to microservices?")
   WIND::"What if we decomposed? Independent scaling, tech diversity, team autonomy..."
@@ -128,7 +157,7 @@ META:
   DOOR::"Therefore: Modular monolith. Design boundaries now, deploy unified. Extract when team grows."
   CLOSE::close_debate(thread_id,synthesis,output_format:"octave")
 
-§10::RESOURCES
+§12::RESOURCES
   AGENTS::agents/README.md[Wind/Wall/Door_definitions]
   CONTRACTS::docs/wall-content-contract.oct.md[blocking_semantics]
   PATTERNS::docs/examples/multi-model-debate-patterns.md[real_debates]
