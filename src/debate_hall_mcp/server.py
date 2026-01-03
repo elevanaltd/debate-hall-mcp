@@ -49,7 +49,7 @@ class GitHubToolsDisabledError(Exception):
 
 # Server metadata
 SERVER_NAME = "debate-hall-mcp"
-SERVER_VERSION = "0.1.1"
+SERVER_VERSION = "0.2.0"
 
 # Default state directory
 DEFAULT_STATE_DIR = Path("./debates")

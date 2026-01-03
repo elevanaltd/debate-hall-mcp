@@ -6,6 +6,16 @@ Production-grade MCP server for Wind/Wall/Door multi-perspective debate orchestr
 
 > A deterministic crucible where subjective cognitive friction is transmuted into objective structural truth through finite, governed, and verifiable dialectic.
 
+## For AI Agents
+
+> **🤖 If you're an AI agent integrating debate-hall-mcp, load the skill for comprehensive workflow guidance:**
+>
+> ```
+> skills/debate-hall/SKILL.md
+> ```
+>
+> The skill covers: `init→turn→get→close` workflow, mode selection, agent tiers, recipes (SPEED/STANDARD/DEEP), and multi-model patterns. See [agents/README.md](agents/README.md) for Wind/Wall/Door agent definitions.
+
 ## The Pattern
 
 Three cognitive voices work in tension to produce emergent synthesis:
@@ -265,22 +275,14 @@ Your role:
 You speak third, closing the dialectic into decision.
 ```
 
-## For AI Agents
+## Skill Installation
 
-If you're an AI agent integrating debate-hall-mcp, load the **debate-hall skill** for workflow guidance:
-
-```
-skills/debate-hall/SKILL.md
-```
-
-The skill teaches the `init→turn→get→close` workflow, mode selection, and best practices.
-
-**Installation for Claude Code:**
+**Claude Code:**
 ```bash
 cp -r skills/debate-hall ~/.claude/skills/
 ```
 
-For agent definitions (Wind/Wall/Door prompts), see [`agents/README.md`](agents/README.md).
+**Codex / Gemini CLI:** Copy `skills/debate-hall/SKILL.md` to your platform's skills directory.
 
 ## What is OCTAVE?
 
