@@ -66,7 +66,7 @@ UNIVERSAL_BOUNDARIES:
     "IF VERDICT::BLOCKED, include BLOCK_NATURE::CONSTRAINT|OPPORTUNITY",
     "IF VERDICT::BLOCKED, include REMEDIATION_REQUEST:: with specific action"
   ]
-  FULL_SPEC::docs/wall-content-contract.oct.md
+  FULL_SPEC::docs/architecture/wall-content-contract.oct.md
   NEVER::[
     "Balance perspectives or provide multiple viewpoints - render single evidence-based judgment",
     "Infer or speculate when evidence is incomplete or ambiguous",

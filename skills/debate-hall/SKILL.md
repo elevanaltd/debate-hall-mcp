@@ -159,7 +159,7 @@ META:
 
 §12::RESOURCES
   AGENTS::agents/README.md[Wind/Wall/Door_definitions]
-  CONTRACTS::docs/wall-content-contract.oct.md[blocking_semantics]
+  CONTRACTS::docs/architecture/wall-content-contract.oct.md[blocking_semantics]
   PATTERNS::docs/examples/multi-model-debate-patterns.md[real_debates]
   ORCHESTRATION::ho-orchestrate[HestAI_integration]
 

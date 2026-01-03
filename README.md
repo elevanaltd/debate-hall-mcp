@@ -1,6 +1,9 @@
 # debate-hall-mcp
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![CI](https://github.com/elevanaltd/debate-hall-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/elevanaltd/debate-hall-mcp/actions/workflows/ci.yml)
+[![PyPI version](https://badge.fury.io/py/debate-hall-mcp.svg)](https://badge.fury.io/py/debate-hall-mcp)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 Production-grade MCP server for Wind/Wall/Door multi-perspective debate orchestration.
 
@@ -173,61 +176,21 @@ Use for: Dynamic debates, breaking deadlocks, skipping roles when appropriate.
 
 **Mediated mode risk:** Can bias outcomes by starving roles (e.g., never calling Wall). Use fixed mode when balanced coverage is required.
 
-## Usage Patterns & Recipes
+## Recipes & Configuration
 
-### When to Use Each Mode
+Pre-built recipes for common scenarios:
 
-| Scenario | Mode | Why |
-|----------|------|-----|
-| Standard architectural decisions | Fixed | Guaranteed coverage of all perspectives |
-| Security reviews | Fixed | Wall (critical analysis) must not be skipped |
-| Brainstorming/innovation | Mediated | May want multiple Wind turns before critique |
-| Breaking deadlocks | Mediated | Can call Door early to synthesize |
-| Time-constrained decisions | Fixed + low turns | Predictable, fast completion |
+| Recipe | Turns | Mode | Best For |
+|--------|-------|------|----------|
+| **SPEED** | 3 | Fixed | Quick decisions |
+| **STANDARD** | 12 | Fixed | Default for most debates |
+| **DEEP** | 36 | Fixed | Complex architectural decisions |
+| **FORTRESS** | 9 | Mediated (Wall-heavy) | Security reviews |
+| **LABORATORY** | 9 | Mediated (Wind-heavy) | Innovation |
 
-### Pre-built Recipes
+**Agent Tiers:** Basic (wind/wall/door-agent) → Specialist (ideator, validator, synthesizer) → Domain-specific combinations.
 
-Start with a recipe, then adjust based on results:
-
-| Recipe | Config | Best For |
-|--------|--------|----------|
-| **SPEED** | 3 turns, fixed, 1:1:1 ratio | Quick decisions, low-stakes choices |
-| **STANDARD** | 12 turns, fixed, 4:4:4 ratio | Default for most debates |
-| **DEEP** | 36 turns, fixed, 12:12:12 ratio | Complex architectural decisions, thorough exploration |
-| **FORTRESS** | 9 turns, mediated, 1:3:1 ratio (Wall-heavy) | Security reviews, risk assessment |
-| **LABORATORY** | 9 turns, mediated, 3:1:1 ratio (Wind-heavy) | Innovation, creative exploration |
-| **COUNCIL** | 12 turns, mediated, 2:2:3 ratio (Door-heavy) | Consensus building, multiple synthesis attempts |
-
-### Tuning Guide
-
-**If debates feel shallow:**
-- Increase `max_turns` (12 → 24)
-- Use DEEP recipe
-- Switch to Tier 2 specialist agents
-
-**If one perspective dominates:**
-- Switch to mediated mode for manual balance
-- Or use fixed mode to guarantee equal coverage
-
-**If synthesis is weak:**
-- Try `synthesizer` specialist agent for Door role
-- Ensure Wind/Wall have genuinely conflicting positions
-- Add more rounds before closing
-
-**If debates drag on:**
-- Reduce `max_turns`
-- Use SPEED recipe for quick decisions
-- Set stricter `max_rounds` limit
-
-### Agent Tiers
-
-| Tier | Agents | Behavior | Use When |
-|------|--------|----------|----------|
-| **Tier 1** | wind-agent, wall-agent, door-agent | Balanced, explores obvious paths | Quick decisions, standard debates |
-| **Tier 2** | ideator, validator, synthesizer | Specialized, different search spaces | Architectural decisions, security reviews |
-| **Tier 3** | Domain-specific combinations | Mixed specialists | Security: edge-optimizer + critical-engineer |
-
-Specialists map to roles by cognition: PATHOS→Wind, ETHOS→Wall, LOGOS→Door.
+See [docs/usage-patterns.md](docs/usage-patterns.md) for detailed tuning guide, agent tier selection, and cognition prompts.
 
 ## Empirical Evidence
 
@@ -298,51 +261,17 @@ This provides:
 
 ## Cognition Prompts
 
-For best results, instruct your agents with role-specific cognition:
+Each role has a distinct cognitive voice:
 
-### Wind (PATHOS)
-```
-You are WIND, the expansive voice. Your cognition is PATHOS.
+| Role | Cognition | Voice | Opens With |
+|------|-----------|-------|------------|
+| **Wind** | PATHOS | Expansive, visionary | "What if..." |
+| **Wall** | ETHOS | Grounding, critical | "Yes, but..." |
+| **Door** | LOGOS | Synthesizing, decisive | "Therefore..." |
 
-Your role:
-- Propose possibilities ("What if...")
-- Explore without constraint initially
-- Generate creative options
-- Advocate for potential
-- Push boundaries of what's possible
+Ready-to-use cognition overlays are in [agents/cognitions/](agents/cognitions/). For full prompt templates, see [docs/usage-patterns.md](docs/usage-patterns.md#cognition-prompts).
 
-You speak first, opening the space of solutions.
-```
-
-### Wall (ETHOS)
-```
-You are WALL, the grounding voice. Your cognition is ETHOS.
-
-Your role:
-- Challenge proposals ("Yes, but...")
-- Apply constraints and reality
-- Identify risks and blockers
-- Enforce integrity requirements
-- Pressure-test assumptions
-
-You speak second, testing ideas against truth.
-```
-
-> **Content Contract**: When blocking, Wall should distinguish between *constraints* (immutable reality) and *opportunities* (things that could be built). See [Wall Content Contract](docs/wall-content-contract.oct.md) for the semantic structure that transforms blocking into construction specification.
-
-### Door (LOGOS)
-```
-You are DOOR, the synthesizing voice. Your cognition is LOGOS.
-
-Your role:
-- Integrate perspectives ("Therefore...")
-- Forge actionable decisions
-- Resolve tensions between Wind and Wall
-- Produce executable outcomes
-- Create structural clarity
-
-You speak third, closing the dialectic into decision.
-```
+> **Wall Content Contract**: When blocking, Wall should distinguish between *constraints* (immutable reality) and *opportunities* (things that could be built). See [docs/architecture/wall-content-contract.oct.md](docs/architecture/wall-content-contract.oct.md).
 
 ## Skill Installation
 
@@ -370,7 +299,7 @@ debate-hall-mcp can export transcripts in OCTAVE format for permanent, auditable
 close_debate(thread_id, synthesis, output_format="octave")
 ```
 
-See [Wall Content Contract](docs/wall-content-contract.oct.md) for OCTAVE semantic patterns.
+See [Wall Content Contract](docs/architecture/wall-content-contract.oct.md) for OCTAVE semantic patterns.
 
 ## Architecture Immutables
 
@@ -393,7 +322,7 @@ cd debate-hall-mcp
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# Run tests (450+ tests, 91%+ coverage)
+# Run tests (500+ tests, 90%+ coverage)
 pytest
 
 # Quality checks
