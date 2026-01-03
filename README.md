@@ -173,6 +173,62 @@ Use for: Dynamic debates, breaking deadlocks, skipping roles when appropriate.
 
 **Mediated mode risk:** Can bias outcomes by starving roles (e.g., never calling Wall). Use fixed mode when balanced coverage is required.
 
+## Usage Patterns & Recipes
+
+### When to Use Each Mode
+
+| Scenario | Mode | Why |
+|----------|------|-----|
+| Standard architectural decisions | Fixed | Guaranteed coverage of all perspectives |
+| Security reviews | Fixed | Wall (critical analysis) must not be skipped |
+| Brainstorming/innovation | Mediated | May want multiple Wind turns before critique |
+| Breaking deadlocks | Mediated | Can call Door early to synthesize |
+| Time-constrained decisions | Fixed + low turns | Predictable, fast completion |
+
+### Pre-built Recipes
+
+Start with a recipe, then adjust based on results:
+
+| Recipe | Config | Best For |
+|--------|--------|----------|
+| **SPEED** | 3 turns, fixed, 1:1:1 ratio | Quick decisions, low-stakes choices |
+| **STANDARD** | 12 turns, fixed, 4:4:4 ratio | Default for most debates |
+| **DEEP** | 36 turns, fixed, 12:12:12 ratio | Complex architectural decisions, thorough exploration |
+| **FORTRESS** | 9 turns, mediated, 1:3:1 ratio (Wall-heavy) | Security reviews, risk assessment |
+| **LABORATORY** | 9 turns, mediated, 3:1:1 ratio (Wind-heavy) | Innovation, creative exploration |
+| **COUNCIL** | 12 turns, mediated, 2:2:3 ratio (Door-heavy) | Consensus building, multiple synthesis attempts |
+
+### Tuning Guide
+
+**If debates feel shallow:**
+- Increase `max_turns` (12 → 24)
+- Use DEEP recipe
+- Switch to Tier 2 specialist agents
+
+**If one perspective dominates:**
+- Switch to mediated mode for manual balance
+- Or use fixed mode to guarantee equal coverage
+
+**If synthesis is weak:**
+- Try `synthesizer` specialist agent for Door role
+- Ensure Wind/Wall have genuinely conflicting positions
+- Add more rounds before closing
+
+**If debates drag on:**
+- Reduce `max_turns`
+- Use SPEED recipe for quick decisions
+- Set stricter `max_rounds` limit
+
+### Agent Tiers
+
+| Tier | Agents | Behavior | Use When |
+|------|--------|----------|----------|
+| **Tier 1** | wind-agent, wall-agent, door-agent | Balanced, explores obvious paths | Quick decisions, standard debates |
+| **Tier 2** | ideator, validator, synthesizer | Specialized, different search spaces | Architectural decisions, security reviews |
+| **Tier 3** | Domain-specific combinations | Mixed specialists | Security: edge-optimizer + critical-engineer |
+
+Specialists map to roles by cognition: PATHOS→Wind, ETHOS→Wall, LOGOS→Door.
+
 ## Persistence
 
 Debates are persisted in `./debates/` with a dual-format strategy:
