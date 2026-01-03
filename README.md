@@ -270,10 +270,15 @@ You speak third, closing the dialectic into decision.
 If you're an AI agent integrating debate-hall-mcp, load the **debate-hall skill** for workflow guidance:
 
 ```
-~/.claude/skills/debate-hall/SKILL.md
+skills/debate-hall/SKILL.md
 ```
 
 The skill teaches the `init→turn→get→close` workflow, mode selection, and best practices.
+
+**Installation for Claude Code:**
+```bash
+cp -r skills/debate-hall ~/.claude/skills/
+```
 
 For agent definitions (Wind/Wall/Door prompts), see [`agents/README.md`](agents/README.md).
 

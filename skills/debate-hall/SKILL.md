@@ -238,4 +238,4 @@ if complex_decision or multiple_approaches or reviewer_disagreement:
 - [Agent Definitions](agents/README.md) - Wind/Wall/Door agent files
 - [Wall Content Contract](docs/wall-content-contract.oct.md) - Semantic structure for blocking
 - [Multi-Model Patterns](docs/examples/multi-model-debate-patterns.md) - Real debate examples
-- [ho-orchestrate skill](~/.claude/skills/ho-orchestrate/SKILL.md) - Orchestration integration
+- ho-orchestrate skill - Orchestration integration (HestAI methodology)
