@@ -40,6 +40,8 @@ paths:
 
 ## Project-Specific
 
-- Thread IDs: UUID4 format validation via `validate_thread_id()`
+- Thread IDs: Date-first format `YYYY-MM-DD-subject` (e.g., `2025-12-28-debate-topic`)
+  - Validated via `validate_thread_id()` in `tools/init.py`
+  - Security: Rejects path traversal (`..`) and directory separators (`/`, `\`)
 - Cognition types: `PATHOS` (Wind), `ETHOS` (Wall), `LOGOS` (Door)
 - Role names: `Wind`, `Wall`, `Door` (case-sensitive)

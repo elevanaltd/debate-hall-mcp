@@ -47,7 +47,12 @@ async def my_tool_async(
 
 ## Validation Pattern
 
-All tools use `src/debate_hall_mcp/validation.py`:
-- Thread ID format validation
-- Cognition-role alignment checks
+Thread IDs use date-first format: `YYYY-MM-DD-subject`
+- Example: `2025-12-28-debate-topic`
+- Validated in `tools/init.py` via `validate_thread_id()`
+- Security: Rejects `..`, `/`, `\` to prevent path traversal
+
+Cognition validation in `validation.py`:
+- Role-cognition alignment: Wind→PATHOS, Wall→ETHOS, Door→LOGOS
+- Content validation: Pattern matching for cognition contracts
 - Turn limit enforcement
