@@ -181,8 +181,8 @@ DEFERRED_V020::[
   genius_insights::READY[audit_foundation_complete]
 ]
 
-REOPENED::[
-  Issue_#18::webhook_action_automation[not_implemented_during_v0.1.x]
+OPEN_INVESTIGATION::[
+  Issue_#73::phase_2_github_automation[investigation_required]
 ]
 
 RESOLVED_SINCE_LAST_UPDATE::[
