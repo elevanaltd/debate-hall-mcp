@@ -111,9 +111,10 @@ META:
     ENFORCEMENT::"Convention, not server-enforced"
   ]
   MULTI_MODEL::[
-    WIND::clink(gemini,ideator)→PATHOS_exploration,
-    WALL::clink(codex,validator)→ETHOS_validation,
-    DOOR::Claude_synthesis→LOGOS_integration,
+    // Evidence: M019 Model Cognitive Optimization Study (29% quality improvement)
+    WIND::clink(claude,ideator)→PATHOS_exploration,    // Claude: divergent thinking, metaphor
+    WALL::clink(codex,validator)→ETHOS_validation,     // GPT: analytical rigor, structured eval
+    DOOR::clink(gemini,synthesizer)→LOGOS_integration, // Gemini: pattern synthesis, emergence
     AUDIT::agent_role+model_in_turn_metadata
   ]
 
