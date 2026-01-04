@@ -8,7 +8,7 @@ Implements I2 (Universal OCTAVE Binding) from North Star.
 from enum import Enum
 
 try:
-    import octave_mcp  # type: ignore[import-untyped]
+    import octave_mcp  # type: ignore
 except ImportError as e:
     raise ImportError(
         "octave-mcp package is required. Install with: pip install octave-mcp>=0.3.0"
