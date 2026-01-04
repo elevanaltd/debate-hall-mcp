@@ -317,3 +317,150 @@ SYNTHESIS::null
         assert "===END===" in result
         assert "fallback-test" in result
         assert "Fallback Test" in result
+
+    def test_multiline_content_escaping(self):
+        """Test that newlines are properly escaped in turn content.
+
+        Regression test for PR #86 - multi-line content must be escaped
+        to prevent parse failures.
+        """
+        room = DebateRoom(
+            thread_id="test",
+            topic="Test",
+            mode=DebateMode.FIXED,
+            status=DebateStatus.ACTIVE,
+        )
+        room.turns = [
+            Turn(
+                role="Wind",
+                content="Line one\nLine two\nLine three",
+                cognition="PATHOS",
+                timestamp=datetime.now(UTC),
+            )
+        ]
+
+        result = format_debate_as_octave(room)
+
+        # Should contain escaped newlines, not literal newlines that break structure
+        assert "\\n" in result
+        # TURNS line should be properly formed
+        assert 'T1::Wind[PATHOS]::"Line one\\nLine two\\nLine three"' in result
+        # Must parse back successfully
+        is_valid, errors = validate_debate_octave(result)
+        assert is_valid, f"Parse failed: {errors}"
+
+    def test_tab_escaping_in_topic(self):
+        """Test that tabs are properly escaped in META fields.
+
+        Regression test for PR #86 - tabs must be escaped to prevent
+        OCTAVE parse errors.
+        """
+        room = DebateRoom(
+            thread_id="test",
+            topic="Topic\twith\ttabs",
+            mode=DebateMode.FIXED,
+            status=DebateStatus.ACTIVE,
+        )
+
+        result = format_debate_as_octave(room)
+
+        # Must contain escaped tabs
+        assert "\\t" in result
+        assert 'TOPIC::"Topic\\twith\\ttabs"' in result
+        # Must parse successfully
+        is_valid, errors = validate_debate_octave(result)
+        assert is_valid, f"Parse failed: {errors}"
+
+    def test_carriage_return_escaping(self):
+        """Test that carriage returns are properly escaped.
+
+        Regression test for PR #86 - carriage returns must be escaped
+        to prevent parse issues.
+        """
+        room = DebateRoom(
+            thread_id="test",
+            topic="Test",
+            mode=DebateMode.FIXED,
+            status=DebateStatus.SYNTHESIS,
+            synthesis="Part one\rPart two",
+        )
+
+        result = format_debate_as_octave(room)
+
+        # Must contain escaped CR
+        assert "\\r" in result
+        assert 'SYNTHESIS::"Part one\\rPart two"' in result
+        # Must parse successfully
+        is_valid, errors = validate_debate_octave(result)
+        assert is_valid, f"Parse failed: {errors}"
+
+    def test_all_special_chars_together(self):
+        """Test comprehensive special character handling in one document.
+
+        Regression test for PR #86 - all special characters must be
+        properly escaped to prevent parse failures.
+        """
+        room = DebateRoom(
+            thread_id="test",
+            topic='Topic with "quotes" and\\backslash\tand\ttabs',
+            mode=DebateMode.FIXED,
+            status=DebateStatus.SYNTHESIS,
+        )
+        room.turns = [
+            Turn(
+                role="Wind",
+                content='Quote: "test"\nNewline\rCarriage\tTab\\Backslash',
+                cognition="PATHOS",
+                timestamp=datetime.now(UTC),
+            )
+        ]
+        room.synthesis = "Final\nsynthesis\rwith\tspecial\\chars"
+
+        result = format_debate_as_octave(room)
+
+        # Must parse successfully despite all special chars
+        is_valid, errors = validate_debate_octave(result)
+        assert is_valid, f"Parse failed: {errors}"
+
+        # Verify all escapes are present
+        assert '\\"' in result  # Escaped quotes
+        assert "\\n" in result  # Escaped newlines
+        assert "\\r" in result  # Escaped carriage returns
+        assert "\\t" in result  # Escaped tabs
+        assert "\\\\" in result  # Escaped backslashes
+
+    def test_escaping_order_prevents_double_escape(self):
+        """Test that escaping order prevents double-escaping issues.
+
+        Regression test for PR #86 - backslashes must be escaped FIRST
+        to prevent \n becoming \\n becoming \\\\n.
+        """
+        room = DebateRoom(
+            thread_id="test",
+            topic="Test",
+            mode=DebateMode.FIXED,
+            status=DebateStatus.ACTIVE,
+        )
+
+        # Content that already contains escaped sequences as literal text
+        room.turns = [
+            Turn(
+                role="Wind",
+                content="Literal \\n text and actual\nnewline",
+                cognition="PATHOS",
+                timestamp=datetime.now(UTC),
+            )
+        ]
+
+        result = format_debate_as_octave(room)
+
+        # Should have:
+        # - Literal \n → \\n (backslash escaped, then n)
+        # - Actual newline → \n (newline character escaped)
+        # Result should be: "Literal \\\\n text and actual\\n"
+        assert "\\\\n" in result  # Escaped literal backslash-n
+        assert "actual\\nnewline" in result  # Escaped actual newline
+
+        # Must parse successfully
+        is_valid, errors = validate_debate_octave(result)
+        assert is_valid, f"Parse failed: {errors}"
