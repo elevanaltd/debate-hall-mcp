@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-import octave_mcp  # type: ignore[import-not-found]
+import octave_mcp  # type: ignore[import-untyped]
 
 from debate_hall_mcp.octave_formatter import (
     OutputMode,

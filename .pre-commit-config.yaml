@@ -1,9 +1,18 @@
 # Pre-commit hooks for debate-hall-mcp
 # Install: pip install pre-commit && pre-commit install
+# Critical-Engineer: consulted for Pre-commit hook venv enforcement
 
 repos:
   - repo: local
     hooks:
+      # BR-2: Verify venv exists before all other hooks
+      - id: venv-check
+        name: Verify venv exists
+        entry: bash -c 'test -f .venv/bin/activate || (echo "ERROR - Run uv venv && uv pip install -e .[dev]" && exit 1)'
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: no-tests-init
         name: Prevent tests/__init__.py
         entry: bash -c 'if find tests -name "__init__.py" -type f | grep -q .; then echo "ERROR tests/__init__.py files must not exist per TEST-STRUCTURE-STANDARD.md Standard 4"; exit 1; fi'
@@ -13,21 +22,22 @@ repos:
 
       - id: ruff
         name: ruff (staged)
-        entry: ruff check --fix
+        entry: bash -c 'source .venv/bin/activate && ruff check --fix "$@"' --
         language: system
         types: [python]
         files: ^(src|tests|scripts)/.*\.py$
 
       - id: black
         name: black --check (staged)
-        entry: black --check
+        entry: bash -c 'source .venv/bin/activate && black --check "$@"' --
         language: system
         types: [python]
         files: ^(src|tests|scripts)/.*\.py$
 
+      # BR-1: Use venv Python for mypy to match CI environment
       - id: mypy
-        name: mypy src (only when src staged)
-        entry: bash -c 'set -euo pipefail; if git diff --cached --name-only --diff-filter=ACMR | grep -E "^src/.*\.py$" >/dev/null; then mypy src; else echo "SKIP mypy (no src/*.py staged)"; fi'
+        name: mypy src (venv)
+        entry: bash -c 'set -euo pipefail; if git diff --cached --name-only --diff-filter=ACMR | grep -E "^src/.*\.py$" >/dev/null; then source .venv/bin/activate && mypy src; else echo "SKIP mypy (no src/*.py staged)"; fi'
         language: system
         pass_filenames: false
         always_run: true
