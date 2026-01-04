@@ -1,7 +1,8 @@
-import sys
-import os
 import importlib.util
+import os
+import sys
 import sysconfig
+
 
 def print_python_path():
     print("Python Path:")
@@ -12,7 +13,7 @@ def print_module_search_locations(module_name):
     print(f"\nSearching for module: {module_name}")
     spec = importlib.util.find_spec(module_name)
     if spec:
-        print(f"Module found:")
+        print("Module found:")
         print(f"  - Location: {spec.origin}")
         print(f"  - Submodule search locations: {spec.submodule_search_locations}")
     else:
@@ -31,7 +32,7 @@ def print_site_packages_info():
 
 def print_project_structure(directory):
     print(f"\nProject Structure at {directory}:")
-    for root, dirs, files in os.walk(directory):
+    for root, _dirs, files in os.walk(directory):
         level = root.replace(directory, '').count(os.sep)
         indent = ' ' * 4 * level
         print(f"{indent}{os.path.basename(root)}/")

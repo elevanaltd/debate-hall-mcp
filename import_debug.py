@@ -1,6 +1,6 @@
 import os
 import sys
-import importlib
+
 
 def print_import_details():
     print("Python Path:")
@@ -16,7 +16,7 @@ def print_import_details():
     print("\nTrying to import debate_hall_mcp:")
     try:
         import debate_hall_mcp
-        print(f"  ✓ Import successful")
+        print("  ✓ Import successful")
         print(f"  Location: {debate_hall_mcp.__file__}")
         print(f"  Version: {debate_hall_mcp.__version__}")
     except ImportError as e:
@@ -36,7 +36,7 @@ def print_import_details():
     print("\nRetrying import after path modification:")
     try:
         import debate_hall_mcp
-        print(f"  ✓ Import successful after path modification")
+        print("  ✓ Import successful after path modification")
         print(f"  Location: {debate_hall_mcp.__file__}")
         print(f"  Version: {debate_hall_mcp.__version__}")
     except ImportError as e:

@@ -1,11 +1,13 @@
 import sys
+
 sys.path.append('.venv/lib/python3.12/site-packages')
-from octave_mcp.core import parser, lexer, validator
+from octave_mcp.core import lexer, parser, validator
+
 
 def test_file(path):
     print(f'Testing {path}:')
     try:
-        with open(path, 'r') as f:
+        with open(path) as f:
             content = f.read()
 
         # Attempt tokenization

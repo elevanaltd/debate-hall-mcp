@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Thorough investigation of module loading issues."""
 
-import os
-import sys
-import subprocess
-import json
-from pathlib import Path
-import site
 import importlib.metadata
 import importlib.util
+import json
+import os
+import site
+import subprocess
+import sys
+from pathlib import Path
+
 
 def print_section(title):
     """Print a section header."""
@@ -54,7 +55,6 @@ def check_installed_packages():
                               capture_output=True, text=True, check=True)
         packages = json.loads(result.stdout)
 
-        relevant_packages = ['debate-hall-mcp', 'mcp', 'octave-mcp', 'pydantic']
         print("Relevant packages:")
         for pkg in packages:
             if any(name in pkg['name'].lower() for name in ['debate', 'mcp', 'octave']):
