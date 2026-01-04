@@ -29,6 +29,7 @@ dependencies = [
     "filelock>=3.0.0",  # Cross-platform file locking (Issue #48)
     "httpx>=0.27.0",  # GitHub API client (Issue #15)
     "python-dotenv>=1.0.0",  # Load .env files for configuration
+    "octave-mcp>=0.3.0",  # OCTAVE format parsing and emission
 ]
 
 [project.optional-dependencies]
