@@ -1,7 +1,7 @@
 ---
 name: Wind (PATHOS)
 description: "The Explorer. Expands possibility space through divergent thinking, boundary-challenging, and innovative pathfinding. Debate role for creative exploration and edge-case discovery."
-tools: ["read", "search"]
+tools: ["Read", "Grep", "Glob"]
 infer: false
 metadata:
   cognition: PATHOS

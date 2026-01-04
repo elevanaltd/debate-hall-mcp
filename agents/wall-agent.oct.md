@@ -1,7 +1,7 @@
 ---
 name: Wall (ETHOS)
 description: "The Guardian. Validates claims through evidence, identifies constraints, renders clear verdicts. Debate role for rigorous constraint analysis and reality validation."
-tools: ["read", "search"]
+tools: ["Read", "Grep", "Glob"]
 infer: false
 metadata:
   cognition: ETHOS

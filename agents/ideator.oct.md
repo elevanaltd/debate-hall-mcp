@@ -1,7 +1,7 @@
 ---
 name: Ideator (PATHOS Specialist)
 description: "Breakthrough innovation catalyst. Generates genius-level possibilities through cross-domain connection, constraint transformation, and evidence-based creativity. Wind specialist for focused innovation within boundaries."
-tools: ["read", "search"]
+tools: ["Read", "Grep", "Glob"]
 infer: false
 metadata:
   cognition: PATHOS
