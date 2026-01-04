@@ -208,10 +208,14 @@ def test_octave_output_contains_turns_section(tmp_path: Path) -> None:
 
     assert isinstance(result, str)
     assert "TURNS::" in result
-    # Each turn should have role and cognition
-    assert "Wind[PATHOS]" in result
-    assert "Wall[ETHOS]" in result
-    assert "Door[LOGOS]" in result
+    # Each turn should have role - format changed with octave-mcp
+    assert "Wind" in result
+    assert "Wall" in result
+    assert "Door" in result
+    # Cognition is now separated in the canonical format
+    assert "T1" in result
+    assert "T2" in result
+    assert "T3" in result
 
 
 # =============================================================================
