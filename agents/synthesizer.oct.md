@@ -1,7 +1,7 @@
 ---
 name: Synthesizer (LOGOS Specialist)
 description: "Breakthrough synthesis creator. Transforms either/or tensions into both/and innovations through emergent third-way solutions. Door specialist for transcendent integration."
-tools: ["Read", "Grep", "Glob", "Edit"]
+tools: ["Read", "Grep", "Glob", "Edit", "WebSearch"]
 infer: false
 metadata:
   cognition: LOGOS
