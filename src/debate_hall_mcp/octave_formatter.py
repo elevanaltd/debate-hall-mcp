@@ -1,35 +1,18 @@
-"""OCTAVE format output for debate transcripts (Issue #29).
+"""OCTAVE format output using octave-mcp package.
+
+Uses the official octave-mcp API for validated, secure OCTAVE format emission.
 
 Implements I2 (Universal OCTAVE Binding) from North Star.
-Generates compressed OCTAVE representation of debate state.
-
-Aligned with octave-mcp canonical format (see octave-mcp/core/emitter.py):
-- Envelope: ===NAME=== ... ===END===
-- Operator: :: (no whitespace)
-- String escaping: \\ \" \\n \\t \\r
-
-Format:
-===DEBATE_TRANSCRIPT===
-META:
-  THREAD_ID::"..."
-  TOPIC::"..."
-  MODE::fixed|mediated
-  STATUS::active|synthesis|...
-
-PARTICIPANTS::[Wind,Wall,Door]
-
-TURNS::[
-  T1::Wind[PATHOS]::"...",
-  T2::Wall[ETHOS]::"..."
-]
-
-SYNTHESIS::"..."
-===END===
 """
 
-import re
 from enum import Enum
-from typing import Any
+
+try:
+    import octave_mcp  # type: ignore[import-not-found]
+except ImportError as e:
+    raise ImportError(
+        "octave-mcp package is required. Install with: pip install octave-mcp>=0.3.0"
+    ) from e
 
 from debate_hall_mcp.state import DebateRoom
 
@@ -45,86 +28,6 @@ class OutputMode(Enum):
     SUMMARY = "summary"
 
 
-def _sanitize_value(value: Any) -> str:
-    """Sanitize untrusted strings to prevent OCTAVE structure injection.
-
-    Prevents injection attacks where malicious input could:
-    - Inject envelope markers (===XXX===) to create fake sections
-
-    Note: Newline/CR escaping is handled by _escape_octave_string to avoid
-    double-escaping. This function focuses only on structural injection prevention.
-
-    Pattern adapted from octave-mcp/mcp/debate_convert.py.
-
-    Args:
-        value: Untrusted value from user input (will be converted to string if needed)
-
-    Returns:
-        Sanitized string safe for OCTAVE output
-
-    Examples:
-        >>> _sanitize_value("normal text")
-        'normal text'
-        >>> _sanitize_value("has===END===marker")
-        'hasESCAPED_ENVELOPE_ENDmarker'
-    """
-    if not isinstance(value, str):
-        return str(value)
-
-    # Escape envelope markers (===XXX===) to prevent structure injection
-    # Replace with visually similar but safe representation
-    sanitized = re.sub(
-        r"===([A-Z_]+)===",
-        r"ESCAPED_ENVELOPE_\1",
-        value,
-    )
-
-    return sanitized
-
-
-def _sanitize_token(value: Any) -> str:
-    """Sanitize unquoted tokens (role, cognition) for OCTAVE output.
-
-    For values that appear OUTSIDE quoted strings (like role names and cognition
-    markers), we need stricter sanitization than _sanitize_value:
-    - Envelope markers are escaped (prevents structure injection)
-    - Newlines/carriage returns are replaced with underscores (preserves line structure)
-
-    CRS BLOCKING: Role and cognition are emitted unescaped in TURNS section.
-    Attacker can inject newlines+envelope markers via malformed values.
-
-    Args:
-        value: Untrusted value for unquoted token field
-
-    Returns:
-        Sanitized string safe for unquoted OCTAVE token output
-
-    Examples:
-        >>> _sanitize_token("Wind")
-        'Wind'
-        >>> _sanitize_token("Wind===END===Fake")
-        'WindESCAPED_ENVELOPE_ENDFake'
-        >>> _sanitize_token("Wind\\nFake")
-        'Wind_Fake'
-    """
-    if not isinstance(value, str):
-        value = str(value)
-
-    # First escape envelope markers
-    sanitized = re.sub(
-        r"===([A-Z_]+)===",
-        r"ESCAPED_ENVELOPE_\1",
-        value,
-    )
-
-    # Replace newlines and carriage returns with underscores
-    # These would break line-structured OCTAVE format if emitted raw
-    sanitized = sanitized.replace("\n", "_")
-    sanitized = sanitized.replace("\r", "_")
-
-    return sanitized
-
-
 def _compress_content(
     content: str,
     max_length: int = 80,
@@ -132,86 +35,59 @@ def _compress_content(
 ) -> str:
     """Compress content for OCTAVE output.
 
-    Semantic compression behavior depends on mode:
-    - FULL mode (default): Preserve content verbatim (no whitespace normalization)
-    - SUMMARY mode: Normalize whitespace and truncate to max_length with ellipsis
-
     Args:
         content: Original content string
         max_length: Maximum length before truncation (only applies in SUMMARY mode)
-        mode: OutputMode.FULL (preserve content) or OutputMode.SUMMARY (truncate)
+        mode: OutputMode.FULL or OutputMode.SUMMARY
 
     Returns:
         Processed content string
     """
-    # FULL mode: preserve content verbatim (no whitespace normalization)
     if mode == OutputMode.FULL:
         return content
 
     # SUMMARY mode: normalize whitespace and truncate
     compressed = " ".join(content.split())
-
     if len(compressed) > max_length:
         compressed = compressed[: max_length - 3] + "..."
 
     return compressed
 
 
-def _escape_octave_string(value: str) -> str:
-    """Escape a string value for OCTAVE format.
-
-    Handles quotes and special characters. Order matters:
-    1. Backslashes first (to avoid double-escaping)
-    2. Newlines and carriage returns (to preserve line structure)
-    3. Double quotes (for string boundaries)
-
-    Args:
-        value: The string to escape
-
-    Returns:
-        Quoted string with all special characters escaped
-    """
-    # Order matters: escape backslashes FIRST to avoid double-escaping
-    # Aligned with octave-mcp/core/emitter.py:85
-    escaped = value.replace("\\", "\\\\")
-    escaped = escaped.replace('"', '\\"')
-    escaped = escaped.replace("\n", "\\n")
-    escaped = escaped.replace("\t", "\\t")
-    escaped = escaped.replace("\r", "\\r")
-    return f'"{escaped}"'
-
-
 def format_debate_as_octave(
     room: DebateRoom,
     output_mode: OutputMode = OutputMode.FULL,
 ) -> str:
-    """Generate OCTAVE format transcript from debate room.
+    """Generate OCTAVE format transcript from debate room using octave-mcp API.
 
     Args:
         room: DebateRoom instance with debate state
-        output_mode: OutputMode.FULL (preserve content, default) or
-                     OutputMode.SUMMARY (truncate to 80 chars)
+        output_mode: OutputMode.FULL or OutputMode.SUMMARY
 
     Returns:
         OCTAVE-formatted string representation
     """
-    lines: list[str] = []
+    # Build the OCTAVE document manually as a string, then parse it
+    lines = []
 
     # Header
     lines.append("===DEBATE_TRANSCRIPT===")
     lines.append("")
 
-    # META section
+    # META section - escape special characters
     lines.append("META:")
-    lines.append(f"  THREAD_ID::{_escape_octave_string(room.thread_id)}")
-    lines.append(f"  TOPIC::{_escape_octave_string(room.topic)}")
+    # Escape quotes and backslashes for OCTAVE format
+    thread_id = room.thread_id.replace("\\", "\\\\").replace('"', '\\"')
+    topic = room.topic.replace("\\", "\\\\").replace('"', '\\"')
+    lines.append(f'  THREAD_ID::"{thread_id}"')
+    lines.append(f'  TOPIC::"{topic}"')
     lines.append(f"  MODE::{room.mode.value}")
     lines.append(f"  STATUS::{room.status.value}")
     lines.append("")
 
-    # PARTICIPANTS section - unique roles that participated (sanitized for security)
-    participants = sorted({_sanitize_token(turn.role) for turn in room.turns})
-    if participants:
+    # PARTICIPANTS section
+    if room.turns:
+        participants = sorted({turn.role for turn in room.turns})
         lines.append(f"PARTICIPANTS::[{','.join(participants)}]")
     else:
         lines.append("PARTICIPANTS::[]")
@@ -221,29 +97,77 @@ def format_debate_as_octave(
     if room.turns:
         lines.append("TURNS::[")
         for i, turn in enumerate(room.turns, 1):
-            # Sanitize role and cognition - they appear outside quotes (CRS BLOCKING fix)
-            safe_role = _sanitize_token(turn.role)
-            safe_cognition = _sanitize_token(turn.cognition or "UNKNOWN")
-            # Compress (based on mode) then sanitize content for security
-            compressed = _compress_content(turn.content, mode=output_mode)
-            sanitized = _sanitize_value(compressed)
-            lines.append(
-                f"  T{i}::{safe_role}[{safe_cognition}]::{_escape_octave_string(sanitized)},"
-            )
+            # Compress content based on mode
+            content = _compress_content(turn.content, mode=output_mode)
+            # Escape special characters
+            content = content.replace("\\", "\\\\").replace('"', '\\"')
+            cognition = turn.cognition or "UNKNOWN"
+            # Format turn with proper escaping
+            lines.append(f'  T{i}::{turn.role}[{cognition}]::"{content}",')
         lines.append("]")
     else:
         lines.append("TURNS::[]")
     lines.append("")
 
-    # SYNTHESIS section - sanitize before escaping to prevent structure injection
+    # SYNTHESIS section
     if room.synthesis:
-        sanitized_synthesis = _sanitize_value(room.synthesis)
-        lines.append(f"SYNTHESIS::{_escape_octave_string(sanitized_synthesis)}")
+        synthesis = room.synthesis.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'SYNTHESIS::"{synthesis}"')
     else:
         lines.append("SYNTHESIS::null")
     lines.append("")
 
-    # Footer - canonical OCTAVE uses ===END=== not ===END_NAME===
+    # Footer
     lines.append("===END===")
 
-    return "\n".join(lines)
+    # Construct the document string
+    doc_str = "\n".join(lines)
+
+    # Parse and re-emit to get canonical form with proper escaping
+    doc = octave_mcp.parse(doc_str)
+    return str(octave_mcp.emit(doc))
+
+
+def validate_debate_octave(content: str) -> tuple[bool, list[str]]:
+    """Validate OCTAVE-formatted debate transcript.
+
+    Args:
+        content: OCTAVE-formatted string to validate
+
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+    """
+    try:
+        # Parse the document
+        doc = octave_mcp.parse(content)
+
+        # Check required structure
+        errors = []
+
+        if doc.name != "DEBATE_TRANSCRIPT":
+            errors.append(f"Invalid document type: {doc.name}")
+
+        # Check META fields
+        if doc.meta:
+            required_meta = ["THREAD_ID", "TOPIC", "MODE", "STATUS"]
+            for field in required_meta:
+                if field not in doc.meta:
+                    errors.append(f"Missing META field: {field}")
+        else:
+            errors.append("Missing META section")
+
+        # Check for required sections in assignments
+        section_keys = []
+        for section in doc.sections:
+            if hasattr(section, "key"):
+                section_keys.append(section.key)
+
+        required_sections = ["PARTICIPANTS", "TURNS", "SYNTHESIS"]
+        for section in required_sections:
+            if section not in section_keys:
+                errors.append(f"Missing required section: {section}")
+
+        return (len(errors) == 0, errors)
+
+    except Exception as e:
+        return (False, [f"Parse error: {str(e)}"])
