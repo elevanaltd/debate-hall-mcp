@@ -287,19 +287,4 @@ INVOKE_WHEN::[
 
 AGENT_ROLE_NOTE::"Pass 'ideator' as agent_role in debate_turn() for attribution."
 
----
-
-## §10 OPTIMAL MODEL
-
-RECOMMENDED_MODEL::Claude_Opus_4.5
-MODEL_RATIONALE::[
-  "PATHOS cognition requires creative exploration strength",
-  "Claude Opus 4.5 scored 96% on PATHOS stress tests (M019)",
-  "Excels at cross-domain pattern recognition",
-  "Challenges fundamental framing rather than accepting problems as given",
-  "Creates memorable concepts and unexpected connections"
-]
-
-FALLBACK_MODELS::[Claude_Sonnet_4, Gemini_3_Pro]
-
 ===END===
