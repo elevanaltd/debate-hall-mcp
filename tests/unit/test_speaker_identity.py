@@ -12,6 +12,8 @@ Tests verify:
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from debate_hall_mcp.engine import DebateEngine
 from debate_hall_mcp.state import DebateMode, DebateRoom, DebateStatus, Turn, calculate_turn_hash
 
@@ -73,6 +75,28 @@ class TestTurnModelWithIdentity:
         assert turn.agent_role == "critical-engineer"
         assert turn.model is None
         assert turn.cognition is None
+
+    def test_turn_rejects_multiline_identity(self) -> None:
+        """Identity fields reject multiline values to avoid log injection."""
+        with pytest.raises(ValueError, match="single line"):
+            Turn(
+                role="Wind",
+                content="Test content",
+                timestamp=datetime.now(UTC),
+                previous_hash=None,
+                agent_role="bad\nrole",
+            )
+
+    def test_turn_rejects_invalid_cognition(self) -> None:
+        """Cognition is allowlisted to PATHOS|ETHOS|LOGOS."""
+        with pytest.raises(ValueError, match="Invalid cognition"):
+            Turn(
+                role="Wind",
+                content="Test content",
+                timestamp=datetime.now(UTC),
+                previous_hash=None,
+                cognition="INVALID",
+            )
 
 
 class TestIdentityExcludedFromHash:

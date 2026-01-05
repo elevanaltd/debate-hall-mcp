@@ -191,11 +191,39 @@ class Turn(BaseModel):
     hash: str = Field(default="", description="SHA-256 hash of this turn")
 
     # Speaker identity metadata (Issue #4) - excluded from hash chain
-    agent_role: str | None = Field(default=None, description="Operational agent role")
-    model: str | None = Field(default=None, description="AI model identifier")
-    cognition: str | None = Field(
-        default=None, description="Cognitive archetype: PATHOS|ETHOS|LOGOS"
+    # Note: These fields are persisted and returned via get_debate(include_transcript=True).
+    # Keep them bounded and simple to reduce accidental leakage / log injection risk.
+    agent_role: str | None = Field(
+        default=None, description="Operational agent role", max_length=128
     )
+    model: str | None = Field(default=None, description="AI model identifier", max_length=128)
+    cognition: str | None = Field(
+        default=None, description="Cognitive archetype: PATHOS|ETHOS|LOGOS", max_length=16
+    )
+
+    @field_validator("agent_role", "model")
+    @classmethod
+    def validate_identity_string(cls, v: str | None) -> str | None:
+        """Reject control characters and normalize empty strings."""
+        if v is None:
+            return None
+        if v.strip() == "":
+            return None
+        if "\n" in v or "\r" in v:
+            raise ValueError("Identity metadata must be a single line")
+        return v
+
+    @field_validator("cognition")
+    @classmethod
+    def validate_cognition(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if v.strip() == "":
+            return None
+        allowed = {"PATHOS", "ETHOS", "LOGOS"}
+        if v not in allowed:
+            raise ValueError(f"Invalid cognition '{v}': must be one of {sorted(allowed)}")
+        return v
 
     def model_post_init(self, __context: Any) -> None:
         """Calculate hash after model initialization."""
