@@ -58,6 +58,7 @@ def debate_get(
     Args:
         thread_id: Thread identifier
         include_transcript: If True, include turn history
+        include_metadata: If True, include agent_role/model/cognition for each turn
         context_lines: Limit transcript to N recent turns (None = all)
         state_dir: Directory for state files (defaults to ./debates)
 

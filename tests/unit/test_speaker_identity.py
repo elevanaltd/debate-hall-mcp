@@ -78,13 +78,24 @@ class TestTurnModelWithIdentity:
 
     def test_turn_rejects_multiline_identity(self) -> None:
         """Identity fields reject multiline values to avoid log injection."""
-        with pytest.raises(ValueError, match="control characters"):
+        with pytest.raises(ValueError, match="printable ASCII"):
             Turn(
                 role="Wind",
                 content="Test content",
                 timestamp=datetime.now(UTC),
                 previous_hash=None,
                 agent_role="bad\nrole",
+            )
+
+    def test_turn_rejects_non_ascii_identity(self) -> None:
+        """Identity fields reject non-ASCII/control characters (e.g., C1)."""
+        with pytest.raises(ValueError, match="printable ASCII"):
+            Turn(
+                role="Wind",
+                content="Test content",
+                timestamp=datetime.now(UTC),
+                previous_hash=None,
+                agent_role="bad\u0085role",
             )
 
     def test_turn_rejects_invalid_cognition(self) -> None:
