@@ -87,6 +87,26 @@ class TestServerMetadata:
             assert part.isdigit() or part[0].isdigit()  # Allow 0.1.0-beta format
 
 
+class TestGetDebateMcpWrapper:
+    """Test get_debate MCP wrapper includes include_metadata parameter."""
+
+    def test_get_debate_exposes_include_metadata_parameter(self) -> None:
+        """get_debate MCP wrapper must expose include_metadata in the schema."""
+        server = create_server()
+
+        get_debate_tools = [
+            tool for tool in server._tool_manager.list_tools() if tool.name == "get_debate"
+        ]
+        assert len(get_debate_tools) == 1, "get_debate tool should be registered"
+
+        get_tool = get_debate_tools[0]
+        input_schema = get_tool.parameters
+
+        assert "include_metadata" in input_schema.get(
+            "properties", {}
+        ), "include_metadata parameter must be exposed in MCP get_debate schema"
+
+
 class TestInitDebateMcpWrapper:
     """Test init_debate MCP wrapper parameters (Issue #26).
 

@@ -128,12 +128,14 @@ def create_server() -> FastMCP:
     def get_debate(
         thread_id: str,
         include_transcript: bool = False,
+        include_metadata: bool = False,
         context_lines: int | None = None,
     ) -> dict[str, Any]:
         """State+optional transcript. include_transcript→adds turn history. context_lines:limit depth."""
         return debate_get(
             thread_id=thread_id,
             include_transcript=include_transcript,
+            include_metadata=include_metadata,
             context_lines=context_lines,
             state_dir=DEFAULT_STATE_DIR,
         )

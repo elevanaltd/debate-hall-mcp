@@ -2,9 +2,9 @@
 
 META:
   TYPE::PROJECT_CONTEXT
-  VERSION::"2.2"
-  GENERATED::"2025-12-31"
-  STATUS::ENFORCEMENT_HARDENING_COMPLETE
+  VERSION::"2.3"
+  GENERATED::"2026-01-04"
+  STATUS::MCP_TOOLS_INVESTIGATION
 
 §1::IDENTITY
 
@@ -182,7 +182,8 @@ DEFERRED_V020::[
 ]
 
 OPEN_INVESTIGATION::[
-  Issue_#73::phase_2_github_automation[investigation_required]
+  Issue_#73::phase_2_github_automation[investigation_required],
+  MCP_TOOLS_INVESTIGATION::[.hestai/reports/mcp-tools-investigation-2026-01-04.md]
 ]
 
 RESOLVED_SINCE_LAST_UPDATE::[

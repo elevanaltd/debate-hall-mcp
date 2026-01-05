@@ -49,6 +49,7 @@ NOTE::"Using OCTAVE format improves token efficiency. Optional but recommended."
 def debate_get(
     thread_id: str,
     include_transcript: bool = False,
+    include_metadata: bool = False,
     context_lines: int | None = None,
     state_dir: Path | None = None,
 ) -> dict[str, Any]:
@@ -57,6 +58,7 @@ def debate_get(
     Args:
         thread_id: Thread identifier
         include_transcript: If True, include turn history
+        include_metadata: If True, include agent_role/model/cognition for each turn
         context_lines: Limit transcript to N recent turns (None = all)
         state_dir: Directory for state files (defaults to ./debates)
 
@@ -115,6 +117,15 @@ def debate_get(
         transcript.extend(
             {
                 "role": turn.role,
+                **(
+                    {
+                        "agent_role": turn.agent_role,
+                        "model": turn.model,
+                        "cognition": turn.cognition,
+                    }
+                    if include_metadata
+                    else {}
+                ),
                 "content": turn.content,
                 "timestamp": turn.timestamp.isoformat(),
             }
