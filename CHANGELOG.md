@@ -7,6 +7,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-05
+
+### Added
+- WebSearch tool for ideator and synthesizer agents
+- OCTAVE MCP package integration for OCTAVE formatting
+- Comprehensive investigation of MCP tools functionality
+
+### Changed
+- Updated base agents (Wind/Wall/Door) to v3.0
+- Updated specialist agents (Ideator, Validator, Synthesizer) to v4.0
+- Refined model assignments based on M019 and M021 studies
+- Streamlined documentation structure
+- Updated thread_id validation format
+
+### Fixed
+- Resolve module import configuration issues
+- Correct mypy errors
+- Strengthen pre-commit hooks
+- Add complete escape sequences for OCTAVE format
+- Correct tool names in agent YAML frontmatter
+
+### Refactored
+- Removed backward compatibility debt from OCTAVE formatter
+- Removed model recommendation from ideator agent
+
+### Documentation
+- Reorganized and deduplicated documentation
+- Added controlled comparison and research studies
+- Moved usage patterns to docs/guides/
+- Created CONTRIBUTING.md
+
 ## [0.2.0] - 2026-01-03
 
 ### Added
@@ -87,7 +118,8 @@ Automated debate triggering via GitHub webhooks/actions is not yet implemented. 
 
 ---
 
-[Unreleased]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/elevanaltd/debate-hall-mcp/releases/tag/v0.1.0
