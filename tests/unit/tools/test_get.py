@@ -308,6 +308,7 @@ class TestDebateGetWithMetadata:
         result = debate_get(
             thread_id="2025-01-01-test-metadata-1",
             include_transcript=True,
+            include_metadata=True,
             state_dir=tmp_path,
         )
 
@@ -343,6 +344,7 @@ class TestDebateGetWithMetadata:
         result = debate_get(
             thread_id="2025-01-01-test-metadata-2",
             include_transcript=True,
+            include_metadata=True,
             state_dir=tmp_path,
         )
 

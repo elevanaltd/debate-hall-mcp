@@ -78,7 +78,7 @@ class TestTurnModelWithIdentity:
 
     def test_turn_rejects_multiline_identity(self) -> None:
         """Identity fields reject multiline values to avoid log injection."""
-        with pytest.raises(ValueError, match="single line"):
+        with pytest.raises(ValueError, match="control characters"):
             Turn(
                 role="Wind",
                 content="Test content",

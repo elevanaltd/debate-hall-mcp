@@ -209,8 +209,9 @@ class Turn(BaseModel):
             return None
         if v.strip() == "":
             return None
-        if "\n" in v or "\r" in v:
-            raise ValueError("Identity metadata must be a single line")
+        # Disallow any C0 controls and DEL to reduce log/format injection risk.
+        if any((ord(ch) < 0x20) or (ord(ch) == 0x7F) for ch in v):
+            raise ValueError("Identity metadata must be printable ASCII without control characters")
         return v
 
     @field_validator("cognition")
