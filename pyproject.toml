@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "debate-hall-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Production-grade MCP server for Wind/Wall/Door multi-perspective debate orchestration"
 readme = "README.md"
 license = {text = "Apache-2.0"}
