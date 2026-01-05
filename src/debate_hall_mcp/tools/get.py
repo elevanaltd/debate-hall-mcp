@@ -115,6 +115,9 @@ def debate_get(
         transcript.extend(
             {
                 "role": turn.role,
+                "agent_role": turn.agent_role,
+                "model": turn.model,
+                "cognition": turn.cognition,
                 "content": turn.content,
                 "timestamp": turn.timestamp.isoformat(),
             }

@@ -281,3 +281,73 @@ class TestDebateGetOctavePreamble:
         )
 
         assert "transcript" not in result
+
+
+class TestDebateGetWithMetadata:
+    """Tests for speaker metadata in transcript (Issue #4)."""
+
+    def test_transcript_includes_metadata_fields(self, tmp_path: Path) -> None:
+        """Transcript entries include agent_role, model, cognition."""
+        debate_init(
+            thread_id="2025-01-01-test-metadata-1",
+            topic="Test",
+            mode="fixed",
+            octave_preamble=False,
+            state_dir=tmp_path,
+        )
+        debate_turn(
+            thread_id="2025-01-01-test-metadata-1",
+            role="Wind",
+            content="Wind content",
+            agent_role="ideator",
+            model="claude-opus-4-5-20251101",
+            cognition="PATHOS",
+            state_dir=tmp_path,
+        )
+
+        result = debate_get(
+            thread_id="2025-01-01-test-metadata-1",
+            include_transcript=True,
+            state_dir=tmp_path,
+        )
+
+        assert len(result["transcript"]) == 1
+        turn_entry = result["transcript"][0]
+
+        # Original fields preserved
+        assert turn_entry["role"] == "Wind"
+        assert turn_entry["content"] == "Wind content"
+        assert "timestamp" in turn_entry
+
+        # New metadata fields present
+        assert turn_entry["agent_role"] == "ideator"
+        assert turn_entry["model"] == "claude-opus-4-5-20251101"
+        assert turn_entry["cognition"] == "PATHOS"
+
+    def test_transcript_metadata_none_when_not_provided(self, tmp_path: Path) -> None:
+        """Metadata fields are None when not provided (backward compatibility)."""
+        debate_init(
+            thread_id="2025-01-01-test-metadata-2",
+            topic="Test",
+            mode="mediated",
+            octave_preamble=False,
+            state_dir=tmp_path,
+        )
+        debate_turn(
+            thread_id="2025-01-01-test-metadata-2",
+            role="Wall",
+            content="Wall content",
+            state_dir=tmp_path,
+        )
+
+        result = debate_get(
+            thread_id="2025-01-01-test-metadata-2",
+            include_transcript=True,
+            state_dir=tmp_path,
+        )
+
+        turn_entry = result["transcript"][0]
+        assert turn_entry["role"] == "Wall"
+        assert turn_entry["agent_role"] is None
+        assert turn_entry["model"] is None
+        assert turn_entry["cognition"] is None
