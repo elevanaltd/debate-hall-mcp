@@ -7,6 +7,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- Agent metadata inclusion in transcript
+- Transcript metadata flag exposure
+- Metadata gating mechanism
+- Speaker metadata field validation
+
+### Changed
+- Server-side transcript metadata handling
+
 ## [0.2.0] - 2026-01-03
 
 ### Added
