@@ -15,10 +15,9 @@ Environment Configuration:
     Supported variables:
     - GITHUB_TOKEN: GitHub personal access token for GitHub integration tools
     - GITHUB_TOOLS_ENABLED: Set to 'false' to disable GitHub tools (default: true)
-    - DEBATE_HALL_STATE_DIR: Custom state directory (default: ./debates)
+    - DEBATE_HALL_STATE_DIR: Custom state directory (default: project-relative detection)
 """
 
-from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -50,9 +49,6 @@ class GitHubToolsDisabledError(Exception):
 # Server metadata
 SERVER_NAME = "debate-hall-mcp"
 SERVER_VERSION = "0.3.0"
-
-# Default state directory
-DEFAULT_STATE_DIR = Path("./debates")
 
 
 def create_server() -> FastMCP:
@@ -101,7 +97,6 @@ def create_server() -> FastMCP:
             max_rounds=max_rounds,
             strict_cognition=strict_cognition,
             octave_mode=octave_mode,
-            state_dir=DEFAULT_STATE_DIR,
         )
 
     @server.tool()
@@ -118,7 +113,6 @@ def create_server() -> FastMCP:
             thread_id=thread_id,
             role=role,
             content=content,
-            state_dir=DEFAULT_STATE_DIR,
             agent_role=agent_role,
             model=model,
             cognition=cognition,
@@ -137,7 +131,6 @@ def create_server() -> FastMCP:
             include_transcript=include_transcript,
             include_metadata=include_metadata,
             context_lines=context_lines,
-            state_dir=DEFAULT_STATE_DIR,
         )
 
     @server.tool()
@@ -154,7 +147,6 @@ def create_server() -> FastMCP:
         return debate_close(
             thread_id=thread_id,
             synthesis=synthesis,
-            state_dir=DEFAULT_STATE_DIR,
             output_format=output_format,  # type: ignore[arg-type]
         )
 
@@ -164,7 +156,6 @@ def create_server() -> FastMCP:
         return debate_pick(
             thread_id=thread_id,
             role=role,
-            state_dir=DEFAULT_STATE_DIR,
         )
 
     @server.tool()
@@ -173,7 +164,6 @@ def create_server() -> FastMCP:
         return debate_force_close(
             thread_id=thread_id,
             reason=reason,
-            state_dir=DEFAULT_STATE_DIR,
         )
 
     @server.tool()
@@ -183,7 +173,6 @@ def create_server() -> FastMCP:
             thread_id=thread_id,
             turn_index=turn_index,
             reason=reason,
-            state_dir=DEFAULT_STATE_DIR,
         )
 
     @server.tool()
@@ -215,7 +204,6 @@ def create_server() -> FastMCP:
             repo=repo,
             target_id=target_id,
             target_type=target_type,
-            state_dir=DEFAULT_STATE_DIR,
         )
 
     @server.tool()
@@ -252,7 +240,6 @@ def create_server() -> FastMCP:
             adr_number=adr_number,
             target_id=target_id,
             adr_path=adr_path,
-            state_dir=DEFAULT_STATE_DIR,
         )
 
     @server.tool()
@@ -284,7 +271,6 @@ def create_server() -> FastMCP:
             repo=repo,
             target_id=target_id,
             comment_id=comment_id,
-            state_dir=DEFAULT_STATE_DIR,
         )
 
     return server
