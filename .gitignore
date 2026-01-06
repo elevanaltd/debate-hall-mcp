@@ -1,12 +1,36 @@
-# Byte-compiled / optimized / DLL files
+# Claude Code local settings (user-specific, not committed)
+/.claude/settings.json
+/.claude/settings.local.json
+/.claude/commands/
+
+# NOTE: .claude/rules/ IS committed (team conventions per Boris's best practices)
+
+# Gemini clipboard cache (temporary clipboard artifacts)
+.gemini-clipboard/
+
+# System Governance (Delivered by MCP, NOT committed)
+.hestai-sys/
+
+# Active/Pending Sessions (Ephemeral)
+.hestai/sessions/pending/
+.hestai/sessions/active/
+
+# Operational timestamps (session-specific state)
+.hestai/last_cleanup
+.hestai/context/state/
+
+# Raw session archives (OCTAVE compressed versions are committed)
+.hestai/sessions/archive/*-raw.jsonl
+
+# Raw debate transcripts (OCTAVE compressed versions are committed)
+debates/*.json
+debates/*.lock
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -24,71 +48,48 @@ wheels/
 .installed.cfg
 *.egg
 
-# PyInstaller
-*.manifest
-*.spec
+# Virtual Environments
+venv/
+.venv/
+ENV/
+env/
+.env
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+# Local AI configuration (use config/ai.yaml.example as template)
+config/ai.yaml
 
-# Unit test / coverage reports
+# Testing
+.pytest_cache/
+.coverage
 htmlcov/
 .tox/
 .nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-pytest_debug.log
 
-# Translations
-*.mo
-*.pot
+# Type Checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
 
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# IDE
+# IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# macOS
 .DS_Store
-.AppleDouble
-.LSOverride
 
-# HestAI (per ADR-0046: velocity-layered-fragments)
-.hestai/sessions/active/
-.hestai/sessions/archive/*.json
-.hestai/sessions/archive/*.jsonl
-.hestai/.hestai-state-*
-.hestai/last_cleanup
+# Logs
+*.log
 
-# Debates (local development - JSON files are ephemeral, OCTAVE transcripts are committed)
-debates/*.json
+# Temporary files
+*.tmp
+*.bak
 
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
+# Note: rfcs/ folder deleted per ADR-0060
 
-# ruff
-.ruff_cache/
+# HestAI report scratch area
+.hestai/reports/scratch/
 
 # Git worktrees (Crystal)
 /worktrees/
