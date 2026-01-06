@@ -27,6 +27,72 @@ from pydantic import BaseModel, Field, field_validator
 # Security: Patterns that indicate path traversal or directory injection
 PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
 
+# Environment variable for state directory (Issue #33)
+STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
+DEFAULT_STATE_DIR = Path("./debates")
+
+
+def find_project_root(start_path: Path | None = None) -> Path:
+    """Find project root by searching for .git or pyproject.toml markers.
+
+    Searches upward from start_path (or cwd) through parent directories
+    until finding a .git directory or pyproject.toml file, which indicates
+    the project root.
+
+    This enables project-relative debate storage regardless of where the
+    MCP server process starts.
+
+    Args:
+        start_path: Starting path for search (defaults to cwd)
+
+    Returns:
+        Path to project root, or start_path if no markers found
+    """
+    if start_path is None:
+        start_path = Path.cwd()
+
+    current = start_path.resolve()
+
+    # Search current directory and all parents
+    for directory in [current] + list(current.parents):
+        if (directory / ".git").exists() or (directory / "pyproject.toml").exists():
+            return directory
+
+    # No project markers found, return starting path
+    return start_path
+
+
+def get_state_dir() -> Path:
+    """Get state directory for debate persistence.
+
+    Resolution order (Issue #33):
+    1. DEBATE_HALL_STATE_DIR env var (if set and non-empty)
+    2. Project root / "debates" (auto-detected via .git or pyproject.toml)
+    3. ./debates (fallback for backwards compatibility)
+
+    The project-relative detection (option 2) ensures debates live with
+    the project they relate to, supporting version control and organization,
+    while working consistently across different MCP clients.
+
+    Returns:
+        Path to state directory
+    """
+    # Priority 1: Explicit env var configuration
+    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
+    if env_value:
+        return Path(env_value)
+
+    # Priority 2: Project-relative detection
+    try:
+        project_root = find_project_root()
+        return project_root / "debates"
+    except Exception:
+        # Fallback if project detection fails
+        pass
+
+    # Priority 3: Backwards-compatible default
+    return DEFAULT_STATE_DIR
+
 
 class DebateStatus(str, Enum):
     """Status of a debate room (I3: Finite Dialectic Closure)."""

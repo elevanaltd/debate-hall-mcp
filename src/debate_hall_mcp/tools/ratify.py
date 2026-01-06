@@ -8,7 +8,6 @@ Immutables Compliance:
 - I5 (QUALITY_VERIFICATION): Requires closed debate with synthesis
 """
 
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -17,6 +16,7 @@ from debate_hall_mcp.github import GitHubAPIError, GitHubClient
 from debate_hall_mcp.state import (
     DebateRoom,
     DebateStatus,
+    get_state_dir,
     load_debate_state,
 )
 
@@ -55,19 +55,6 @@ def validate_adr_path(adr_path: str) -> None:
             f"Invalid adr_path: path traversal sequences (..) not allowed (got '{adr_path}'). "
             "Use a safe relative path like 'docs/adr/'."
         )
-
-
-# Environment variable for state directory
-STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
-DEFAULT_STATE_DIR = Path("./debates")
-
-
-def get_state_dir() -> Path:
-    """Get state directory from environment or use default."""
-    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
-    if env_value:
-        return Path(env_value)
-    return DEFAULT_STATE_DIR
 
 
 def slugify(text: str, max_length: int = 50) -> str:

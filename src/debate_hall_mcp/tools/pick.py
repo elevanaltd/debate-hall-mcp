@@ -12,30 +12,16 @@ Issue #37: Now persists expected_next_role for enforcement in debate_turn.
 Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
 """
 
-import os
 from pathlib import Path
 from typing import Any
 
-from debate_hall_mcp.state import DebateMode, DebateStatus, load_debate_state, save_debate_state
-
-# Environment variable for state directory (Issue #33)
-STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
-DEFAULT_STATE_DIR = Path("./debates")
-
-
-def get_state_dir() -> Path:
-    """Get state directory from environment or use default.
-
-    Returns:
-        Path to state directory. Uses DEBATE_HALL_STATE_DIR env var if set
-        and non-empty, otherwise falls back to ./debates for backwards
-        compatibility.
-    """
-    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
-    if env_value:
-        return Path(env_value)
-    return DEFAULT_STATE_DIR
-
+from debate_hall_mcp.state import (
+    DebateMode,
+    DebateStatus,
+    get_state_dir,
+    load_debate_state,
+    save_debate_state,
+)
 
 # Use tuple for deterministic ordering in error messages (Issue #50)
 VALID_ROLES = ("Wind", "Wall", "Door")

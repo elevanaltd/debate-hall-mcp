@@ -10,32 +10,12 @@ Immutables Compliance:
 Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
 """
 
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.engine import get_next_speaker
-from debate_hall_mcp.state import DebateStatus, load_debate_state
-
-# Environment variable for state directory (Issue #33)
-STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
-DEFAULT_STATE_DIR = Path("./debates")
-
-
-def get_state_dir() -> Path:
-    """Get state directory from environment or use default.
-
-    Returns:
-        Path to state directory. Uses DEBATE_HALL_STATE_DIR env var if set
-        and non-empty, otherwise falls back to ./debates for backwards
-        compatibility.
-    """
-    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
-    if env_value:
-        return Path(env_value)
-    return DEFAULT_STATE_DIR
-
+from debate_hall_mcp.state import DebateStatus, get_state_dir, load_debate_state
 
 # View-layer only: never stored in DB, never affects hash chain
 OCTAVE_PREAMBLE_CONTENT = """===PROTOCOL===
