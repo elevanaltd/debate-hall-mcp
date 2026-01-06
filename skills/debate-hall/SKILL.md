@@ -32,7 +32,7 @@ META:
 
 §3::TOOL_PARAMS
   INIT_DEBATE::[
-    thread_id::REQUIRED[unique_identifier],
+    thread_id::REQUIRED[date-first_unique_identifier, FORMAT:"YYYY-MM-DD-descriptor", EXAMPLE:"2026-01-06-microservices-decision"],
     topic::REQUIRED[question_or_issue],
     mode::"fixed"|"mediated"[default:fixed],
     max_turns::12[default],
