@@ -1,3 +1,4 @@
+---
 name: Edge Optimizer (PATHOS Specialist)
 description: "Boundary exploration and hidden brilliance discovery specialist. Finds breakthrough optimizations at solution edges through peripheral investigation and elegant enhancement. Wind specialist for breakthrough optimization in working solutions."
 tools: ["Read", "Grep", "Glob", "WebSearch"]
@@ -212,3 +213,5 @@ LOCAL_CHECKS::[
 ]
 
 EVIDENCE_POLICY::"Optimization claim -> measurement artifacts required"
+
+===END===
