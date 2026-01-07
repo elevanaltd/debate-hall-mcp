@@ -30,11 +30,8 @@ from debate_hall_mcp.state import (
     DebateRoom,
     DebateStatus,
     InjectedContext,
+    get_state_dir,
 )
-
-# Environment variable for state directory
-STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
-DEFAULT_STATE_DIR = Path("./debates")
 
 # Role to injection type mapping
 ROLE_TO_INJECTION_TYPE = {
@@ -42,14 +39,6 @@ ROLE_TO_INJECTION_TYPE = {
     "Wall": "ethos",
     "Door": "logos",
 }
-
-
-def get_state_dir() -> Path:
-    """Get state directory from environment or use default."""
-    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
-    if env_value:
-        return Path(env_value)
-    return DEFAULT_STATE_DIR
 
 
 # Security: Patterns that indicate path traversal or directory injection

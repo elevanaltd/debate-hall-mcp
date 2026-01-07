@@ -13,7 +13,6 @@ Robustness:
 - Detects repo mismatch in binding conflict checks
 """
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -21,21 +20,10 @@ from debate_hall_mcp.github import GitHubAPIError, GitHubClient, format_turn_as_
 from debate_hall_mcp.state import (
     GitHubBinding,
     GitHubTargetType,
+    get_state_dir,
     load_debate_state,
     save_debate_state,
 )
-
-# Environment variable for state directory
-STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
-DEFAULT_STATE_DIR = Path("./debates")
-
-
-def get_state_dir() -> Path:
-    """Get state directory from environment or use default."""
-    env_value = os.environ.get(STATE_DIR_ENV_VAR, "")
-    if env_value:
-        return Path(env_value)
-    return DEFAULT_STATE_DIR
 
 
 def github_sync_debate(

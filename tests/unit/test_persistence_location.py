@@ -16,22 +16,55 @@ from unittest.mock import patch
 
 import pytest
 
-from debate_hall_mcp.tools.admin import (
-    debate_force_close,
-    debate_tombstone,
-)
-from debate_hall_mcp.tools.admin import (
-    get_state_dir as get_state_dir_admin,
-)
+from debate_hall_mcp.state import find_project_root, get_state_dir
+from debate_hall_mcp.tools.admin import debate_force_close, debate_tombstone
 from debate_hall_mcp.tools.close import debate_close
-from debate_hall_mcp.tools.close import get_state_dir as get_state_dir_close
 from debate_hall_mcp.tools.get import debate_get
-from debate_hall_mcp.tools.get import get_state_dir as get_state_dir_get
-from debate_hall_mcp.tools.init import debate_init, get_state_dir
+from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.pick import debate_pick
-from debate_hall_mcp.tools.pick import get_state_dir as get_state_dir_pick
 from debate_hall_mcp.tools.turn import debate_turn
-from debate_hall_mcp.tools.turn import get_state_dir as get_state_dir_turn
+
+
+class TestFindProjectRoot:
+    """Test find_project_root function for project-relative detection."""
+
+    def test_finds_git_root(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that find_project_root finds .git directory."""
+        project_root = tmp_path / "my_project"
+        project_root.mkdir()
+        (project_root / ".git").mkdir()
+
+        # Start from subdirectory
+        subdir = project_root / "src" / "debate_hall_mcp"
+        subdir.mkdir(parents=True)
+        monkeypatch.chdir(subdir)
+
+        assert find_project_root() == project_root
+
+    def test_finds_pyproject_toml_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that find_project_root finds pyproject.toml."""
+        project_root = tmp_path / "my_project"
+        project_root.mkdir()
+        (project_root / "pyproject.toml").touch()
+
+        # Start from subdirectory
+        subdir = project_root / "src" / "debate_hall_mcp"
+        subdir.mkdir(parents=True)
+        monkeypatch.chdir(subdir)
+
+        assert find_project_root() == project_root
+
+    def test_returns_cwd_when_no_markers_found(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that find_project_root returns cwd when no markers found."""
+        no_markers_dir = tmp_path / "no_markers"
+        no_markers_dir.mkdir()
+        monkeypatch.chdir(no_markers_dir)
+
+        assert find_project_root() == no_markers_dir
 
 
 class TestGetStateDirFunction:
@@ -41,32 +74,41 @@ class TestGetStateDirFunction:
         """Test that get_state_dir respects DEBATE_HALL_STATE_DIR env var."""
         env_path = str(tmp_path / "custom_debates")
         with patch.dict(os.environ, {"DEBATE_HALL_STATE_DIR": env_path}):
-            # Test all modules have consistent behavior
             assert get_state_dir() == Path(env_path)
-            assert get_state_dir_close() == Path(env_path)
-            assert get_state_dir_get() == Path(env_path)
-            assert get_state_dir_turn() == Path(env_path)
-            assert get_state_dir_pick() == Path(env_path)
-            assert get_state_dir_admin() == Path(env_path)
 
-    def test_get_state_dir_falls_back_to_default_when_unset(self) -> None:
-        """Test that get_state_dir falls back to ./debates when env var unset."""
+    def test_get_state_dir_uses_project_relative_when_env_unset(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that get_state_dir uses project root when env var unset."""
+        # Create a fake project with .git marker
+        project_root = tmp_path / "my_project"
+        project_root.mkdir()
+        (project_root / ".git").mkdir()
+
+        # Change to project directory
+        monkeypatch.chdir(project_root)
+
         # Ensure env var is NOT set
-        env = os.environ.copy()
-        env.pop("DEBATE_HALL_STATE_DIR", None)
-        with patch.dict(os.environ, env, clear=True):
-            assert get_state_dir() == Path("./debates")
-            assert get_state_dir_close() == Path("./debates")
-            assert get_state_dir_get() == Path("./debates")
-            assert get_state_dir_turn() == Path("./debates")
-            assert get_state_dir_pick() == Path("./debates")
-            assert get_state_dir_admin() == Path("./debates")
+        monkeypatch.delenv("DEBATE_HALL_STATE_DIR", raising=False)
 
-    def test_get_state_dir_handles_empty_env_var(self) -> None:
-        """Test that empty env var falls back to default (not empty string)."""
+        # Should return project_root/debates
+        assert get_state_dir() == project_root / "debates"
+
+    def test_get_state_dir_handles_empty_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that empty env var falls back to project-relative detection."""
+        # Create a fake project with pyproject.toml marker
+        project_root = tmp_path / "my_project"
+        project_root.mkdir()
+        (project_root / "pyproject.toml").touch()
+
+        # Change to project directory
+        monkeypatch.chdir(project_root)
+
         with patch.dict(os.environ, {"DEBATE_HALL_STATE_DIR": ""}):
-            # Empty string should fall back to default
-            assert get_state_dir() == Path("./debates")
+            # Empty string should fall back to project-relative
+            assert get_state_dir() == project_root / "debates"
 
 
 class TestDebateInitEnvVar:
