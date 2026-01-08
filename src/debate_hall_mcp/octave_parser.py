@@ -59,3 +59,42 @@ def parse_meta_section(content: str) -> dict[str, Any]:
             result[key] = value
 
     return result
+
+
+def parse_turn(turn_line: str) -> dict[str, Any]:
+    """Parse a single turn line from OCTAVE format.
+
+    Format: T{index}::Role[Cognition]#{hash}@{timestamp}::"{content}"
+
+    Args:
+        turn_line: Single turn line in OCTAVE format
+
+    Returns:
+        Dictionary with turn data (index, role, cognition, hash, timestamp, content)
+
+    Example:
+        >>> turn = 'T0::Wind[PATHOS]#abc123@2026-01-08T10:30:00Z::"Test content"'
+        >>> parse_turn(turn)
+        {'index': 0, 'role': 'Wind', 'cognition': 'PATHOS', ...}
+    """
+    # Pattern: T{index}::Role[Cognition]#{hash}@{timestamp}::"{content}"
+    # Timestamp can have +00:00 or Z suffix, so we need to match until ::
+    pattern = r'T(\d+)::(\w+)\[(\w+)\]#([a-f0-9]{64})@(.+?)::"(.*)"$'
+    match = re.match(pattern, turn_line, re.DOTALL)
+
+    if not match:
+        raise ValueError(f"Invalid turn format: {turn_line[:50]}...")
+
+    index, role, cognition, content_hash, timestamp, escaped_content = match.groups()
+
+    # Unescape content using json.loads
+    content = json.loads(f'"{escaped_content}"')
+
+    return {
+        "index": int(index),
+        "role": role,
+        "cognition": cognition,
+        "content_hash": content_hash,
+        "timestamp": timestamp,
+        "content": content,
+    }

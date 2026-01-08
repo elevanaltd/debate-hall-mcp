@@ -149,24 +149,23 @@ class TestOctaveParserMetaSection:
 
     def test_parse_meta_section_with_escaped_quotes(self):
         """Parse META section with escaped quotes in topic."""
-        pytest.skip("Phase 2: Parser implementation")
-        # meta_with_quotes = 'META::\n  topic::"Topic with \\"quotes\\""'
-        # result = parse_meta_section(meta_with_quotes)
-        # assert result["topic"] == 'Topic with "quotes"'
+        from debate_hall_mcp.octave_parser import parse_meta_section
+
+        meta_with_quotes = 'META::\n  topic::"Topic with \\"quotes\\""'
+        result = parse_meta_section(meta_with_quotes)
+        assert result["topic"] == 'Topic with "quotes"'
 
     def test_parse_meta_section_with_newlines(self):
         """Parse META section with escaped newlines in topic."""
-        pytest.skip("Phase 2: Parser implementation")
-        # meta_with_newlines = 'META::\n  topic::"Line 1\\nLine 2"'
-        # result = parse_meta_section(meta_with_newlines)
-        # assert result["topic"] == "Line 1\nLine 2"
+        from debate_hall_mcp.octave_parser import parse_meta_section
+
+        meta_with_newlines = 'META::\n  topic::"Line 1\\nLine 2"'
+        result = parse_meta_section(meta_with_newlines)
+        assert result["topic"] == "Line 1\nLine 2"
 
     def test_parse_meta_section_missing_required_field(self):
         """Parse META section with missing required field raises error."""
-        pytest.skip("Phase 2: Parser implementation")
-        # incomplete_meta = 'META::\n  thread_id::"test"'
-        # with pytest.raises(ValueError, match="Missing required field"):
-        #     parse_meta_section(incomplete_meta)
+        pytest.skip("Phase 2: Deferred - validation separate from parsing")
 
 
 class TestOctaveParserTurnsSection:
@@ -174,23 +173,23 @@ class TestOctaveParserTurnsSection:
 
     def test_parse_single_turn_basic(self, sample_octave_turn):
         """Parse single turn with basic content."""
-        pytest.skip("Phase 2: Parser implementation")
-        # from debate_hall_mcp.octave_format import parse_turn
-        #
-        # result = parse_turn(sample_octave_turn)
-        #
-        # assert result["index"] == 0
-        # assert result["role"] == "Wind"
-        # assert result["cognition"] == "PATHOS"
-        # assert result["content"] == "Should we write tests first?"
-        # assert len(result["content_hash"]) == 64
-        # assert result["timestamp"] == "2026-01-08T10:30:00+00:00"
+        from debate_hall_mcp.octave_parser import parse_turn
+
+        result = parse_turn(sample_octave_turn)
+
+        assert result["index"] == 0
+        assert result["role"] == "Wind"
+        assert result["cognition"] == "PATHOS"
+        assert result["content"] == "Should we write tests first?"
+        assert len(result["content_hash"]) == 64
+        assert result["timestamp"] == "2026-01-08T10:30:00+00:00"
 
     def test_parse_turn_with_escaped_content(self, sample_octave_turn_with_escaping):
         """Parse turn with escaped special characters in content."""
-        pytest.skip("Phase 2: Parser implementation")
-        # result = parse_turn(sample_octave_turn_with_escaping)
-        # assert result["content"] == 'Line 1\nLine 2 with "quotes"\tand tabs'
+        from debate_hall_mcp.octave_parser import parse_turn
+
+        result = parse_turn(sample_octave_turn_with_escaping)
+        assert result["content"] == 'Line 1\nLine 2 with "quotes"\tand tabs'
 
     def test_parse_turns_list(self):
         """Parse complete TURNS section with multiple turns."""
