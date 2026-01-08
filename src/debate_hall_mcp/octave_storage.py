@@ -257,6 +257,11 @@ class OctaveStorage:
         data = self._room_to_dict(room)
         octave_content = serialize_octave(data)
 
+        # NOTE: We use a simplified OCTAVE-like format that is NOT compatible
+        # with octave-mcp's parser. Our format uses :: for all separators,
+        # while octave-mcp uses : for section headers and wraps in ===INFERRED===
+        # This is intentional - we need a simpler format for debate transcripts.
+
         # Get target file path
         octave_file = self._get_octave_path(room.thread_id)
 
