@@ -122,14 +122,41 @@ def _parse_turn_from_octave(turn_str: str, _index: int) -> dict[str, Any]:
         timestamp_str = None
         meta_part = role_part
 
-        # Unescape content (it was escaped for the inner quotes)
-        content = (
-            content.replace('\\"', '"')
-            .replace("\\n", "\n")
-            .replace("\\r", "\r")
-            .replace("\\t", "\t")
-            .replace("\\\\", "\\")
-        )
+        # Unescape content safely using custom logic to handle escape sequences
+        # Naive replace chain fails on edge cases like "\\n" vs "\n"
+        # We process backslashes from left to right.
+
+        chars = []
+        i = 0
+        n = len(content)
+        while i < n:
+            c = content[i]
+            if c == '\\' and i + 1 < n:
+                next_c = content[i + 1]
+                if next_c == '\\':
+                    chars.append('\\')
+                    i += 2
+                elif next_c == '"':
+                    chars.append('"')
+                    i += 2
+                elif next_c == 'n':
+                    chars.append('\n')
+                    i += 2
+                elif next_c == 'r':
+                    chars.append('\r')
+                    i += 2
+                elif next_c == 't':
+                    chars.append('\t')
+                    i += 2
+                else:
+                    # Unknown escape, keep literal
+                    chars.append('\\')
+                    i += 1
+            else:
+                chars.append(c)
+                i += 1
+
+        content = "".join(chars)
 
         # Parse Role[Cognition] and Timestamp and Hash
         # Format: Role[Cognition]...#Hash@Timestamp
@@ -239,11 +266,12 @@ def _load_from_octave(thread_id: str, state_dir: Path) -> "DebateRoom":
             turn_data = _parse_turn_from_octave(str(item), i)
             turns_list.append(turn_data)
 
-    # Reconstruct Hash Chain
+    # Reconstruct Hash Chain and Verify Content Integrity
     prev_hash = None
     reconstructed_turns = []
 
-    for turn_data in turns_list:
+    for i, turn_data in enumerate(turns_list):
+        # 1. Create turn with calculated hash (model_post_init does this)
         turn = Turn(
             role=turn_data["role"],
             content=turn_data["content"],
@@ -251,10 +279,27 @@ def _load_from_octave(thread_id: str, state_dir: Path) -> "DebateRoom":
             cognition=turn_data["cognition"],
             agent_role=turn_data.get("agent_role"),
             model=turn_data.get("model"),
-            hash=turn_data.get("hash", ""),
-            previous_hash=prev_hash,
+            previous_hash=prev_hash
+            # Note: We do NOT pass 'hash' here yet, so Turn calculates it from content
         )
-        # Turn model auto-calculates hash on init if not provided
+
+        # 2. Verify calculated hash matches stored hash (Tamper Detection)
+        stored_hash = turn_data.get("hash", "")
+        if stored_hash and turn.hash != stored_hash:
+            # DEBUG: Print inputs to hash calculation to identify mismatch
+            # calc_inputs = f"{turn.role}|{turn.content}|{turn.timestamp.isoformat()}|{prev_hash or ''}"
+            # print(f"DEBUG MISMATCH: Stored={stored_hash}, Calc={turn.hash}")
+            # print(f"DEBUG INPUTS: {calc_inputs}")
+            # print(f"DEBUG CONTENT: {turn.content!r}")
+
+            raise ValueError(
+                f"Hash mismatch at turn {i+1} ({turn.role}). "
+                f"Content/Timestamp modified? "
+                f"Stored: {stored_hash[:8]}..., Calculated: {turn.hash[:8]}... "
+                f"(Check content escaping or timestamp precision)"
+            )
+
+        # 3. Use the valid hash for the next link
         prev_hash = turn.hash
         reconstructed_turns.append(turn)
 
