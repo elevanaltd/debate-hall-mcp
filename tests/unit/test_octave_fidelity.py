@@ -1,4 +1,3 @@
-
 from datetime import UTC, datetime
 
 import pytest
@@ -19,21 +18,14 @@ class TestOctaveFidelity:
         """Regression test: literal \\n in content should not become a newline."""
         thread_id = "fidelity-escape-001"
         room = DebateRoom(
-            thread_id=thread_id,
-            topic="Escape Test",
-            mode=DebateMode.FIXED,
-            octave_mode=True
+            thread_id=thread_id, topic="Escape Test", mode=DebateMode.FIXED, octave_mode=True
         )
 
         # Content with literal backslash-n (common in code snippets)
         # In Python: "\\n" is a string containing \ and n (2 chars)
         original_content = "Here is a regex: \\n and a backslash: \\"
 
-        room.turns.append(Turn(
-            role="Wind",
-            content=original_content,
-            timestamp=datetime.now(UTC)
-        ))
+        room.turns.append(Turn(role="Wind", content=original_content, timestamp=datetime.now(UTC)))
 
         save_debate_state(room, tmp_path)
         loaded = load_debate_state(thread_id, tmp_path)
@@ -45,17 +37,12 @@ class TestOctaveFidelity:
         """Regression test: Modifying content without updating hash should fail load."""
         thread_id = "fidelity-hash-001"
         room = DebateRoom(
-            thread_id=thread_id,
-            topic="Hash Test",
-            mode=DebateMode.FIXED,
-            octave_mode=True
+            thread_id=thread_id, topic="Hash Test", mode=DebateMode.FIXED, octave_mode=True
         )
 
-        room.turns.append(Turn(
-            role="Wind",
-            content="Original content",
-            timestamp=datetime.now(UTC)
-        ))
+        room.turns.append(
+            Turn(role="Wind", content="Original content", timestamp=datetime.now(UTC))
+        )
 
         save_debate_state(room, tmp_path)
 

@@ -131,26 +131,26 @@ def _parse_turn_from_octave(turn_str: str, _index: int) -> dict[str, Any]:
         n = len(content)
         while i < n:
             c = content[i]
-            if c == '\\' and i + 1 < n:
+            if c == "\\" and i + 1 < n:
                 next_c = content[i + 1]
-                if next_c == '\\':
-                    chars.append('\\')
+                if next_c == "\\":
+                    chars.append("\\")
                     i += 2
                 elif next_c == '"':
                     chars.append('"')
                     i += 2
-                elif next_c == 'n':
-                    chars.append('\n')
+                elif next_c == "n":
+                    chars.append("\n")
                     i += 2
-                elif next_c == 'r':
-                    chars.append('\r')
+                elif next_c == "r":
+                    chars.append("\r")
                     i += 2
-                elif next_c == 't':
-                    chars.append('\t')
+                elif next_c == "t":
+                    chars.append("\t")
                     i += 2
                 else:
                     # Unknown escape, keep literal
-                    chars.append('\\')
+                    chars.append("\\")
                     i += 1
             else:
                 chars.append(c)
@@ -279,7 +279,7 @@ def _load_from_octave(thread_id: str, state_dir: Path) -> "DebateRoom":
             cognition=turn_data["cognition"],
             agent_role=turn_data.get("agent_role"),
             model=turn_data.get("model"),
-            previous_hash=prev_hash
+            previous_hash=prev_hash,
             # Note: We do NOT pass 'hash' here yet, so Turn calculates it from content
         )
 
