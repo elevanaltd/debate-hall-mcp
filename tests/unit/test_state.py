@@ -408,7 +408,9 @@ class TestAtomicPersistence:
         save_debate_state(room, state_dir)
 
         # Verify atomic rename was used
-        assert len(rename_calls) == 1
+        # With octave_mode=True (default), we expect 2 writes: .json + .oct.md
+        assert len(rename_calls) == 2
+        # First rename should be JSON
         src, dst = rename_calls[0]
         # Source should be a temp file in the same directory
         assert tmp_path.as_posix() in src

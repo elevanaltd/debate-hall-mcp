@@ -434,6 +434,9 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
 
     Format: Pydantic model JSON with hash chain preserved.
 
+    OCTAVE Storage (Phase 3 Integration):
+    If octave_mode=True, also saves to .oct.md format using OctaveStorage.
+
     Concurrency Control (Issue #48):
     Uses file-based locking to prevent race conditions during concurrent access.
 
@@ -479,6 +482,16 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
                 os.unlink(tmp_path)  # May not exist if mkstemp failed
             raise
 
+    # OCTAVE Storage: Save as .oct.md when octave_mode enabled
+    if room.octave_mode:
+        try:
+            from .octave_storage import OctaveStorage
+
+            storage = OctaveStorage(state_dir)
+            storage.save(room)
+        except ImportError:
+            pass  # OCTAVE storage optional for now
+
 
 def _verify_hash_chain_links(turns: list[Turn]) -> None:
     """Verify hash chain link integrity (Issue #58).
@@ -523,6 +536,10 @@ def _verify_hash_chain_links(turns: list[Turn]) -> None:
 
 def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     """Load debate room state from JSON file.
+
+    OCTAVE Storage (Phase 3 Integration):
+    Always loads from JSON (primary storage with complete data).
+    OCTAVE .oct.md files are supplementary human-readable format.
 
     Concurrency Control (Issue #48):
     Uses shared file lock to allow concurrent reads but block during writes.

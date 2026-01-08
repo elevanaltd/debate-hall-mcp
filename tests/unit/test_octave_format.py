@@ -86,10 +86,9 @@ def sample_octave_turn():
 def sample_octave_turn_with_escaping():
     """Sample turn with escaped special characters."""
     hash_val = "b" * 64
-    prev_hash = "a" * 64
     # Note: Escaped content uses \\n for newlines, \\" for quotes, \\t for tabs
     return (
-        f'T1::Wall[ETHOS]#{hash_val}@2026-01-08T10:32:00+00:00::'
+        f"T1::Wall[ETHOS]#{hash_val}@2026-01-08T10:32:00+00:00::"
         f'"Line 1\\nLine 2 with \\"quotes\\"\\tand tabs"'
     )
 
