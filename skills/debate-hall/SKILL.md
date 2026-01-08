@@ -50,12 +50,13 @@ META:
   GET_DEBATE::[
     thread_id::REQUIRED,
     include_transcript::true[default],
-    context_lines::all[default]
+    context_lines::all[default],
+    output_format::"octave"[default_in_v2.1+]
   ]
   CLOSE_DEBATE::[
     thread_id::REQUIRED,
     synthesis::REQUIRED[Door_final_text],
-    output_format::"json"|"octave"|"both"[default:json]
+    output_format::"octave"[default_in_v2.1+]
   ]
 
 §4::MODES
@@ -68,6 +69,15 @@ META:
     USE_FOR::[dynamic_debates,breaking_deadlocks,role_skipping,multi_agent_same_cognition],
     WARNING::"Can bias outcomes if roles starved"
   ]
+
+§5::PERSISTENCE_MANDATE
+  FORMAT::OCTAVE[required]
+  BECAUSE::[
+    fidelity::"Captures identity, hash chain, and metadata perfectly",
+    efficiency::"Reduces token usage by ~60% vs JSON",
+    universality::"One format for storage, transport, and archive"
+  ]
+  ENFORCEMENT::"All new debates default to OCTAVE mode. Legacy JSON supported but deprecated."
 
 §5::AGENT_TIERS
   // Choose tier based on debate complexity
