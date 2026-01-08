@@ -6,15 +6,20 @@ Implements I2 (Universal OCTAVE Binding) from North Star.
 """
 
 from enum import Enum
+from typing import Any, cast
+
+from debate_hall_mcp.state import DebateRoom
 
 try:
-    import octave_mcp  # type: ignore
+    # Import the module with a cast to handle untyped imports
+    octave_mcp = cast(Any, __import__("octave_mcp"))
 except ImportError as e:
     raise ImportError(
         "octave-mcp package is required. Install with: pip install octave-mcp>=0.3.0"
     ) from e
 
-from debate_hall_mcp.state import DebateRoom
+# Declare a type to appease mypy
+ASTNode = str | Any
 
 
 class OutputMode(Enum):
@@ -190,10 +195,12 @@ def validate_debate_octave(content: str) -> tuple[bool, list[str]]:
             errors.append("Missing META section")
 
         # Check for required sections in assignments
-        section_keys = []
+        section_keys: list[str] = []
         for section in doc.sections:
             if hasattr(section, "key"):
-                section_keys.append(section.key)
+                key: ASTNode = section.key
+                if isinstance(key, str):
+                    section_keys.append(key)
 
         required_sections = ["PARTICIPANTS", "TURNS", "SYNTHESIS"]
         for section in required_sections:

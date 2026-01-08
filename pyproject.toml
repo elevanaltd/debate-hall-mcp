@@ -120,6 +120,10 @@ ignore_missing_imports = false
 module = ["mcp.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["octave_mcp.*"]
+ignore_missing_imports = true
+
 [tool.black]
 line-length = 100
 target-version = ["py311"]
