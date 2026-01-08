@@ -124,13 +124,15 @@ def create_server() -> FastMCP:
         include_transcript: bool = False,
         include_metadata: bool = False,
         context_lines: int | None = None,
-    ) -> dict[str, Any]:
-        """State+optional transcript. include_transcript→adds turn history. context_lines:limit depth."""
+        output_format: str = "json",
+    ) -> dict[str, Any] | str:
+        """State+optional transcript. include_transcript→adds turn history. context_lines:limit depth. output_format:json|octave."""
         return debate_get(
             thread_id=thread_id,
             include_transcript=include_transcript,
             include_metadata=include_metadata,
             context_lines=context_lines,
+            output_format=output_format,
         )
 
     @server.tool()

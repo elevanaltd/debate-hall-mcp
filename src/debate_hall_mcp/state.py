@@ -5,6 +5,7 @@ This module implements:
 - Turn model with hash chain support (I4: Verifiable Event Ledger)
 - DebateRoom model with persistence
 - JSON file-based persistence with hash chain integrity
+- OCTAVE file-based persistence (Universal OCTAVE Storage)
 
 Immutables Compliance:
 - I1 (COGNITIVE_STATE_ISOLATION): State managed exclusively by Hall server
@@ -30,6 +31,12 @@ PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
 # Environment variable for state directory (Issue #33)
 STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
 DEFAULT_STATE_DIR = Path("./debates")
+
+try:
+    import octave_mcp
+except ImportError:
+    # Optional dependency handled where used
+    octave_mcp: Any = None  # type: ignore[no-redef]
 
 
 def find_project_root(start_path: Path | None = None) -> Path:
@@ -92,6 +99,244 @@ def get_state_dir() -> Path:
 
     # Priority 3: Backwards-compatible default
     return DEFAULT_STATE_DIR
+
+
+# Forward declaration via string type hint
+def _parse_turn_from_octave(turn_str: str, _index: int) -> dict[str, Any]:
+    """Parse a single turn string from OCTAVE format.
+
+    Expected format: T{i}::{Role}[{Cognition}]@{Timestamp}::"{Content}"
+    Or legacy: T{i}::{Role}[{Cognition}]::"{Content}"
+    """
+    # Simple regex parsing or string splitting
+    # T1::Wind[PATHOS]@2024-01-01T00:00:00+00:00::"Content"
+    try:
+        parts = turn_str.split("::", 2)
+        if len(parts) < 3:
+            raise ValueError("Invalid turn format")
+
+        role_part = parts[1]  # Role[Cognition]@Timestamp or Role[Cognition]
+        content = parts[2].strip(",").strip('"')  # "Content", -> Content
+
+        hash_val = ""  # Default to empty hash
+        timestamp_str = None
+        meta_part = role_part
+
+        # Unescape content (it was escaped for the inner quotes)
+        content = (
+            content.replace('\\"', '"')
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\t", "\t")
+            .replace("\\\\", "\\")
+        )
+
+        # Parse Role[Cognition] and Timestamp and Hash
+        # Format: Role[Cognition]...#Hash@Timestamp
+
+        # Check for Timestamp @
+        if "@" in role_part:
+            meta_part, timestamp_str = role_part.split("@", 1)
+            # Ensure ISO format upper case T (robustness against case normalization)
+            timestamp_str = timestamp_str.replace("t", "T")
+
+        # Check for Hash #
+        if "#" in meta_part:
+            meta_part, hash_val = meta_part.split("#", 1)
+
+        # Parse Role[Cognition] or Role[Cognition|Agent|Model]
+        if "[" in meta_part and "]" in meta_part:
+            role = meta_part.split("[")[0]
+            bracket_content = meta_part.split("[")[1].strip("]")
+
+            # Handle Extended Identity: Cognition|Agent|Model
+            if "|" in bracket_content:
+                parts_identity = bracket_content.split("|")
+                cognition = parts_identity[0] if parts_identity else None
+                agent_role = parts_identity[1] if len(parts_identity) > 1 else None
+                model = parts_identity[2] if len(parts_identity) > 2 else None
+
+                # Treat empty strings as None
+                if agent_role == "":
+                    agent_role = None
+                if model == "":
+                    model = None
+            else:
+                cognition = bracket_content
+                agent_role = None
+                model = None
+        else:
+            role = meta_part
+            cognition = None
+            agent_role = None
+            model = None
+
+        # Clean up
+        if cognition == "UNKNOWN":
+            cognition = None
+
+        # Timestamp fallback (should be present for valid chain reconstruction)
+        timestamp = datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.now(UTC)
+
+        return {
+            "role": role,
+            "content": content,
+            "cognition": cognition,
+            "agent_role": agent_role,
+            "model": model,
+            "timestamp": timestamp,
+            "hash": hash_val,  # Explicit hash from file
+            "previous_hash": None,  # Will be linked
+        }
+    except Exception as e:
+        raise ValueError(f"Failed to parse turn: {turn_str} | Error: {str(e)}") from e
+
+
+def _load_from_octave(thread_id: str, state_dir: Path) -> "DebateRoom":
+    """Load debate state from OCTAVE file."""
+    octave_file = state_dir / f"{thread_id}.oct.md"
+    lock_file = state_dir / f"{thread_id}.oct.lock"
+
+    with _get_file_lock(lock_file), open(octave_file) as f:
+        content = f.read()
+
+    if octave_mcp is None:
+        raise ImportError("octave-mcp required for OCTAVE storage")
+
+    doc = octave_mcp.parse(content)
+
+    # Extract Metadata
+    meta = doc.meta or {}
+    topic = meta.get("TOPIC", "Unknown Topic").strip('"')
+    mode_str = meta.get("MODE", "fixed").lower()
+    status_str = meta.get("STATUS", "active").lower()
+
+    # Optional operational fields
+    max_turns = int(meta.get("MAX_TURNS", 12))
+    max_rounds = int(meta.get("MAX_ROUNDS", 4))
+    strict_cognition = str(meta.get("STRICT_COGNITION", "false")).lower() == "true"
+    octave_mode = str(meta.get("OCTAVE_MODE", "true")).lower() == "true"
+    expected_next_role = meta.get("EXPECTED_NEXT_ROLE")
+    if expected_next_role:
+        expected_next_role = expected_next_role.strip('"')
+
+    # Extract Turns
+    turns_list = []
+    # Find TURNS section
+    turns_section = next((s for s in doc.sections if getattr(s, "key", "") == "TURNS"), None)
+
+    if turns_section and hasattr(turns_section, "value"):
+        # Handle ListValue (AST node) or raw list
+        value = getattr(turns_section, "value", [])
+        items = []
+        if isinstance(value, list):
+            items = value
+        elif hasattr(value, "items"):
+            items = getattr(value, "items", [])
+
+        for i, item in enumerate(items):
+            # Item might be "T1::Role...::Content" string
+            turn_data = _parse_turn_from_octave(str(item), i)
+            turns_list.append(turn_data)
+
+    # Reconstruct Hash Chain
+    prev_hash = None
+    reconstructed_turns = []
+
+    for turn_data in turns_list:
+        turn = Turn(
+            role=turn_data["role"],
+            content=turn_data["content"],
+            timestamp=turn_data["timestamp"],
+            cognition=turn_data["cognition"],
+            agent_role=turn_data.get("agent_role"),
+            model=turn_data.get("model"),
+            hash=turn_data.get("hash", ""),
+            previous_hash=prev_hash,
+        )
+        # Turn model auto-calculates hash on init if not provided
+        prev_hash = turn.hash
+        reconstructed_turns.append(turn)
+
+    # Extract Synthesis
+    synthesis = None
+    synthesis_section = next(
+        (s for s in doc.sections if getattr(s, "key", "") == "SYNTHESIS"), None
+    )
+    if synthesis_section:
+        # Value might be string "Synthesis..." or null
+        val = str(getattr(synthesis_section, "value", "null")).strip('"')
+        if val.lower() != "null":
+            synthesis = val
+
+    # Extract Internal State Sections
+    audit_log = []
+    github_binding = None
+    injected_context = []
+
+    def get_field_content(key: str) -> str | None:
+        # Check META first (octave-mcp usually merges top-level assignments here)
+        if key in meta:
+            val = meta[key]
+            if isinstance(val, str):
+                return val.strip('"')
+            return str(val)
+
+        # Check sections/assignments in body
+        # octave-mcp v0.4+ puts assignments in doc.sections if they appear in body
+        # We need to find Assignment node with key matching
+        for section in doc.sections:
+            # Check if it's an Assignment (has key and value)
+            # Use getattr to be safe across versions or node types
+            k = getattr(section, "key", None)
+            if k == key:
+                val = getattr(section, "value", None)
+                if val is not None:
+                    # Value might be StringValue, ListValue, or primitive
+                    # If it's a quoted string, we want the raw content
+                    return str(val).strip('"')
+        return None
+
+    audit_str = get_field_content("AUDIT_LOG")
+    if audit_str:
+        try:
+            data = json.loads(audit_str)
+            audit_log = [AuditEvent.model_validate(a) for a in data]
+        except Exception:
+            pass
+
+    github_str = get_field_content("GITHUB_BINDING")
+    if github_str:
+        try:
+            data = json.loads(github_str)
+            github_binding = GitHubBinding.model_validate(data)
+        except Exception:
+            pass
+
+    context_str = get_field_content("INJECTED_CONTEXT")
+    if context_str:
+        try:
+            data = json.loads(context_str)
+            injected_context = [InjectedContext.model_validate(c) for c in data]
+        except Exception:
+            pass
+
+    return DebateRoom(
+        thread_id=thread_id,
+        topic=topic,
+        mode=DebateMode(mode_str),
+        status=DebateStatus(status_str),
+        max_turns=max_turns,
+        max_rounds=max_rounds,
+        strict_cognition=strict_cognition,
+        octave_mode=octave_mode,
+        expected_next_role=expected_next_role,
+        turns=reconstructed_turns,
+        synthesis=synthesis,
+        audit_log=audit_log,
+        github_binding=github_binding,
+        injected_context=injected_context,
+    )
 
 
 class DebateStatus(str, Enum):
@@ -431,7 +676,6 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
     """Save debate room state to JSON file using atomic write pattern.
 
     File location: {state_dir}/{thread_id}.json
-
     Format: Pydantic model JSON with hash chain preserved.
 
     Concurrency Control (Issue #48):
@@ -456,6 +700,37 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
     _validate_thread_id_for_filesystem(room.thread_id)
 
     state_dir.mkdir(parents=True, exist_ok=True)
+
+    # Storage Strategy: OCTAVE vs JSON (Issue #29)
+    # If octave_mode is enabled, save as OCTAVE format (.oct.md)
+    # Otherwise, fallback to JSON (.json)
+
+    if room.octave_mode:
+        from debate_hall_mcp.octave_formatter import OutputMode, format_debate_as_octave
+
+        # Determine file paths for OCTAVE
+        state_file = state_dir / f"{room.thread_id}.oct.md"
+        lock_file = state_dir / f"{room.thread_id}.oct.lock"
+
+        # Generate content
+        content = format_debate_as_octave(room, output_mode=OutputMode.FULL)
+
+        # Acquire exclusive lock
+        with _get_file_lock(lock_file):
+            fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    f.write(content)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, str(state_file))
+            except Exception:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_path)
+                raise
+        return
+
+    # Fallback to JSON Persistence
     state_file = state_dir / f"{room.thread_id}.json"
     lock_file = state_dir / f"{room.thread_id}.lock"
 
@@ -522,7 +797,7 @@ def _verify_hash_chain_links(turns: list[Turn]) -> None:
 
 
 def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
-    """Load debate room state from JSON file.
+    """Load debate room state from file (OCTAVE preferred, then JSON).
 
     Concurrency Control (Issue #48):
     Uses shared file lock to allow concurrent reads but block during writes.
@@ -541,10 +816,20 @@ def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     # Security: Validate thread_id before using in file path
     _validate_thread_id_for_filesystem(thread_id)
 
+    # Try loading OCTAVE format first (if present)
+    octave_file = state_dir / f"{thread_id}.oct.md"
+
+    if octave_file.exists():
+        return _load_from_octave(thread_id, state_dir)
+
+    # Fallback to JSON
     state_file = state_dir / f"{thread_id}.json"
     lock_file = state_dir / f"{thread_id}.lock"
 
     if not state_file.exists():
+        # If explicitly checking for OCTAVE-only future
+        if octave_file.exists():
+            return _load_from_octave(thread_id, state_dir)
         raise FileNotFoundError(f"No state file found for thread {thread_id}")
 
     # Acquire lock for read operation (cross-platform via filelock)

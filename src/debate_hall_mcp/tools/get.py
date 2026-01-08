@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.engine import get_next_speaker
+from debate_hall_mcp.octave_formatter import format_debate_as_octave
 from debate_hall_mcp.state import DebateStatus, get_state_dir, load_debate_state
 
 # View-layer only: never stored in DB, never affects hash chain
@@ -32,7 +33,8 @@ def debate_get(
     include_metadata: bool = False,
     context_lines: int | None = None,
     state_dir: Path | None = None,
-) -> dict[str, Any]:
+    output_format: str = "json",
+) -> dict[str, Any] | str:
     """Get debate state, optionally with transcript.
 
     Args:
@@ -41,12 +43,15 @@ def debate_get(
         include_metadata: If True, include agent_role/model/cognition for each turn
         context_lines: Limit transcript to N recent turns (None = all)
         state_dir: Directory for state files (defaults to ./debates)
+        output_format: "json" (default) or "octave"
 
     Returns:
         Dictionary with debate state (always):
         - thread_id, topic, mode, status, turn_count, max_turns, max_rounds, next_role
         - synthesis (if present)
         - transcript (if include_transcript=True)
+        OR
+        String with OCTAVE formatted document (if output_format="octave")
 
     Raises:
         FileNotFoundError: If thread doesn't exist
@@ -56,6 +61,15 @@ def debate_get(
         state_dir = get_state_dir()
 
     room = load_debate_state(thread_id, state_dir)
+
+    # Handle OCTAVE output format
+    if output_format.lower() == "octave":
+        # Apply context_lines filtering if requested
+        if context_lines is not None and context_lines > 0:
+            # Create a shallow copy with filtered turns for formatting
+            room = room.model_copy(update={"turns": room.turns[-context_lines:]})
+
+        return format_debate_as_octave(room)
 
     next_role = None
     if room.status == DebateStatus.ACTIVE:

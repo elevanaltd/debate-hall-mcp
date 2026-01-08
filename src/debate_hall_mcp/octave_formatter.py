@@ -5,10 +5,12 @@ Uses the official octave-mcp API for validated, secure OCTAVE format emission.
 Implements I2 (Universal OCTAVE Binding) from North Star.
 """
 
+import json
 from enum import Enum
+from typing import Any
 
 try:
-    import octave_mcp  # type: ignore
+    import octave_mcp
 except ImportError as e:
     raise ImportError(
         "octave-mcp package is required. Install with: pip install octave-mcp>=0.3.0"
@@ -95,6 +97,12 @@ def format_debate_as_octave(
     lines.append(f'  TOPIC::"{topic}"')
     lines.append(f"  MODE::{room.mode.value}")
     lines.append(f"  STATUS::{room.status.value}")
+    lines.append(f"  MAX_TURNS::{room.max_turns}")
+    lines.append(f"  MAX_ROUNDS::{room.max_rounds}")
+    lines.append(f"  STRICT_COGNITION::{str(room.strict_cognition).lower()}")
+    lines.append(f"  OCTAVE_MODE::{str(room.octave_mode).lower()}")
+    if room.expected_next_role:
+        lines.append(f'  EXPECTED_NEXT_ROLE::"{room.expected_next_role}"')
     lines.append("")
 
     # PARTICIPANTS section
@@ -120,8 +128,36 @@ def format_debate_as_octave(
                 .replace('"', '\\"')
             )
             cognition = turn.cognition or "UNKNOWN"
-            # Format turn with proper escaping
-            lines.append(f'  T{i}::{turn.role}[{cognition}]::"{content}",')
+            if turn.agent_role or turn.model:
+                # Format: [Cognition,AgentRole,Model]
+                # Use "null" for missing fields to maintain positional integrity if needed,
+                # or just use key-value style? Comma separated values is easiest.
+                # Let's use: [Cognition|AgentRole|Model] using pipe as separator to avoid comma issues in lists?
+                # Or just comma. Cognition is usually simple word. AgentRole/Model might have chars.
+                # Let's use | separator.
+                ar = turn.agent_role or ""
+                md = turn.model or ""
+                # Escape | in values? They should be simple identifiers.
+                # If they contain |, replace with something else or strip.
+                ar = ar.replace("|", "/")
+                md = md.replace("|", "/")
+                cognition_field = f"[{cognition}|{ar}|{md}]"
+            else:
+                cognition_field = f"[{cognition}]"
+
+            timestamp = turn.timestamp.isoformat()
+
+            # Format turn as a single quoted string to ensure safe list parsing
+            # We first construct the inner content with its own escaping
+            # content is already escaped for "..." usage
+            # Add explicit hash persistence for I4 compliance (tombstones)
+            inner_turn = f'T{i}::{turn.role}{cognition_field}#{turn.hash}@{timestamp}::"{content}"'
+
+            # Now escape the entire turn string for the outer quotes
+            # We need to escape backslashes and double quotes
+            escaped_turn = inner_turn.replace("\\", "\\\\").replace('"', '\\"')
+
+            lines.append(f'  "{escaped_turn}",')
         lines.append("]")
     else:
         lines.append("TURNS::[]")
@@ -143,6 +179,40 @@ def format_debate_as_octave(
     lines.append("")
 
     # Footer
+    lines.append("===END===")
+
+    # We serialize internal state as fields inside the document before END
+    # But wait, we just appended END.
+    # OCTAVE structure: HEADER ... CONTENT ... END.
+    # So we must append these BEFORE "===END===".
+
+    # Remove the last line (===END===) temporarily
+    lines.pop()
+
+    # Internal State Fields (for persistence fidelity)
+    if output_mode == OutputMode.FULL:
+        # Helper to safely quote JSON for OCTAVE
+        def octave_json_string(obj: Any) -> str:
+            json_str = json.dumps(obj)
+            # Escape for OCTAVE string: \ -> \\, " -> \"
+            escaped = json_str.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
+
+        # AUDIT_LOG
+        if room.audit_log:
+            data = [a.model_dump(mode="json") for a in room.audit_log]
+            lines.append(f"AUDIT_LOG::{octave_json_string(data)}")
+
+        # GITHUB_BINDING
+        if room.github_binding:
+            binding_data = room.github_binding.model_dump(mode="json")
+            lines.append(f"GITHUB_BINDING::{octave_json_string(binding_data)}")
+
+        # INJECTED_CONTEXT
+        if room.injected_context:
+            context_data = [c.model_dump(mode="json") for c in room.injected_context]
+            lines.append(f"INJECTED_CONTEXT::{octave_json_string(context_data)}")
+
     lines.append("===END===")
 
     # Construct the document string
@@ -196,9 +266,9 @@ def validate_debate_octave(content: str) -> tuple[bool, list[str]]:
                 section_keys.append(section.key)
 
         required_sections = ["PARTICIPANTS", "TURNS", "SYNTHESIS"]
-        for section in required_sections:
-            if section not in section_keys:
-                errors.append(f"Missing required section: {section}")
+        for req_section in required_sections:
+            if req_section not in section_keys:
+                errors.append(f"Missing required section: {req_section}")
 
         return (len(errors) == 0, errors)
 

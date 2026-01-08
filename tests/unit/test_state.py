@@ -183,6 +183,7 @@ class TestStatePersistence:
             thread_id="persist-001",
             topic="Persistence Test",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
 
         turn = Turn(
@@ -390,6 +391,7 @@ class TestAtomicPersistence:
             thread_id="atomic-001",
             topic="Atomic Test",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
 
         state_dir = tmp_path / "debates"
@@ -456,6 +458,7 @@ class TestAtomicPersistence:
             thread_id="cleanup-001",
             topic="Cleanup Test",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
 
         state_dir = tmp_path / "debates"
@@ -495,6 +498,7 @@ class TestAtomicPersistence:
             thread_id="preserve-001",
             topic="Initial State",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
         turn = Turn(
             role="Wind",
@@ -516,6 +520,7 @@ class TestAtomicPersistence:
             thread_id="preserve-001",
             topic="Updated State",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
 
         # Make serialization fail after file operations begin
@@ -559,6 +564,7 @@ class TestAtomicPersistence:
             thread_id="partial-001",
             topic="Partial Write Test",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
 
         state_dir = tmp_path / "debates"
@@ -569,6 +575,7 @@ class TestAtomicPersistence:
             thread_id="partial-001",
             topic="Existing Valid State",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
         save_debate_state(existing_room, state_dir)
         original_content = (state_dir / "partial-001.json").read_text()
@@ -598,6 +605,7 @@ class TestFileLocking:
             thread_id="lock-001",
             topic="Lock Test",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
         state_dir = tmp_path / "states"
         state_dir.mkdir(parents=True)
@@ -614,6 +622,7 @@ class TestFileLocking:
             thread_id="lock-002",
             topic="Lock Test",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
         state_dir = tmp_path / "states"
         state_dir.mkdir(parents=True)
@@ -635,6 +644,7 @@ class TestFileLocking:
             thread_id="lock-003",
             topic="Lock Test",
             mode=DebateMode.FIXED,
+            octave_mode=False,
         )
         state_dir = tmp_path / "states"
         state_dir.mkdir(parents=True)
