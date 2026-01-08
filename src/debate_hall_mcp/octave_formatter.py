@@ -6,20 +6,27 @@ Implements I2 (Universal OCTAVE Binding) from North Star.
 """
 
 from enum import Enum
-from typing import Any, cast
+from typing import TypeVar
 
 from debate_hall_mcp.state import DebateRoom
 
 try:
-    # Import the module with a cast to handle untyped imports
-    octave_mcp = cast(Any, __import__("octave_mcp"))
+    import octave_mcp
 except ImportError as e:
     raise ImportError(
-        "octave-mcp package is required. Install with: pip install octave-mcp>=0.3.0"
+        "octave-mcp package is required. Install with: pip install octave-mcp>=0.4.1"
     ) from e
 
-# Declare a type to appease mypy
-ASTNode = str | Any
+# Type imported from octave-mcp library
+from octave_mcp import Document
+
+# Custom type variables
+T = TypeVar("T")
+
+# Define more precise types for section key handling
+SectionKeyType = str | object | None
+SectionKey = str | object
+SectionKeyList = list[str | object]
 
 
 class OutputMode(Enum):
@@ -177,10 +184,10 @@ def validate_debate_octave(content: str) -> tuple[bool, list[str]]:
     """
     try:
         # Parse the document
-        doc = octave_mcp.parse(content)
+        doc: Document = octave_mcp.parse(content)
 
         # Check required structure
-        errors = []
+        errors: list[str] = []
 
         if doc.name != "DEBATE_TRANSCRIPT":
             errors.append(f"Invalid document type: {doc.name}")
@@ -195,17 +202,22 @@ def validate_debate_octave(content: str) -> tuple[bool, list[str]]:
             errors.append("Missing META section")
 
         # Check for required sections in assignments
-        section_keys: list[str] = []
+        section_keys: SectionKeyList = []
         for section in doc.sections:
-            if hasattr(section, "key"):
-                key: ASTNode = section.key
-                if isinstance(key, str):
-                    section_keys.append(key)
+            # Safely extract key, allowing for different key types
+            raw_key: SectionKeyType = getattr(section, "key", None)
 
+            # Append key if it's a string
+            if isinstance(raw_key, str):
+                section_keys.append(raw_key)
+
+        # Convert required_sections to prevent type issues
         required_sections = ["PARTICIPANTS", "TURNS", "SYNTHESIS"]
-        for section in required_sections:
-            if section not in section_keys:
-                errors.append(f"Missing required section: {section}")
+        for section_name in required_sections:
+            # Use a local variable and type hint to satisfy mypy
+            section_name_str: str = str(section_name)
+            if section_name_str not in section_keys:
+                errors.append(f"Missing required section: {section_name_str}")
 
         return (len(errors) == 0, errors)
 
