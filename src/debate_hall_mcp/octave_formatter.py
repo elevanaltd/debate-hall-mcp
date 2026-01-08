@@ -8,10 +8,10 @@ Implements I2 (Universal OCTAVE Binding) from North Star.
 from enum import Enum
 
 try:
-    import octave_mcp  # type: ignore
+    import octave_mcp
 except ImportError as e:
     raise ImportError(
-        "octave-mcp package is required. Install with: pip install octave-mcp>=0.3.0"
+        "octave-mcp package is required. Install with: pip install octave-mcp>=0.4.1"
     ) from e
 
 from debate_hall_mcp.state import DebateRoom
@@ -196,9 +196,9 @@ def validate_debate_octave(content: str) -> tuple[bool, list[str]]:
                 section_keys.append(section.key)
 
         required_sections = ["PARTICIPANTS", "TURNS", "SYNTHESIS"]
-        for section in required_sections:
-            if section not in section_keys:
-                errors.append(f"Missing required section: {section}")
+        for required_section in required_sections:
+            if required_section not in section_keys:
+                errors.append(f"Missing required section: {required_section}")
 
         return (len(errors) == 0, errors)
 
