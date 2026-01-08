@@ -193,15 +193,18 @@ class TestOctaveParserTurnsSection:
 
     def test_parse_turns_list(self):
         """Parse complete TURNS section with multiple turns."""
-        pytest.skip("Phase 2: Parser implementation")
-        # turns_section = """TURNS::[
-        #   T0::Wind[PATHOS]#aaa...@2026-01-08T10:30:00+00:00::"Turn 1"
-        #   T1::Wall[ETHOS]#bbb...@2026-01-08T10:32:00+00:00::"Turn 2"
-        # ]"""
-        # result = parse_turns_section(turns_section)
-        # assert len(result) == 2
-        # assert result[0]["index"] == 0
-        # assert result[1]["index"] == 1
+        from debate_hall_mcp.octave_parser import parse_turns_section
+
+        hash1 = "a" * 64
+        hash2 = "b" * 64
+        turns_section = f"""TURNS::[
+          T0::Wind[PATHOS]#{hash1}@2026-01-08T10:30:00+00:00::"Turn 1"
+          T1::Wall[ETHOS]#{hash2}@2026-01-08T10:32:00+00:00::"Turn 2"
+        ]"""
+        result = parse_turns_section(turns_section)
+        assert len(result) == 2
+        assert result[0]["index"] == 0
+        assert result[1]["index"] == 1
 
     def test_parse_turn_with_optional_metadata(self):
         """Parse turn with optional metadata (agent_role, model)."""
@@ -224,21 +227,23 @@ class TestOctaveParserSynthesisSection:
 
     def test_parse_synthesis_basic(self):
         """Parse basic SYNTHESIS section."""
-        pytest.skip("Phase 2: Parser implementation")
-        # synthesis = """SYNTHESIS::
-        #   status::CLOSED_SYNTHESIS
-        #   content::"Final decision"
-        #   closed_at::2026-01-08T11:00:00+00:00"""
-        # result = parse_synthesis_section(synthesis)
-        # assert result["status"] == "CLOSED_SYNTHESIS"
-        # assert result["content"] == "Final decision"
+        from debate_hall_mcp.octave_parser import parse_synthesis_section
+
+        synthesis = """SYNTHESIS::
+          status::CLOSED_SYNTHESIS
+          content::"Final decision"
+          closed_at::2026-01-08T11:00:00+00:00"""
+        result = parse_synthesis_section(synthesis)
+        assert result["status"] == "CLOSED_SYNTHESIS"
+        assert result["content"] == "Final decision"
 
     def test_parse_synthesis_with_escaped_content(self):
         """Parse SYNTHESIS with escaped special characters."""
-        pytest.skip("Phase 2: Parser implementation")
-        # synthesis = 'SYNTHESIS::\n  content::"Line 1\\nLine 2"'
-        # result = parse_synthesis_section(synthesis)
-        # assert result["content"] == "Line 1\nLine 2"
+        from debate_hall_mcp.octave_parser import parse_synthesis_section
+
+        synthesis = 'SYNTHESIS::\n  content::"Line 1\\nLine 2"'
+        result = parse_synthesis_section(synthesis)
+        assert result["content"] == "Line 1\nLine 2"
 
 
 class TestOctaveParserComplete:
@@ -246,36 +251,38 @@ class TestOctaveParserComplete:
 
     def test_parse_complete_octave_file(self, sample_octave_complete):
         """Parse complete OCTAVE file with all sections."""
-        pytest.skip("Phase 2: Parser implementation")
-        # from debate_hall_mcp.octave_format import parse_octave
-        #
-        # result = parse_octave(sample_octave_complete)
-        #
-        # assert "meta" in result
-        # assert "turns" in result
-        # assert "synthesis" in result
-        # assert result["meta"]["thread_id"] == "debate-001-tdd"
-        # assert len(result["turns"]) == 3
+        from debate_hall_mcp.octave_parser import parse_octave
+
+        result = parse_octave(sample_octave_complete)
+
+        assert "meta" in result
+        assert "turns" in result
+        assert "synthesis" in result
+        assert result["meta"]["thread_id"] == "debate-001-tdd"
+        assert len(result["turns"]) == 3
 
     def test_parse_octave_without_synthesis(self):
         """Parse OCTAVE file without SYNTHESIS section (active debate)."""
-        pytest.skip("Phase 2: Parser implementation")
-        # octave_active = """META::
-        #   status::ACTIVE
-        # TURNS::[
-        #   T0::Wind[PATHOS]#aaa...@2026-01-08T10:30:00+00:00::"Test"
-        # ]"""
-        # result = parse_octave(octave_active)
-        # assert result["synthesis"] is None
+        from debate_hall_mcp.octave_parser import parse_octave
+
+        hash1 = "a" * 64
+        octave_active = f"""META::
+          status::ACTIVE
+        TURNS::[
+          T0::Wind[PATHOS]#{hash1}@2026-01-08T10:30:00+00:00::"Test"
+        ]"""
+        result = parse_octave(octave_active)
+        assert result["synthesis"] is None
 
     def test_parse_octave_empty_debate(self):
         """Parse OCTAVE file with no turns (newly initialized)."""
-        pytest.skip("Phase 2: Parser implementation")
-        # octave_empty = """META::
-        #   status::ACTIVE
-        # TURNS::[]"""
-        # result = parse_octave(octave_empty)
-        # assert len(result["turns"]) == 0
+        from debate_hall_mcp.octave_parser import parse_octave
+
+        octave_empty = """META::
+          status::ACTIVE
+        TURNS::[]"""
+        result = parse_octave(octave_empty)
+        assert len(result["turns"]) == 0
 
 
 class TestOctaveParserUnescaping:

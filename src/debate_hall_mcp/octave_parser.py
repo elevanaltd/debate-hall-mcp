@@ -98,3 +98,98 @@ def parse_turn(turn_line: str) -> dict[str, Any]:
         "timestamp": timestamp,
         "content": content,
     }
+
+
+def parse_turns_section(content: str) -> list[dict[str, Any]]:
+    """Parse TURNS section from OCTAVE format.
+
+    Format: TURNS::[
+      T0::...
+      T1::...
+    ]
+
+    Args:
+        content: TURNS section content (including "TURNS::[" header and "]" footer)
+
+    Returns:
+        List of parsed turn dictionaries
+    """
+    # Extract content between TURNS::[ and final ]
+    # Use greedy match and look for the last closing bracket
+    match = re.search(r"TURNS::\[(.*)\]", content, re.DOTALL)
+    if not match:
+        # Empty turns section or no match
+        return []
+
+    turns_content = match.group(1).strip()
+    if not turns_content:
+        return []
+
+    # Split into individual turn lines (each starts with T followed by digit)
+    turn_lines = [
+        line.strip() for line in turns_content.split("\n") if re.match(r"T\d+::", line.strip())
+    ]
+
+    return [parse_turn(line) for line in turn_lines]
+
+
+def parse_synthesis_section(content: str) -> dict[str, Any]:
+    """Parse SYNTHESIS section from OCTAVE format.
+
+    Args:
+        content: SYNTHESIS section content
+
+    Returns:
+        Dictionary with synthesis data
+    """
+    result: dict[str, Any] = {}
+
+    # Parse each field line
+    for line in content.split("\n"):
+        line = line.strip()
+        if not line or line == "SYNTHESIS::":
+            continue
+
+        # Match pattern: key::value or key::"value"
+        match = re.match(r"(\w+)::(.*)", line)
+        if not match:
+            continue
+
+        key, value = match.groups()
+        value = value.strip()
+
+        # Handle quoted strings
+        if value.startswith('"') and value.endswith('"'):
+            result[key] = json.loads(value)
+        else:
+            result[key] = value
+
+    return result
+
+
+def parse_octave(content: str) -> dict[str, Any]:
+    """Parse complete OCTAVE debate transcript.
+
+    Args:
+        content: Full OCTAVE format content
+
+    Returns:
+        Dictionary with meta, turns, and synthesis sections
+    """
+    # Extract META section
+    meta_match = re.search(r"(META::.*?)(?=\n\w+::|$)", content, re.DOTALL)
+    meta = parse_meta_section(meta_match.group(1)) if meta_match else {}
+
+    # Extract TURNS section (use greedy match for final ])
+    turns_match = re.search(r"(TURNS::\[.*\])", content, re.DOTALL)
+    turns = parse_turns_section(turns_match.group(1)) if turns_match else []
+
+    # Extract SYNTHESIS section (optional)
+    synthesis_match = re.search(r"(SYNTHESIS::.*?)(?=\n===|$)", content, re.DOTALL)
+    synthesis = parse_synthesis_section(synthesis_match.group(1)) if synthesis_match else None
+
+    return {
+        "meta": meta,
+        "turns": turns,
+        "synthesis": synthesis,
+    }
