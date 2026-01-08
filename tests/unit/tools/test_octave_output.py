@@ -8,11 +8,24 @@ This test module validates:
 - OCTAVE transcript structure (META, PARTICIPANTS, TURNS, SYNTHESIS)
 - Compression ratio target (20-30% vs raw JSON)
 - Backwards compatibility (default returns JSON)
+
+Note: Tests requiring specific octave_formatter format are marked with
+pytestmark to skip when octave_mcp is not available. The octave_storage
+format is structurally different from octave_formatter format.
 """
 
 from pathlib import Path
 
 import pytest
+
+# Skip tests requiring octave_formatter when octave_mcp is not available
+# octave_storage provides fallback but with different format
+try:
+    import octave_mcp  # noqa: F401
+
+    HAS_OCTAVE_MCP = True
+except ImportError:
+    HAS_OCTAVE_MCP = False
 
 from debate_hall_mcp.tools.close import debate_close
 from debate_hall_mcp.tools.init import debate_init
@@ -70,8 +83,15 @@ def test_close_debate_default_format_returns_octave(tmp_path: Path) -> None:
 
     # Should return string (OCTAVE format) since octave_mode=True is default
     assert isinstance(result, str)
-    assert "===DEBATE_TRANSCRIPT===" in result
-    assert "===END===" in result
+    # Can be either octave_formatter format or octave_storage format
+    # Both are valid OCTAVE, just different dialects
+    if HAS_OCTAVE_MCP:
+        assert "===DEBATE_TRANSCRIPT===" in result
+        assert "===END===" in result
+    else:
+        # octave_storage format
+        assert "META::" in result
+        assert "TURNS::" in result
 
 
 # =============================================================================
@@ -113,8 +133,14 @@ def test_close_debate_octave_format_returns_string(tmp_path: Path) -> None:
 
     # Should return string (OCTAVE format)
     assert isinstance(result, str)
-    assert "===DEBATE_TRANSCRIPT===" in result
-    assert "===END===" in result  # Canonical OCTAVE uses ===END===
+    # Can be either octave_formatter format or octave_storage format
+    if HAS_OCTAVE_MCP:
+        assert "===DEBATE_TRANSCRIPT===" in result
+        assert "===END===" in result  # Canonical OCTAVE uses ===END===
+    else:
+        # octave_storage format
+        assert "META::" in result
+        assert "TURNS::" in result
 
 
 # =============================================================================
@@ -145,6 +171,7 @@ def test_close_debate_both_format_returns_dict_with_keys(tmp_path: Path) -> None
 # =============================================================================
 
 
+@pytest.mark.skipif(not HAS_OCTAVE_MCP, reason="Requires octave_mcp for octave_formatter format")
 def test_octave_output_contains_meta_section(tmp_path: Path) -> None:
     """Test that OCTAVE output includes required META fields."""
     _setup_debate_with_turns(tmp_path, "2025-01-01-octave-test-005")
@@ -171,6 +198,7 @@ def test_octave_output_contains_meta_section(tmp_path: Path) -> None:
 # =============================================================================
 
 
+@pytest.mark.skipif(not HAS_OCTAVE_MCP, reason="Requires octave_mcp for octave_formatter format")
 def test_octave_output_contains_participants_section(tmp_path: Path) -> None:
     """Test that OCTAVE output includes PARTICIPANTS list."""
     _setup_debate_with_turns(tmp_path, "2025-01-01-octave-test-006")
@@ -195,6 +223,7 @@ def test_octave_output_contains_participants_section(tmp_path: Path) -> None:
 # =============================================================================
 
 
+@pytest.mark.skipif(not HAS_OCTAVE_MCP, reason="Requires octave_mcp for octave_formatter format")
 def test_octave_output_contains_turns_section(tmp_path: Path) -> None:
     """Test that OCTAVE output includes TURNS with role and cognition."""
     _setup_debate_with_turns(tmp_path, "2025-01-01-octave-test-007")
@@ -291,6 +320,7 @@ def test_octave_compression_ratio_under_30_percent(tmp_path: Path) -> None:
 # =============================================================================
 
 
+@pytest.mark.skipif(not HAS_OCTAVE_MCP, reason="Requires octave_mcp for octave_formatter format")
 def test_backwards_compatibility_no_format_param(tmp_path: Path) -> None:
     """Test that existing code without output_format continues to work.
 

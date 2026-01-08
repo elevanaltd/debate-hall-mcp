@@ -19,6 +19,7 @@ from .state import (
     DebateRoom,
     DebateStatus,
     Turn,
+    _verify_hash_chain_links,
 )
 
 
@@ -152,9 +153,18 @@ class OctaveStorage:
         turns_data = data.get("turns", [])
         synthesis_data = data.get("synthesis")
 
+        # Validate turn data integrity
+        if not isinstance(turns_data, list):
+            raise ValueError(f"Expected turns to be a list, got {type(turns_data).__name__}")
+
         # Convert turn dicts to Turn objects
         turns: list[Turn] = []
         for i, turn_dict in enumerate(turns_data):
+            # Validate required turn fields
+            required_fields = {"role", "content", "timestamp", "content_hash"}
+            missing_fields = required_fields - set(turn_dict.keys())
+            if missing_fields:
+                raise ValueError(f"Turn {i} missing required fields: {sorted(missing_fields)}")
             # Parse timestamp
             timestamp_str = turn_dict["timestamp"]
             timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
@@ -254,7 +264,7 @@ class OctaveStorage:
         fd, tmp_path = tempfile.mkstemp(dir=self.state_dir, suffix=".tmp")
         try:
             # Write to temp file with fsync for durability
-            with os.fdopen(fd, "w") as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(octave_content)
                 f.flush()
                 os.fsync(f.fileno())  # Ensure data is on disk
@@ -277,8 +287,13 @@ class OctaveStorage:
             DebateRoom instance
 
         Raises:
-            ValueError: If thread_id contains path-unsafe characters
+            ValueError: If thread_id contains path-unsafe characters or hash chain links are inconsistent
             FileNotFoundError: If .oct.md file doesn't exist
+
+        Note:
+            Hash chain verification only validates link consistency (turn[i].previous_hash == turn[i-1].hash).
+            It CANNOT detect content tampering in .oct.md files since previous_hash is reconstructed
+            from parsed data during load. For tamper detection, external signatures would be required.
         """
         # Security: Validate thread_id
         self._validate_thread_id(thread_id)
@@ -291,8 +306,15 @@ class OctaveStorage:
             raise FileNotFoundError(f"No OCTAVE file found for thread {thread_id}")
 
         # Read and parse OCTAVE content
-        content = octave_file.read_text()
+        content = octave_file.read_text(encoding="utf-8")
         data = parse_octave(content)
 
         # Convert to DebateRoom
-        return self._dict_to_room(data)
+        room = self._dict_to_room(data)
+
+        # Verify hash chain structure (NOT tamper detection)
+        # This only verifies the chain links are consistent, but cannot detect
+        # content tampering in .oct.md files since previous_hash is reconstructed
+        _verify_hash_chain_links(room.turns)
+
+        return room

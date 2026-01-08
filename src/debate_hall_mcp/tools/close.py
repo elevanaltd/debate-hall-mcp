@@ -22,11 +22,45 @@ from pathlib import Path
 from typing import Any, Literal
 
 from debate_hall_mcp.engine import DebateEngine, TerminationReason
-from debate_hall_mcp.octave_formatter import format_debate_as_octave
 from debate_hall_mcp.state import get_state_dir, load_debate_state, save_debate_state
+
+# Try to import octave_formatter (requires octave_mcp package)
+# Falls back to octave_storage if unavailable
+try:
+    from debate_hall_mcp.octave_formatter import format_debate_as_octave
+
+    _USE_OCTAVE_MCP = True
+except ImportError:
+    _USE_OCTAVE_MCP = False
 
 # Valid output format values
 OutputFormat = Literal["json", "octave", "both"]
+
+
+def _get_octave_format(room: Any, state_dir: Path) -> str:
+    """Get OCTAVE format using octave_formatter or fallback to octave_storage.
+
+    Args:
+        room: DebateRoom instance
+        state_dir: State directory for reading .oct.md file
+
+    Returns:
+        OCTAVE-formatted string
+    """
+    if _USE_OCTAVE_MCP:
+        # Use octave_formatter which depends on octave_mcp package
+        return format_debate_as_octave(room)
+    else:
+        # Fallback: read from .oct.md file if it exists
+        from debate_hall_mcp.octave_storage import OctaveStorage
+
+        storage = OctaveStorage(state_dir)
+        octave_file = storage._get_octave_path(room.thread_id)
+        if octave_file.exists():
+            return octave_file.read_text(encoding="utf-8")
+        else:
+            # No .oct.md file available, return JSON representation
+            return f"Warning: OCTAVE format unavailable (octave_mcp not installed and no .oct.md file found)\n\nJSON: {room.model_dump_json(indent=2)}"
 
 
 def debate_close(
@@ -111,9 +145,9 @@ def debate_close(
     if effective_format == "json":
         return json_result
     elif effective_format == "octave":
-        return format_debate_as_octave(room)
+        return _get_octave_format(room, state_dir)
     else:  # effective_format == "both"
         return {
             "json": json_result,
-            "octave": format_debate_as_octave(room),
+            "octave": _get_octave_format(room, state_dir),
         }

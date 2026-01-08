@@ -483,14 +483,18 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
             raise
 
     # OCTAVE Storage: Save as .oct.md when octave_mode enabled
+    # Supplementary format - must not fail primary JSON save
     if room.octave_mode:
         try:
             from .octave_storage import OctaveStorage
 
             storage = OctaveStorage(state_dir)
             storage.save(room)
-        except ImportError:
-            pass  # OCTAVE storage optional for now
+        except Exception as e:
+            # Log but don't fail - OCTAVE is supplementary to JSON
+            import sys
+
+            print(f"Warning: OCTAVE save failed: {e}", file=sys.stderr)
 
 
 def _verify_hash_chain_links(turns: list[Turn]) -> None:

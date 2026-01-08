@@ -2,6 +2,11 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
+# Skip all tests if octave_mcp is not available
+pytest.importorskip("octave_mcp")
+
 import octave_mcp  # type: ignore[import-untyped]
 
 from debate_hall_mcp.octave_formatter import (
