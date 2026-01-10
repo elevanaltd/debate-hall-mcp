@@ -134,6 +134,9 @@ class DebateEngine:
         agent_role: str | None = None,
         model: str | None = None,
         cognition: str | None = None,
+        token_input: int | None = None,
+        token_output: int | None = None,
+        token_total: int | None = None,
     ) -> None:
         """Add a turn to the debate with validation.
 
@@ -143,6 +146,9 @@ class DebateEngine:
             agent_role: Optional operational agent role (Issue #4)
             model: Optional AI model identifier (Issue #4)
             cognition: Optional cognitive archetype (Issue #4)
+            token_input: Optional input token count
+            token_output: Optional output token count
+            token_total: Optional total token count
 
         Raises:
             ValueError: If debate is not active or exhausted
@@ -151,6 +157,7 @@ class DebateEngine:
             - Appends Turn to room.turns
             - Maintains hash chain (previous_hash linkage)
             - Stores speaker identity metadata if provided
+            - Stores token usage metadata if provided
         """
         # Validate debate state
         if self.room.status != DebateStatus.ACTIVE:
@@ -167,7 +174,7 @@ class DebateEngine:
         # Get previous hash for chain
         previous_hash = self.room.turns[-1].hash if self.room.turns else None
 
-        # Create turn with identity metadata (Issue #4)
+        # Create turn with identity metadata (Issue #4) and token usage metadata
         turn = Turn(
             role=role,
             content=content,
@@ -176,6 +183,9 @@ class DebateEngine:
             agent_role=agent_role,
             model=model,
             cognition=cognition,
+            token_input=token_input,
+            token_output=token_output,
+            token_total=token_total,
         )
 
         # Add to room

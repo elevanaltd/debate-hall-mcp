@@ -26,6 +26,9 @@ def debate_turn(
     agent_role: str | None = None,
     model: str | None = None,
     cognition: str | None = None,
+    token_input: int | None = None,
+    token_output: int | None = None,
+    token_total: int | None = None,
 ) -> dict[str, Any]:
     """Record an agent turn in the debate.
 
@@ -37,6 +40,9 @@ def debate_turn(
         agent_role: Optional operational agent role (Issue #4)
         model: Optional AI model identifier (Issue #4)
         cognition: Optional cognitive archetype (Issue #4)
+        token_input: Optional input token count for this turn
+        token_output: Optional output token count for this turn
+        token_total: Optional total token count for this turn
 
     Returns:
         Dictionary with turn summary:
@@ -107,6 +113,9 @@ def debate_turn(
         agent_role=agent_role,
         model=model,
         cognition=cognition,
+        token_input=token_input,
+        token_output=token_output,
+        token_total=token_total,
     )
 
     # Clear expected_next_role after successful turn (Issue #37)

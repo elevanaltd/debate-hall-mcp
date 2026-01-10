@@ -107,6 +107,9 @@ def create_server() -> FastMCP:
         agent_role: str | None = None,
         model: str | None = None,
         cognition: str | None = None,
+        token_input: int | None = None,
+        token_output: int | None = None,
+        token_total: int | None = None,
     ) -> dict[str, Any]:
         """Record turn. role:Wind|Wall|Door. cognition:PATHOS|ETHOS|LOGOS→validates content."""
         return debate_turn(
@@ -116,6 +119,9 @@ def create_server() -> FastMCP:
             agent_role=agent_role,
             model=model,
             cognition=cognition,
+            token_input=token_input,
+            token_output=token_output,
+            token_total=token_total,
         )
 
     @server.tool()
