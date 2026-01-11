@@ -10,7 +10,16 @@ META:
   VALIDATION_STATUS::EMPIRICALLY_TESTED
 
 ## Overview
-This document captures high-level ideas, potential features, and future directions for Debate Hall MCP, specifically regarding its integration into the broader HestAI "Integrity Engine" architecture.
+This document captures features and roadmap for **Debate Hall MCP** - a multi-agent governance deliberation system.
+
+**Scope**: Debate Hall implementation-specific features and validated designs.
+
+**Related Documents**:
+- **System-Level Ideas**: `/Volumes/HestAI-MCP/.hestai/context/project-ideas.oct.md`
+  - Cross-cutting HestAI architecture concepts
+  - Decision Gravity scoring framework
+  - Odyssean Anchor, Secretary patterns
+- **Consolidation Strategy**: `/Volumes/HestAI-Projects/debate-hall-mcp/docs/ideas-consolidation-strategy.md`
 
 ## Product Vision: The Governance Communication Bus
 Debate Hall evolves from a "Conflict Resolution Tool" into the central "Governance Communication Bus" for HestAI. It becomes the structural mechanism for high-gravity decisions and cross-role alignment.
@@ -31,12 +40,15 @@ Debate Hall evolves from a "Conflict Resolution Tool" into the central "Governan
   - Single-Round / Speed Mode.
   - "Zero-Friction" option where Wall yields immediately if no objections.
 - **Value**: Front-loaded alignment. Prevents "revert later" chaos by enforcing "check now" structure.
-- **Test Results**: See `docs/research-findings-project-ideas.md`
+- **Test Results**: See `/Volumes/HestAI-Projects/debate-hall-mcp/docs/research-findings-project-ideas.md`
 - **Recommendation**: IMMEDIATE IMPLEMENTATION (Priority: HIGH)
 
 ### 2. Decision Gravity Integration ✅ VALIDATED
 - **Status**: Architecture validated (2026-01-10)
-- **Feasibility**: Compatible with existing validation system
+- **Ownership**: Debate Hall (routing destination), HestAI-MCP (scoring framework)
+- **System Context**: Decision Gravity scoring algorithm defined in HestAI-MCP
+- **Cross-Reference**: `/Volumes/HestAI-MCP/.hestai/context/project-ideas.oct.md` (Decision Gravity Framework)
+- **This Project**: Integration as routing destination for High-Gravity decisions
 - **Concept**: Debate Hall acts as the routing destination for High-Gravity decisions.
 - **Trigger**: HestAI System Steward detects a "High Gravity" change (Score > 60).
 - **Action**: Routes the agent to `debate-hall-mcp` to resolve the path.
@@ -44,10 +56,10 @@ Debate Hall evolves from a "Conflict Resolution Tool" into the central "Governan
 - **Token Efficiency**: RACI mode makes routing overhead acceptable (550 tokens)
 - **Infrastructure**: ValidationResult already has PASS/WARN/BLOCK levels
 - **Metadata Support**: Can add gravity_score field to DebateRoom
-- **Test Results**: See `docs/research-findings-project-ideas.md`
+- **Test Results**: See `/Volumes/HestAI-Projects/debate-hall-mcp/docs/research-findings-project-ideas.md`
 - **Recommendation**: PHASED IMPLEMENTATION (Priority: MEDIUM)
   - Phase 1: Add gravity metadata fields
-  - Phase 2: Define scoring algorithm (separate ADR)
+  - Phase 2: Define scoring algorithm (separate ADR in HestAI-MCP)
   - Phase 3: System Steward integration
 
 ### 3. Integrity Engine (Coherence Debates) ✅ VALIDATED + 🚀 STRATEGIC PIVOT
@@ -61,8 +73,8 @@ Debate Hall evolves from a "Conflict Resolution Tool" into the central "Governan
   - **Wind**: Argues for Velocity (Emergency justification with cost-benefit).
   - **Wall**: Argues for Integrity (Risk assessment, conditions).
   - **Door**: Grants "Debt Lock" (Bypass + Mandatory Repayment + SLA).
-- **Complete Design**: See `docs/integrity-engine-design.md`
-- **Test Results**: See `docs/integrity-engine-test-results.md`
+- **Complete Design**: See `/Volumes/HestAI-Projects/debate-hall-mcp/docs/integrity-engine-design.md`
+- **Test Results**: See `/Volumes/HestAI-Projects/debate-hall-mcp/docs/integrity-engine-test-results.md`
 - **Empirical Validation**:
   - Thread: `2026-01-10-integrity-critical-production-api-fix`
   - Debt Lock: DEBT-2026-001 created and tracked
@@ -73,7 +85,7 @@ Debate Hall evolves from a "Conflict Resolution Tool" into the central "Governan
 - **Market Size**: 10x larger (any git team vs only governance teams)
 - **Contribution Barrier**: Lower (focused project vs monolithic)
 - **Ecosystem Potential**: Community integrations (GitHub Actions, GitLab, etc.)
-- **Architecture**: See `docs/open-source-strategy-integrity-engine.md`
+- **Architecture**: See `/Volumes/HestAI-Projects/debate-hall-mcp/docs/open-source-strategy-integrity-engine.md`
 - **Recommendation**: Extract as `integrity-engine-mcp` (separate MCP server)
   - Phase 1: Create separate repo with shared `octave-governance-toolkit`
   - Phase 2: Coordinated 1.0 release of both projects
@@ -94,7 +106,7 @@ Debate Hall evolves from a "Conflict Resolution Tool" into the central "Governan
   - Phase 1: Add export logic to `close_debate` (2 days)
   - Phase 2: Context indexing for decision discovery (1 day)
   - Phase 3: Agent binding integration (3 days)
-- **Test Results**: See `docs/research-findings-project-ideas.md`
+- **Test Results**: See `/Volumes/HestAI-Projects/debate-hall-mcp/docs/research-findings-project-ideas.md`
 - **Recommendation**: IMMEDIATE IMPLEMENTATION (Priority: HIGHEST)
   - Low effort, high value, zero architectural friction
 
@@ -151,12 +163,14 @@ Debate Hall evolves from a "Conflict Resolution Tool" into the central "Governan
 
 ## Documentation References
 
-- Token Usage Analysis: `docs/token-usage-analysis.md`
-- Research Validation: `docs/research-findings-project-ideas.md`
-- Integrity Engine Design: `docs/integrity-engine-design.md`
-- Integrity Engine Testing: `docs/integrity-engine-test-results.md`
-- Architecture Decision: `docs/architecture-decision-integrity-engine.md`
-- Open Source Strategy: `docs/open-source-strategy-integrity-engine.md`
+**Main Repository Paths** (not worktree):
+- Token Usage Analysis: `/Volumes/HestAI-Projects/debate-hall-mcp/docs/token-usage-analysis.md`
+- Research Validation: `/Volumes/HestAI-Projects/debate-hall-mcp/docs/research-findings-project-ideas.md`
+- Integrity Engine Design: `/Volumes/HestAI-Projects/debate-hall-mcp/docs/integrity-engine-design.md`
+- Integrity Engine Testing: `/Volumes/HestAI-Projects/debate-hall-mcp/docs/integrity-engine-test-results.md`
+- Architecture Decision: `/Volumes/HestAI-Projects/debate-hall-mcp/docs/architecture-decision-integrity-engine.md`
+- Open Source Strategy: `/Volumes/HestAI-Projects/debate-hall-mcp/docs/open-source-strategy-integrity-engine.md`
+- Ideas Consolidation: `/Volumes/HestAI-Projects/debate-hall-mcp/docs/ideas-consolidation-strategy.md`
 
 ## Change Log
 - 2026-01-10: Empirical validation of all features completed
