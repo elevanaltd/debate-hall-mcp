@@ -267,6 +267,12 @@ class Turn(BaseModel):
         default=None, description="Cognitive archetype: PATHOS|ETHOS|LOGOS", max_length=16
     )
 
+    # Token usage metadata (optional, excluded from hash chain)
+    # Enables token efficiency analysis and optimization tracking
+    token_input: int | None = Field(default=None, description="Input tokens used", ge=0)
+    token_output: int | None = Field(default=None, description="Output tokens used", ge=0)
+    token_total: int | None = Field(default=None, description="Total tokens used", ge=0)
+
     @field_validator("agent_role", "model")
     @classmethod
     def validate_identity_string(cls, v: str | None) -> str | None:

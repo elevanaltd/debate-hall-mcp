@@ -78,7 +78,9 @@ def debate_get(
 
     if include_transcript:
         turns_to_include = room.turns
+        omitted_count = 0
         if context_lines is not None and context_lines > 0:
+            omitted_count = max(0, len(room.turns) - context_lines)
             turns_to_include = room.turns[-context_lines:]
 
         transcript: list[dict[str, Any]] = []
@@ -89,6 +91,16 @@ def debate_get(
                 {
                     "role": "System",
                     "content": OCTAVE_PREAMBLE_CONTENT,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+
+        # Add window indicator if turns were omitted
+        if omitted_count > 0:
+            transcript.append(
+                {
+                    "role": "System",
+                    "content": f"[... {omitted_count} earlier turns omitted for context window optimization ...]",
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
             )

@@ -127,7 +127,7 @@ class TestDebateGetWithTranscript:
         assert "timestamp" in result["transcript"][0]
 
     def test_debate_get_transcript_context_lines(self, tmp_path: Path) -> None:
-        """context_lines limits transcript depth."""
+        """context_lines limits transcript depth and adds omission indicator."""
         debate_init(
             thread_id="2025-01-01-test-context-1",
             topic="Test",
@@ -151,9 +151,12 @@ class TestDebateGetWithTranscript:
             state_dir=tmp_path,
         )
 
-        assert len(result["transcript"]) == 2
-        assert result["transcript"][0]["role"] == "Wall"
-        assert result["transcript"][1]["role"] == "Door"
+        # With context_lines=2, we get: System omission message + 2 turns
+        assert len(result["transcript"]) == 3
+        assert result["transcript"][0]["role"] == "System"
+        assert "1 earlier turns omitted" in result["transcript"][0]["content"]
+        assert result["transcript"][1]["role"] == "Wall"
+        assert result["transcript"][2]["role"] == "Door"
 
     def test_debate_get_empty_transcript(self, tmp_path: Path) -> None:
         """Transcript is empty list for new debate (with preamble disabled)."""
