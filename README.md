@@ -5,7 +5,9 @@
 [![PyPI version](https://badge.fury.io/py/debate-hall-mcp.svg)](https://badge.fury.io/py/debate-hall-mcp)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-Production-grade MCP server for Wind/Wall/Door multi-perspective debate orchestration.
+MCP server for Wind/Wall/Door multi-perspective debate orchestration with production-oriented design patterns.
+
+> **Production Status**: This server implements production-minded patterns (validation, bounded operation, atomic persistence) suitable for development and small-scale deployments. For larger production deployments, see [production deployment considerations](#production-deployment-considerations).
 
 ## Table of Contents
 
@@ -197,6 +199,51 @@ Three cognitive voices in tension:
 | I3 | Finite Closure — hard turn/round limits |
 | I4 | Verifiable Ledger — SHA-256 hash chain |
 | I5 | Safety Override — admin kill switch |
+
+## Production Deployment Considerations
+
+While debate-hall-mcp implements production-minded patterns (validation, bounded operation, atomic persistence), there are considerations for larger-scale production deployments:
+
+### Current Strengths
+- ✅ **Deterministic behavior**: Rule-based validation with no LLM dependency
+- ✅ **Resource limits**: Hard turn/round limits prevent runaway sessions
+- ✅ **Atomic persistence**: File writes use atomic replace with fsync
+- ✅ **GitHub integration**: Rate-limit handling and feature toggles
+
+### Known Limitations for Large-Scale Production
+
+| Area | Current Behavior | Recommendation |
+|------|------------------|----------------|
+| **State Storage** | Defaults to file-based (`debates/` directory) | Configure `DEBATE_HALL_STATE_DIR` to dedicated location outside repo. For multi-instance: use shared filesystem or database backend ([#106](https://github.com/elevanaltd/debate-hall-mcp/issues/106)) |
+| **Concurrency** | Exclusive file locks (readers block readers) | Acceptable for single-instance. For multi-worker: see read/write lock enhancement ([#106](https://github.com/elevanaltd/debate-hall-mcp/issues/106)) |
+| **Hash Verification** | Link continuity only (not content re-computation) | Enhancement planned for stronger integrity ([#105](https://github.com/elevanaltd/debate-hall-mcp/issues/105)) |
+| **Secrets Management** | `.env` auto-load (dev-oriented) | Use explicit environment variables or secret management system in production |
+
+### Production Checklist
+
+Before deploying at scale:
+
+- [ ] Configure `DEBATE_HALL_STATE_DIR` to dedicated path outside repository
+- [ ] Set proper file permissions (600 for state files, 700 for directory)
+- [ ] Use explicit secret injection (avoid `.env` in production)
+- [ ] Plan for state backup/retention
+- [ ] Monitor file lock contention if using multiple workers
+- [ ] Consider database backend for >10 concurrent instances
+
+See [Issue #108](https://github.com/elevanaltd/debate-hall-mcp/issues/108) for comprehensive production deployment guide (work in progress).
+
+### Recommended Use Cases
+
+**Well-suited for:**
+- Development and testing workflows
+- Single-instance or low-concurrency deployments
+- Scripted automation with sequential debates
+- Research and experimentation
+
+**Requires additional work for:**
+- High-concurrency multi-instance production environments
+- Strict security compliance requiring full content verification
+- Large-scale orchestration with 10+ concurrent debates
 
 ## Contributing
 
