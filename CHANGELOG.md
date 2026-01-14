@@ -7,6 +7,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-14
+
+### Added
+- Token usage tracking with input/output/total token counts per turn (PR #102)
+- Context window optimization with `context_lines` parameter for transcript limiting
+- Project-relative debate storage with automatic detection (`DEBATE_HALL_STATE_DIR`)
+- Edge-optimizer agent definition for boundary exploration
+
+### Changed
+- Dynamic `state_dir` resolution in MCP server for flexible storage locations
+- Updated octave-mcp dependency to v0.4.1
+
+### Fixed
+- Edge-optimizer agent configuration for OCTAVE validation
+- Dynamic state_dir resolution for project-relative paths
+
+### Documentation
+- Token usage analysis and optimization guide (`docs/token-usage-analysis.md`)
+- Integrity Engine design documentation and open source strategy analysis
+- Project-relative storage documentation in `.env.example`
+- Clarified thread_id format in debate-hall skill documentation
+
+### Quality
+- 496 tests (491 unit + 5 e2e)
+- 92.47% test coverage
+- Removed debug and investigation scripts from repository root
+
 ## [0.3.0] - 2026-01-05
 
 ### Added
@@ -118,7 +145,8 @@ Automated debate triggering via GitHub webhooks/actions is not yet implemented. 
 
 ---
 
-[Unreleased]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.0...v0.1.1
