@@ -209,7 +209,7 @@ cd debate-hall-mcp
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# Run tests (500+ tests, 90%+ coverage)
+# Run tests (496 tests, 92%+ coverage)
 pytest
 
 # Quality checks
