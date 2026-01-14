@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "debate-hall-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "Production-grade MCP server for Wind/Wall/Door multi-perspective debate orchestration"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -29,7 +29,7 @@ dependencies = [
     "filelock>=3.0.0",  # Cross-platform file locking (Issue #48)
     "httpx>=0.27.0",  # GitHub API client (Issue #15)
     "python-dotenv>=1.0.0",  # Load .env files for configuration
-    "octave-mcp>=0.4.1",  # Update to version with type hints and critical fixes
+    "octave-mcp>=0.6.1",  # Update to latest version with enhanced validation and features
 ]
 
 [project.optional-dependencies]
