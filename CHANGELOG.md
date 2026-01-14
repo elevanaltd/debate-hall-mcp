@@ -17,7 +17,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 - Dynamic `state_dir` resolution in MCP server for flexible storage locations
-- Updated octave-mcp dependency to v0.4.1
+- Updated octave-mcp dependency to v0.6.1 (enhanced validation and features)
 
 ### Fixed
 - Edge-optimizer agent configuration for OCTAVE validation
