@@ -9,7 +9,7 @@ allowed-tools: ["Read", "Write", "Edit", "Bash", "mcp__debate-hall__*"]
 
 META:
   TYPE::SKILL
-  VERSION::"2.0"
+  VERSION::"2.1"
   PURPOSE::"Wind/Wall/Door debate orchestration via MCP tools"
   DOMAIN::ATHENA[strategic_decisions]⊕HERMES[orchestration]
 
@@ -69,6 +69,39 @@ META:
     WARNING::"Can bias outcomes if roles starved"
   ]
 
+§4.1::PARALLEL_EXTERNAL_AGENTS
+  // Clarifies multi-process / multi-model usage: parallel thinking is allowed; state commits remain sequential.
+  DEFINITIONS::[
+    PARALLEL_THINKING::"Generate candidate turns concurrently off-server (multiple models/processes)",
+    SEQUENTIAL_COMMIT::"Persist turns in strict order via add_turn (one committed head at a time)"
+  ]
+  HARD_RULES::[
+    DOOR_NEVER_SYNTHESIZES_BEFORE_WIND_AND_WALL_COMMITTED,
+    WALL_REALITY_TESTS_CONCRETE_WIND_OUTPUT∨PRECOMPUTES_CONSTRAINT_CHECKLIST_THEN_APPLIES_POST_WIND,
+    ONE_COMMIT_PER_THREAD_AT_A_TIME[avoid_lost_updates],
+    RETRY_ON_STALE_STATE::get_debate→regenerate→add_turn
+  ]
+  BARRIER_PROTOCOL::[
+    // Round barrier ensures Door sees both sides (\"yes, and more\")
+    ROUND::Rk[
+      STEP_1::snapshot=get_debate(thread_id),
+      STEP_2::spawn_parallel_drafts[Wind_draft,Wall_draft] using snapshot,
+      STEP_3::commit::Wind_then_Wall using add_turn (serial),
+      STEP_4::Door_reads_latest=get_debate(thread_id) then synthesizes and commits,
+      STEP_5::repeat_or_close
+    ]
+  ]
+  MEDIATED_FLOOR_CONTROL::[
+    // For strict turn-taking in multi-agent environments
+    REQUIRE::pick_next_speaker(thread_id,"Wind")→add_turn(Wind),
+    REQUIRE::pick_next_speaker(thread_id,"Wall")→add_turn(Wall),
+    REQUIRE::pick_next_speaker(thread_id,"Door")→add_turn(Door)
+  ]
+  DEPLOYMENT_REQUIREMENTS::[
+    // Avoid split-brain when multiple processes talk to the server
+    REQUIRE::DEBATE_HALL_STATE_DIR_set_to_shared_location
+  ]
+
 §5::AGENT_TIERS
   // Choose tier based on debate complexity
   TIER_1_BASIC::[
@@ -117,6 +150,14 @@ META:
     DOOR::clink(gemini,synthesizer)→LOGOS_integration, // Gemini: pattern synthesis, emergence
     AUDIT::agent_role+model_in_turn_metadata
   ]
+  PARALLEL_DRAFT_SEQUENTIAL_COMMIT::[
+    PURPOSE::"Enable parallel external agents without breaking Wind→Wall→Door synthesis",
+    GUARANTEE::Door_reads_committed_Wind+Wall_before_synthesis,
+    STEPS::[
+      get_debate→parallel_generate[Wind,Wall]→add_turn(Wind)→add_turn(Wall)→get_debate→generate(Door)→add_turn(Door),
+      ON_CONFLICT::get_debate→regenerate_turn→retry_add_turn
+    ]
+  ]
 
 §8::TRIGGERS
   // When to escalate to debate-hall
@@ -149,6 +190,11 @@ META:
   MULTI_AGENT::assign_models_per_cognition[creative→Wind,analytical→Wall,balanced→Door]
   THIRD_WAY::"Best debates synthesize what neither Wind nor Wall proposed alone"
   PERSISTENCE::output_format:'octave'→auditable_.oct.md_transcripts
+  PARALLEL_AGENTS::[
+    DEFAULT::parallel_draft_sequential_commit,
+    DOOR_BARRIER::"Door must read latest state after Wind+Wall commits",
+    WALL_FRAMEWORK_MODE::"If drafting early, write constraints/questions, then apply to actual Wind output before commit"
+  ]
 
 §11::EXAMPLE
   // Microservices decision
