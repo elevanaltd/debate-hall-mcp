@@ -24,6 +24,8 @@ Production-grade MCP server for Wind/Wall/Door multi-perspective debate orchestr
 
 ```octave
 ===AGENT_BOOTSTRAP===
+DEV_BOOTSTRAP::scripts/dev-bootstrap.sh
+DEV_HOOKS_OPT_IN::scripts/install-git-hooks.sh[core.hooksPath=.githooks]→DEBATE_HALL_AUTO_BOOTSTRAP=1
 SKILL::skills/debate-hall/SKILL.md
 WORKFLOW::init→turn→get→close
 AGENTS::agents/README.md[Wind/Wall/Door definitions]
@@ -96,7 +98,20 @@ uv pip install debate-hall-mcp
 ```bash
 git clone https://github.com/elevanaltd/debate-hall-mcp
 cd debate-hall-mcp
+./scripts/dev-bootstrap.sh
 uv pip install -e ".[dev]"
+```
+
+### Development bootstrap (worktrees/branches)
+
+One-command setup:
+```bash
+./scripts/dev-bootstrap.sh
+```
+
+Optional: enable repo-local git hooks (prints reminder, or auto-runs bootstrap when `DEBATE_HALL_AUTO_BOOTSTRAP=1`):
+```bash
+./scripts/install-git-hooks.sh
 ```
 
 ## MCP Tools
