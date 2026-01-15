@@ -27,6 +27,7 @@ from mcp.server.fastmcp import FastMCP
 from debate_hall_mcp.utils import env as _env  # noqa: F401
 
 # isort: on
+from debate_hall_mcp import __version__ as PACKAGE_VERSION
 from debate_hall_mcp.github import is_github_tools_enabled
 from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
 from debate_hall_mcp.tools.admin import debate_force_close, debate_tombstone
@@ -48,7 +49,7 @@ class GitHubToolsDisabledError(Exception):
 
 # Server metadata
 SERVER_NAME = "debate-hall-mcp"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = PACKAGE_VERSION
 
 
 def create_server() -> FastMCP:

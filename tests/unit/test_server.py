@@ -78,6 +78,12 @@ class TestServerMetadata:
         """SERVER_NAME constant is correct."""
         assert SERVER_NAME == "debate-hall-mcp"
 
+    def test_server_version_matches_package_version(self) -> None:
+        """SERVER_VERSION must match package __version__ to prevent drift."""
+        from debate_hall_mcp import __version__
+
+        assert SERVER_VERSION == __version__
+
     def test_server_version_format(self) -> None:
         """SERVER_VERSION follows semantic versioning."""
         # Basic semver check: X.Y.Z
