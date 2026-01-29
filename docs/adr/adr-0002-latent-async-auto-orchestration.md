@@ -244,11 +244,113 @@ Door's synthesis requires explicit approval from Wind and Wall:
 5. If either rejects: Door refines synthesis (up to `max_refinement_loops`)
 6. If max loops exceeded: Status = EXHAUSTION
 
+### Agent State Access (I1 Compliance)
+
+**Decision**: Agents call `get_debate()` to read prior turns. Context is NOT copied/injected.
+
+This maintains I1 (Cognitive State Isolation) from the Constitution—state is managed exclusively by the Hall server, not passed between agents.
+
+#### Agent Prompt Structure
+
+Each agent receives:
+
+1. **System prompt**: Role-specific instructions (ideator/validator/synthesizer)
+2. **User prompt**: Contains:
+   - The debate topic
+   - Thread ID for state access
+   - Instruction to call `get_debate(thread_id)` to see prior turns
+
+```
+You are participating in a Wind/Wall/Door debate.
+
+Topic: {topic}
+Thread ID: {thread_id}
+Your Role: {role} ({cognition})
+
+To see prior turns from other agents, call: get_debate("{thread_id}", include_transcript=true)
+
+Your task: [role-specific instructions]
+```
+
+#### Why NOT Context Injection
+
+| Approach | Problem |
+|----------|---------|
+| Copy Wind's response into Wall's prompt | Token duplication, stale if Wind amended |
+| Inject full transcript into each prompt | O(n²) token growth as debate progresses |
+| Agent calls `get_debate()` | Fresh state, no duplication, I1 compliant |
+
+### Backward Compatibility
+
+**Guarantee**: All existing manual tools continue working unchanged.
+
+| Tool | Status | Notes |
+|------|--------|-------|
+| `init_debate` | Unchanged | Creates debate room as before |
+| `add_turn` | Unchanged | Adds turn with hash chain |
+| `get_debate` | Unchanged | Returns debate state/transcript |
+| `close_debate` | Unchanged | Closes with synthesis |
+| `pick_next_speaker` | Unchanged | Mediated mode support |
+| `force_close_debate` | Unchanged | I5 safety override |
+| `tombstone_turn` | Unchanged | I4 redaction support |
+
+`run_debate` is **purely additive**—it internally calls the existing tools:
+
+```python
+async def run_debate(topic: str, tier: str) -> DebateResult:
+    # Uses existing tools internally
+    init_debate(thread_id, topic, mode="fixed")
+
+    for role in ["Wind", "Wall", "Door"]:
+        response = await provider.complete(...)
+        add_turn(thread_id, role, response)
+
+    # Consensus loop uses add_turn for approval turns
+    ...
+
+    close_debate(thread_id, synthesis)
+```
+
 ### Error Handling
 
-- Model API failure: Persist partial state, emit `error` event, status = EXHAUSTION
-- Timeout: Same as model failure
-- Consensus failure: After max loops, close with STALEMATE status
+**Decision**: On model failure, debate transitions to `PAUSED` status (new), NOT `EXHAUSTION`.
+
+This enables retry/resume without losing partial progress.
+
+#### State Transitions on Error
+
+| Error Type | State Transition | Event Emitted | Recovery |
+|------------|------------------|---------------|----------|
+| Model API failure | ACTIVE → PAUSED | `error` | Retry with `resume_debate(thread_id)` |
+| Model timeout | ACTIVE → PAUSED | `error` | Retry with `resume_debate(thread_id)` |
+| Max retries exceeded | PAUSED → EXHAUSTION | `exhausted` | Manual intervention required |
+| Consensus failure (max loops) | ACTIVE → STALEMATE | `stalemate` | Door's last synthesis preserved |
+
+#### New Status: PAUSED
+
+```python
+class DebateStatus(str, Enum):
+    ACTIVE = "active"
+    PAUSED = "paused"        # NEW: Recoverable error state
+    SYNTHESIS = "synthesis"
+    STALEMATE = "stalemate"
+    EXHAUSTION = "exhaustion"
+    FORCE_CLOSED = "force_closed"
+```
+
+#### Resume Capability
+
+```python
+def resume_debate(thread_id: str) -> DebateResult:
+    """Resume a PAUSED debate from last successful turn."""
+    room = load_debate_state(thread_id)
+    if room.status != DebateStatus.PAUSED:
+        raise ValueError(f"Cannot resume: status is {room.status}")
+
+    room.status = DebateStatus.ACTIVE
+    # Continue from where it left off
+    ...
+```
 
 ## Consequences
 
