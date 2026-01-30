@@ -1,13 +1,17 @@
-"""run_debate tool - Auto-orchestration entry point (Phase 3, ADR-0002).
+"""run_debate and resume_debate tools - Auto-orchestration (Phase 3 & 4, ADR-0002).
 
 This module implements:
 - run_debate: MCP tool for automated Wind/Wall/Door debates
+- resume_debate: MCP tool for resuming PAUSED debates
 
-The tool wraps DebateOrchestrator, providing tier configuration loading
+The tools wrap DebateOrchestrator, providing tier configuration loading
 and state directory resolution automatically.
 
 CE Review Mitigations (Phase 3):
 - M4: Input validation at tool boundary (topic and thread_id)
+
+Phase 4 Additions:
+- resume_debate: Resumes debates from PAUSED status after failures
 """
 
 from typing import Any
@@ -15,7 +19,12 @@ from typing import Any
 from debate_hall_mcp.config import load_tier_config
 from debate_hall_mcp.orchestrator import DebateOrchestrator
 from debate_hall_mcp.providers import create_provider  # noqa: F401 - used in patch
-from debate_hall_mcp.state import _validate_thread_id_for_filesystem, get_state_dir
+from debate_hall_mcp.state import (
+    DebateStatus,
+    _validate_thread_id_for_filesystem,
+    get_state_dir,
+    load_debate_state,
+)
 
 # M4: Maximum topic length (reasonable limit for debate topics)
 MAX_TOPIC_LENGTH = 1000
@@ -86,6 +95,74 @@ async def run_debate(
     result = await orchestrator.run(topic=topic, thread_id=thread_id)
 
     # Return as dictionary
+    return {
+        "thread_id": result.thread_id,
+        "topic": result.topic,
+        "status": result.status,
+        "turn_count": result.turn_count,
+        "synthesis": result.synthesis,
+    }
+
+
+async def resume_debate(
+    thread_id: str,
+    tier: str = "standard",
+) -> dict[str, Any]:
+    """Resume a PAUSED debate from where it left off.
+
+    This tool allows resuming debates that were paused due to failures
+    (provider timeouts, errors, etc.) during auto-orchestration.
+
+    The resume logic:
+    1. Validates thread_id and loads debate state
+    2. Validates debate is in PAUSED status
+    3. Determines resume point from turn count
+    4. Continues orchestration (consensus loop if enabled)
+    5. Returns the final result
+
+    Args:
+        thread_id: The thread ID of the paused debate
+        tier: Tier configuration name (default: "standard")
+
+    Returns:
+        Dictionary with debate result (same format as run_debate):
+        - thread_id: Unique debate thread identifier
+        - topic: The debate topic
+        - status: Final status (synthesis, stalemate, etc.)
+        - turn_count: Number of turns completed
+        - synthesis: Door's final synthesis (if status=synthesis)
+
+    Raises:
+        ValueError: If thread_id contains unsafe chars (M4)
+        FileNotFoundError: If debate doesn't exist
+        ValueError: If debate is not in PAUSED status
+        KeyError: If tier configuration is not found
+        Exception: If provider fails during resumption
+    """
+    # M4: Validate thread_id at tool boundary
+    _validate_thread_id_for_filesystem(thread_id)
+
+    # Get state directory
+    state_dir = get_state_dir()
+
+    # Validate debate exists and is PAUSED before creating orchestrator
+    room = load_debate_state(thread_id, state_dir)
+    if room.status != DebateStatus.PAUSED:
+        raise ValueError(
+            f"Cannot resume debate with status '{room.status.value}': "
+            f"only PAUSED debates can be resumed"
+        )
+
+    # Load tier configuration
+    tier_config = load_tier_config(tier)
+
+    # Create orchestrator
+    orchestrator = DebateOrchestrator(tier_config, state_dir)
+
+    # Resume debate
+    result = await orchestrator.resume(thread_id=thread_id)
+
+    # Return as dictionary (same format as run_debate)
     return {
         "thread_id": result.thread_id,
         "topic": result.topic,

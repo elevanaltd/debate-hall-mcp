@@ -34,6 +34,7 @@ def debate_close(
     synthesis: str,
     state_dir: Path | None = None,
     output_format: OutputFormat | None = None,
+    status: str | None = None,
 ) -> dict[str, Any] | str:
     """Close debate with final synthesis.
 
@@ -48,6 +49,8 @@ def debate_close(
         output_format: Output format - 'json', 'octave', or 'both'.
             If not specified, defaults to 'octave' when octave_mode=True,
             otherwise 'json' (Issue #26)
+        status: Override termination reason - 'synthesis' (default) or 'stalemate'.
+            Used by auto-orchestration for consensus loop failures.
 
     Returns:
         Depends on output_format:
@@ -89,9 +92,14 @@ def debate_close(
     else:
         effective_format = "json"
 
+    # Determine termination reason from status parameter (Phase 4: consensus loop)
+    termination_reason = TerminationReason.SYNTHESIS
+    if status == "stalemate":
+        termination_reason = TerminationReason.STALEMATE
+
     # Close debate via engine (validates active state and synthesis content)
     engine = DebateEngine(room)
-    validation_result = engine.close_debate(TerminationReason.SYNTHESIS, synthesis=synthesis)
+    validation_result = engine.close_debate(termination_reason, synthesis=synthesis)
 
     # Save updated state
     save_debate_state(room, state_dir)

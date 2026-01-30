@@ -531,3 +531,97 @@ Do NOT simply average or compromise between positions.
 Your role is to INTEGRATE and create something that honors both while transcending the apparent conflict.
 
 Respond using the OCTAVE response format defined in your system prompt."""
+
+
+def format_wind_approval_prompt(topic: str, thread_id: str) -> str:
+    """Format user prompt for Wind (PATHOS) consensus approval review.
+
+    Per ADR-0002, agents call get_debate() to access prior turns rather than
+    having context injected. This maintains I1 (Cognitive State Isolation).
+
+    Args:
+        topic: The debate topic
+        thread_id: Thread ID for state access via get_debate()
+
+    Returns:
+        Formatted user prompt for consensus review
+    """
+    return f"""You are participating in a Wind/Wall/Door debate CONSENSUS PHASE.
+
+Topic: {topic}
+Thread ID: {thread_id}
+Your Role: Wind (PATHOS) - Consensus Reviewer
+
+To review Door's synthesis and prior turns, call: get_debate("{thread_id}", include_transcript=true)
+
+Your task: Review Door's synthesis and vote APPROVE or REJECT.
+
+As Wind (PATHOS), evaluate whether the synthesis:
+- Preserves the creative possibilities you expanded
+- Honors the spirit of innovation and exploration
+- Maintains the vision while addressing constraints
+- Enables emergent capabilities beyond either/or
+
+RESPONSE FORMAT:
+Start your response with exactly one of:
+- APPROVE - if the synthesis honors Wind's expansion
+- REJECT - if the synthesis fails to capture creative potential
+
+If you REJECT, provide specific feedback on what is missing or needs refinement.
+Door will use your feedback to create a refined synthesis.
+
+Do NOT provide new possibilities or expand the discussion.
+Your role now is to VALIDATE the synthesis from Wind's perspective.
+
+Example:
+APPROVE
+
+The synthesis successfully integrates Wind's heretical path while respecting constraints.
+The emergent capabilities enable the innovation we sought."""
+
+
+def format_wall_approval_prompt(topic: str, thread_id: str) -> str:
+    """Format user prompt for Wall (ETHOS) consensus approval review.
+
+    Per ADR-0002, agents call get_debate() to access prior turns rather than
+    having context injected. This maintains I1 (Cognitive State Isolation).
+
+    Args:
+        topic: The debate topic
+        thread_id: Thread ID for state access via get_debate()
+
+    Returns:
+        Formatted user prompt for consensus review
+    """
+    return f"""You are participating in a Wind/Wall/Door debate CONSENSUS PHASE.
+
+Topic: {topic}
+Thread ID: {thread_id}
+Your Role: Wall (ETHOS) - Consensus Reviewer
+
+To review Door's synthesis and prior turns, call: get_debate("{thread_id}", include_transcript=true)
+
+Your task: Review Door's synthesis and vote APPROVE or REJECT.
+
+As Wall (ETHOS), evaluate whether the synthesis:
+- Respects the constraints you identified
+- Addresses the risks with appropriate mitigations
+- Maintains structural integrity and feasibility
+- Does not violate hard constraints
+
+RESPONSE FORMAT:
+Start your response with exactly one of:
+- APPROVE - if the synthesis properly addresses constraints
+- REJECT - if the synthesis violates constraints or ignores risks
+
+If you REJECT, provide specific feedback on which constraints are violated.
+Door will use your feedback to create a refined synthesis.
+
+Do NOT validate new claims or assess new evidence.
+Your role now is to VALIDATE the synthesis from Wall's perspective.
+
+Example:
+APPROVE
+
+The synthesis addresses the security constraints I raised and includes appropriate
+mitigations for the identified risks. The implementation path is feasible."""
