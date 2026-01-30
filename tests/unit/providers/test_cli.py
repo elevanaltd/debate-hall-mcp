@@ -227,9 +227,7 @@ class TestCliProviderTimeout:
         with patch("asyncio.create_subprocess_exec") as mock_exec:
             mock_process = MagicMock()
             # Simulate a hanging process - use TimeoutError (builtin)
-            mock_process.communicate = AsyncMock(
-                side_effect=TimeoutError("Process timed out")
-            )
+            mock_process.communicate = AsyncMock(side_effect=TimeoutError("Process timed out"))
             mock_process.kill = MagicMock()
             mock_process.wait = AsyncMock()
             mock_exec.return_value = mock_process

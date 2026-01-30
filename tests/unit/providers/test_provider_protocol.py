@@ -6,8 +6,6 @@ Tests cover:
 - Protocol structural conformance checks
 """
 
-from typing import runtime_checkable
-
 import pytest
 
 
@@ -104,9 +102,9 @@ class TestModelProviderProtocol:
         class MockProvider:
             async def complete(
                 self,
-                system_prompt: str,
-                user_prompt: str,
-                model: str | None = None,
+                system_prompt: str,  # noqa: ARG002
+                user_prompt: str,  # noqa: ARG002
+                model: str | None = None,  # noqa: ARG002
             ) -> ProviderResponse:
                 return ProviderResponse(content="mock", model="mock-model")
 

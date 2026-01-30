@@ -306,9 +306,7 @@ class TestOpenRouterProviderRetry:
                 mock_response_success.raise_for_status = MagicMock()
 
                 mock_client = AsyncMock()
-                mock_client.post = AsyncMock(
-                    side_effect=[mock_response_429, mock_response_success]
-                )
+                mock_client.post = AsyncMock(side_effect=[mock_response_429, mock_response_success])
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
                 mock_client_class.return_value = mock_client
@@ -357,9 +355,7 @@ class TestOpenRouterProviderRetry:
                 mock_response_success.raise_for_status = MagicMock()
 
                 mock_client = AsyncMock()
-                mock_client.post = AsyncMock(
-                    side_effect=[mock_response_503, mock_response_success]
-                )
+                mock_client.post = AsyncMock(side_effect=[mock_response_503, mock_response_success])
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
                 mock_client_class.return_value = mock_client
