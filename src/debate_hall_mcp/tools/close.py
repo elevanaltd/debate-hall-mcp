@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from debate_hall_mcp.engine import DebateEngine, TerminationReason
-from debate_hall_mcp.octave_formatter import format_debate_as_octave
+from debate_hall_mcp.octave_formatter import format_debate_as_octave, seal_debate_transcript
 from debate_hall_mcp.state import get_state_dir, load_debate_state, save_debate_state
 
 # Valid output format values
@@ -35,6 +35,7 @@ def debate_close(
     state_dir: Path | None = None,
     output_format: OutputFormat | None = None,
     status: str | None = None,
+    seal: bool = False,
 ) -> dict[str, Any] | str:
     """Close debate with final synthesis.
 
@@ -51,11 +52,14 @@ def debate_close(
             otherwise 'json' (Issue #26)
         status: Override termination reason - 'synthesis' (default) or 'stalemate'.
             Used by auto-orchestration for consensus loop failures.
+        seal: If True, add cryptographic seal to OCTAVE output (v1.0.0 feature).
+            The seal enables tamper detection - any modification to the transcript
+            will invalidate the seal. Only applies to 'octave' and 'both' formats.
 
     Returns:
         Depends on output_format:
         - 'json': Dictionary with close summary (backwards compatible)
-        - 'octave': OCTAVE-formatted string
+        - 'octave': OCTAVE-formatted string (sealed if seal=True)
         - 'both': Dictionary with 'json' and 'octave' keys
 
     Raises:
@@ -119,9 +123,15 @@ def debate_close(
     if effective_format == "json":
         return json_result
     elif effective_format == "octave":
-        return format_debate_as_octave(room)
+        octave_output = format_debate_as_octave(room)
+        if seal:
+            octave_output = seal_debate_transcript(octave_output)
+        return octave_output
     else:  # effective_format == "both"
+        octave_output = format_debate_as_octave(room)
+        if seal:
+            octave_output = seal_debate_transcript(octave_output)
         return {
             "json": json_result,
-            "octave": format_debate_as_octave(room),
+            "octave": octave_output,
         }

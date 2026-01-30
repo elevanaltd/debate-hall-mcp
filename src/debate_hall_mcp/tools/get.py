@@ -16,14 +16,33 @@ from typing import Any
 
 from debate_hall_mcp.engine import get_next_speaker
 from debate_hall_mcp.state import DebateStatus, get_state_dir, load_debate_state
+from debate_hall_mcp.utils.primers import get_literacy_primer
 
 # View-layer only: never stored in DB, never affects hash chain
-OCTAVE_PREAMBLE_CONTENT = """===PROTOCOL===
+# Use the official octave-literacy-primer from octave-mcp v1.0.0 (~40 tokens)
+# Falls back to inline version if primer loading fails
+_FALLBACK_OCTAVE_PREAMBLE = """===PROTOCOL===
 FORMAT::OCTAVE[recommended]
 SYNTAX::[KEY::value, LIST::[a,b], FLOW::A->B->C]
 OPERATORS::[::=assignment, []=list, ->=flow, +=synthesis]
 NOTE::"Using OCTAVE format improves token efficiency. Optional but recommended."
 ===END==="""
+
+
+def _get_octave_preamble() -> str:
+    """Get the OCTAVE preamble for agent context.
+
+    Uses the official octave-literacy-primer from octave-mcp v1.0.0.
+    Falls back to inline version if primer loading fails.
+    """
+    try:
+        return get_literacy_primer()
+    except (ImportError, FileNotFoundError):
+        return _FALLBACK_OCTAVE_PREAMBLE
+
+
+# Cached preamble content - loaded once at module import
+OCTAVE_PREAMBLE_CONTENT = _get_octave_preamble()
 
 
 def debate_get(
