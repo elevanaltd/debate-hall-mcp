@@ -81,7 +81,10 @@ class ProviderConfigError(Exception):
     pass
 
 
-def create_provider(role_config: "RoleConfig") -> ModelProvider:
+def create_provider(
+    role_config: "RoleConfig",
+    timeout_override: float | None = None,
+) -> ModelProvider:
     """Create a model provider from role configuration.
 
     Factory function that instantiates the appropriate provider
@@ -89,6 +92,7 @@ def create_provider(role_config: "RoleConfig") -> ModelProvider:
 
     Args:
         role_config: Configuration specifying provider type and settings
+        timeout_override: Optional timeout to use instead of role_config.timeout
 
     Returns:
         ModelProvider instance for the configured provider
@@ -96,12 +100,24 @@ def create_provider(role_config: "RoleConfig") -> ModelProvider:
     Raises:
         ProviderConfigError: If configuration is invalid
     """
+    # Determine effective timeout: override > role_config > provider default
+    effective_timeout = timeout_override if timeout_override is not None else role_config.timeout
+
     if role_config.provider == "cli":
         if role_config.cli is None:
             raise ProviderConfigError("CLI provider requires 'cli' field (claude, codex, gemini)")
-        from .cli import CliProvider
+        from .cli import DEFAULT_TIMEOUT_SECONDS, CliProvider
 
-        return CliProvider(cli_name=role_config.cli, role=role_config.role)
+        # Use effective_timeout or provider default
+        timeout = effective_timeout if effective_timeout is not None else DEFAULT_TIMEOUT_SECONDS
+
+        return CliProvider(
+            cli_name=role_config.cli,
+            role=role_config.role,
+            timeout=timeout,
+            model=role_config.model,
+            cli_args=role_config.cli_args,
+        )
 
     elif role_config.provider == "openrouter":
         if role_config.model is None:

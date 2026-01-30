@@ -30,9 +30,11 @@ class RoleConfig(BaseModel):
     Fields:
     - provider: 'cli' or 'openrouter'
     - cli: For CLI provider, which CLI to use (claude, codex, gemini)
-    - model: For OpenRouter provider, the model identifier
+    - model: Model identifier (required for openrouter, optional for cli)
     - role: Optional system prompt role name override
     - prompt_file: Optional custom prompt file path or variant name
+    - timeout: Provider-specific timeout in seconds (overrides tier default)
+    - cli_args: Additional CLI arguments as key-value pairs
 
     Prompt Resolution (prompt_file):
     - Absolute path: Load from that file
@@ -49,12 +51,45 @@ class RoleConfig(BaseModel):
     cli: str | None = Field(
         default=None, description="CLI name for cli provider: claude, codex, gemini"
     )
-    model: str | None = Field(default=None, description="Model identifier for openrouter provider")
+    model: str | None = Field(
+        default=None, description="Model identifier (required for openrouter, optional for cli)"
+    )
     role: str | None = Field(default=None, description="System prompt role name override")
     prompt_file: str | None = Field(
         default=None,
         description="Custom prompt file path or variant name (e.g., 'security' -> wind-security.oct.md)",
     )
+    timeout: int | None = Field(
+        default=None, description="Provider timeout in seconds (overrides tier default)"
+    )
+    cli_args: dict[str, str | bool | int] | None = Field(
+        default=None,
+        description="Additional CLI arguments (e.g., {'temperature': 0.7, 'verbose': True})",
+    )
+
+
+class FallbackConfig(BaseModel):
+    """Configuration for provider fallback on timeout/failure.
+
+    When a primary provider times out or fails, the orchestrator can
+    automatically retry with a fallback provider (typically faster/cheaper).
+
+    Fields:
+    - enabled: Whether fallback is enabled (default: False)
+    - provider: Fallback provider type ('openrouter' recommended)
+    - model: Model to use for fallback (should be fast/reliable)
+    - timeout: Timeout for fallback provider in seconds
+    """
+
+    enabled: bool = Field(default=False, description="Enable fallback on timeout/failure")
+    provider: Literal["cli", "openrouter"] = Field(
+        default="openrouter", description="Fallback provider type"
+    )
+    model: str = Field(
+        default="anthropic/claude-3-haiku-20240307",
+        description="Fallback model (fast/cheap recommended)",
+    )
+    timeout: int = Field(default=60, description="Fallback provider timeout in seconds")
 
 
 class TierSettings(BaseModel):
@@ -66,7 +101,8 @@ class TierSettings(BaseModel):
     - consensus_required: Whether consensus is required for debate closure
     - max_turns: Maximum number of turns allowed in debate
     - max_refinement_loops: Maximum refinement iterations for auto-orchestration
-    - provider_timeout: Timeout in seconds for provider calls (default: 300)
+    - provider_timeout: Default timeout in seconds for provider calls
+    - fallback: Configuration for provider fallback on timeout/failure
     """
 
     consensus_required: bool = Field(
@@ -75,7 +111,11 @@ class TierSettings(BaseModel):
     max_turns: int = Field(default=12, description="Maximum turns allowed")
     max_refinement_loops: int = Field(default=3, description="Maximum refinement iterations")
     provider_timeout: int = Field(
-        default=300, description="Provider call timeout in seconds (default: 300)"
+        default=120, description="Default provider timeout in seconds (default: 120)"
+    )
+    fallback: FallbackConfig = Field(
+        default_factory=FallbackConfig,
+        description="Fallback provider configuration for timeout recovery",
     )
 
 
@@ -107,6 +147,41 @@ DEFAULT_TIERS: dict[str, TierConfig] = {
             consensus_required=True,
             max_turns=12,
             max_refinement_loops=3,
+            provider_timeout=120,
+            fallback=FallbackConfig(
+                enabled=True,
+                provider="openrouter",
+                model="anthropic/claude-3-haiku-20240307",
+                timeout=60,
+            ),
+        ),
+    ),
+    # Fast tier: OpenRouter-only for quick, reliable debates
+    "fast": TierConfig(
+        wind=RoleConfig(
+            provider="openrouter",
+            model="anthropic/claude-3-haiku-20240307",
+            role="wind-agent",
+            timeout=60,
+        ),
+        wall=RoleConfig(
+            provider="openrouter",
+            model="anthropic/claude-3-haiku-20240307",
+            role="wall-agent",
+            timeout=60,
+        ),
+        door=RoleConfig(
+            provider="openrouter",
+            model="anthropic/claude-3-haiku-20240307",
+            role="door-agent",
+            timeout=60,
+        ),
+        settings=TierSettings(
+            consensus_required=False,  # Skip consensus for speed
+            max_turns=6,
+            max_refinement_loops=1,
+            provider_timeout=60,
+            fallback=FallbackConfig(enabled=False),  # No fallback needed
         ),
     ),
 }

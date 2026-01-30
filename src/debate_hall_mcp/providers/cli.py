@@ -40,6 +40,8 @@ class CliProvider:
         cli_name: Which CLI to use (claude, codex, gemini)
         role: Optional role name for system prompt customization
         timeout: Timeout in seconds for CLI subprocess execution
+        default_model: Default model to use (can be overridden per-call)
+        cli_args: Additional CLI arguments to pass
     """
 
     def __init__(
@@ -47,6 +49,8 @@ class CliProvider:
         cli_name: str,
         role: str | None = None,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        model: str | None = None,
+        cli_args: dict[str, str | bool | int] | None = None,
     ) -> None:
         """Initialize CliProvider.
 
@@ -54,6 +58,8 @@ class CliProvider:
             cli_name: CLI to use (claude, codex, gemini)
             role: Optional role name for system prompt
             timeout: Timeout in seconds for CLI execution (default: 120s)
+            model: Default model to use for this provider
+            cli_args: Additional CLI arguments (e.g., {'temperature': 0.7})
 
         Raises:
             ValueError: If cli_name is not a supported CLI
@@ -63,6 +69,28 @@ class CliProvider:
         self.cli_name = cli_name
         self.role = role
         self.timeout = timeout
+        self.default_model = model
+        self.cli_args = cli_args or {}
+
+    def _build_cli_args(self) -> list[str]:
+        """Build additional CLI arguments from cli_args dict.
+
+        Converts the cli_args dictionary into command line arguments:
+        - Boolean True: --flag
+        - Boolean False: omitted
+        - String/int values: --key value
+
+        Returns:
+            List of CLI argument strings
+        """
+        args: list[str] = []
+        for key, value in self.cli_args.items():
+            if isinstance(value, bool):
+                if value:
+                    args.append(f"--{key}")
+            else:
+                args.extend([f"--{key}", str(value)])
+        return args
 
     def _build_command(
         self,
@@ -80,11 +108,16 @@ class CliProvider:
         Returns:
             List of command arguments for subprocess
         """
+        # Use provided model, or fall back to default_model, or None
+        effective_model = model if model else self.default_model
+        extra_args = self._build_cli_args()
+
         if self.cli_name == "claude":
             # Claude CLI: claude --print --system-prompt <prompt> --model <model> "<user>"
             cmd = ["claude", "--print", "--system-prompt", system_prompt]
-            if model:
-                cmd.extend(["--model", model])
+            if effective_model:
+                cmd.extend(["--model", effective_model])
+            cmd.extend(extra_args)
             cmd.append(user_prompt)
             return cmd
 
@@ -92,8 +125,9 @@ class CliProvider:
             # Codex CLI: codex exec --model <model> "<combined_prompt>"
             combined_prompt = f"{system_prompt}\n\n{user_prompt}"
             cmd = ["codex", "exec"]
-            if model:
-                cmd.extend(["--model", model])
+            if effective_model:
+                cmd.extend(["--model", effective_model])
+            cmd.extend(extra_args)
             cmd.append(combined_prompt)
             return cmd
 
@@ -101,8 +135,9 @@ class CliProvider:
             # Gemini CLI: gemini --model <model> "<combined_prompt>"
             combined_prompt = f"{system_prompt}\n\n{user_prompt}"
             cmd = ["gemini"]
-            if model:
-                cmd.extend(["--model", model])
+            if effective_model:
+                cmd.extend(["--model", effective_model])
+            cmd.extend(extra_args)
             cmd.append(combined_prompt)
             return cmd
 
