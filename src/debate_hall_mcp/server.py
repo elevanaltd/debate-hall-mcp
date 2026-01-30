@@ -36,6 +36,7 @@ from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.github_sync import github_sync_debate as github_sync_debate_impl
 from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.interject import human_interject as human_interject_impl
+from debate_hall_mcp.tools.orchestrate import run_debate as run_debate_impl
 from debate_hall_mcp.tools.pick import debate_pick
 from debate_hall_mcp.tools.ratify import ratify_rfc as ratify_rfc_impl
 from debate_hall_mcp.tools.turn import debate_turn
@@ -55,10 +56,10 @@ SERVER_VERSION = PACKAGE_VERSION
 def create_server() -> FastMCP:
     """Create debate-hall MCP server.
 
-    Tools (10):
+    Tools (11):
         init_debate, add_turn, get_debate, close_debate,
         pick_next_speaker, force_close_debate, tombstone_turn,
-        github_sync_debate, ratify_rfc, human_interject
+        github_sync_debate, ratify_rfc, human_interject, run_debate
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -278,6 +279,33 @@ def create_server() -> FastMCP:
             repo=repo,
             target_id=target_id,
             comment_id=comment_id,
+        )
+
+    @server.tool()
+    async def run_debate(
+        topic: str,
+        tier: str = "standard",
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Auto-orchestrate a Wind/Wall/Door debate (ADR-0002).
+
+        Runs a complete automated debate with three agents:
+        - Wind (PATHOS): Expands possibilities and explores alternatives
+        - Wall (ETHOS): Validates against constraints and evidence
+        - Door (LOGOS): Synthesizes a third-way resolution
+
+        Args:
+            topic: The debate topic to explore
+            tier: Configuration tier (default: "standard")
+            thread_id: Optional custom thread ID (auto-generated if not provided)
+
+        Returns:
+            Dictionary with thread_id, topic, status, turn_count, and synthesis
+        """
+        return await run_debate_impl(
+            topic=topic,
+            tier=tier,
+            thread_id=thread_id,
         )
 
     return server

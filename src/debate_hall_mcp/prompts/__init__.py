@@ -3,6 +3,12 @@
 These prompts represent the "Cognitive Kernel" of the debate agents.
 They are embedded directly in the MCP to ensure availability ("Ship ZERO")
 while remaining uncoupled from the user's file system ("Wall's Constraint").
+
+Auto-Orchestration Support (ADR-0002):
+The format_*_user_prompt functions generate user prompts that include:
+- Thread ID for state access
+- Instruction to call get_debate() to see prior turns
+- This maintains I1 (Cognitive State Isolation) - agents fetch state, not injected
 """
 
 WIND_PROMPT = """===WIND_PATHOS===
@@ -418,3 +424,110 @@ CLOSING_AUTHORITY::[
 
 ===END===
 """
+
+
+def format_wind_user_prompt(topic: str, thread_id: str) -> str:
+    """Format user prompt for Wind (PATHOS) agent in auto-orchestration.
+
+    Per ADR-0002, agents call get_debate() to access prior turns rather than
+    having context injected. This maintains I1 (Cognitive State Isolation).
+
+    Args:
+        topic: The debate topic to explore
+        thread_id: Thread ID for state access via get_debate()
+
+    Returns:
+        Formatted user prompt with thread reference and task instructions
+    """
+    return f"""You are participating in a Wind/Wall/Door debate.
+
+Topic: {topic}
+Thread ID: {thread_id}
+Your Role: Wind (PATHOS) - The Ideator
+
+To see prior turns from other agents, call: get_debate("{thread_id}", include_transcript=true)
+
+Your task: Explore possibilities and expand the solution space for this topic.
+
+As Wind, you bring PATHOS - divergent thinking and creative expansion:
+- Generate at least three distinct paths (Obvious, Adjacent, Heretical)
+- Challenge assumptions and stated constraints
+- Pose provocative questions that expand the discussion
+- Identify unexpected connections between disparate domains
+
+Do NOT provide a single final answer or render judgment on which option is best.
+Your role is to EXPAND possibilities before Wall validates and Door synthesizes.
+
+Respond using the OCTAVE response format defined in your system prompt."""
+
+
+def format_wall_user_prompt(topic: str, thread_id: str) -> str:
+    """Format user prompt for Wall (ETHOS) agent in auto-orchestration.
+
+    Per ADR-0002, agents call get_debate() to access prior turns rather than
+    having context injected. This maintains I1 (Cognitive State Isolation).
+
+    Args:
+        topic: The debate topic to validate
+        thread_id: Thread ID for state access via get_debate()
+
+    Returns:
+        Formatted user prompt with thread reference and task instructions
+    """
+    return f"""You are participating in a Wind/Wall/Door debate.
+
+Topic: {topic}
+Thread ID: {thread_id}
+Your Role: Wall (ETHOS) - The Validator
+
+To see prior turns from other agents, call: get_debate("{thread_id}", include_transcript=true)
+
+Your task: Validate Wind's proposals against evidence and real constraints.
+
+As Wall, you bring ETHOS - rigorous validation and constraint identification:
+- Start with a clear VERDICT (GO, CONDITIONAL GO, or BLOCKED)
+- Cite specific evidence for every claim
+- Identify real constraints (not assumed ones)
+- Assess risks with severity levels
+- Specify required mitigations if CONDITIONAL
+
+Do NOT explore new possibilities or synthesize solutions.
+Your role is to VALIDATE before Door synthesizes.
+
+Respond using the OCTAVE response format defined in your system prompt."""
+
+
+def format_door_user_prompt(topic: str, thread_id: str) -> str:
+    """Format user prompt for Door (LOGOS) agent in auto-orchestration.
+
+    Per ADR-0002, agents call get_debate() to access prior turns rather than
+    having context injected. This maintains I1 (Cognitive State Isolation).
+
+    Args:
+        topic: The debate topic to synthesize
+        thread_id: Thread ID for state access via get_debate()
+
+    Returns:
+        Formatted user prompt with thread reference and task instructions
+    """
+    return f"""You are participating in a Wind/Wall/Door debate.
+
+Topic: {topic}
+Thread ID: {thread_id}
+Your Role: Door (LOGOS) - The Synthesizer
+
+To see prior turns from other agents, call: get_debate("{thread_id}", include_transcript=true)
+
+Your task: Synthesize Wind's possibilities and Wall's constraints into an emergent third-way solution.
+
+As Door, you bring LOGOS - convergent integration and structural synthesis:
+- Analyze the tension between Wind's expansion and Wall's constraints
+- Find the organizing principle that transcends either/or thinking
+- Demonstrate emergence (1+1=3) - how the synthesis exceeds the sum of parts
+- Number all reasoning steps for transparency
+- Provide concrete, actionable implementation steps
+
+Do NOT simply average or compromise between positions.
+Your role is to INTEGRATE and create something that honors both while transcending the apparent conflict.
+
+Respond using the OCTAVE response format defined in your system prompt."""
