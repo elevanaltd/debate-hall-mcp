@@ -81,12 +81,20 @@ class TestModelProviderProtocol:
 
     def test_model_provider_is_runtime_checkable(self) -> None:
         """ModelProvider should be runtime checkable for isinstance checks."""
-        from debate_hall_mcp.providers import ModelProvider
+        from debate_hall_mcp.providers import ModelProvider, ProviderResponse
 
-        # Should have @runtime_checkable decorator
-        assert hasattr(ModelProvider, "__protocol_attrs__") or callable(
-            getattr(ModelProvider, "_is_protocol", None)
-        )
+        # Create a conforming class to test isinstance works
+        class ConformingProvider:
+            async def complete(
+                self,
+                system_prompt: str,  # noqa: ARG002
+                user_prompt: str,  # noqa: ARG002
+                model: str | None = None,  # noqa: ARG002
+            ) -> ProviderResponse:
+                return ProviderResponse(content="test", model="test")
+
+        # @runtime_checkable enables isinstance() checks
+        assert isinstance(ConformingProvider(), ModelProvider)
 
     def test_model_provider_has_complete_method(self) -> None:
         """ModelProvider Protocol requires complete() async method."""
