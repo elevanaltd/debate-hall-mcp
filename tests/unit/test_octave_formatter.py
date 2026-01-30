@@ -6,8 +6,12 @@ import octave_mcp  # type: ignore[import-untyped]
 
 from debate_hall_mcp.octave_formatter import (
     OutputMode,
+    SealResult,
     format_debate_as_octave,
+    seal_debate_transcript,
     validate_debate_octave,
+    validate_debate_octave_lenient,
+    verify_debate_seal,
 )
 from debate_hall_mcp.state import DebateMode, DebateRoom, DebateStatus, Turn
 
@@ -464,3 +468,210 @@ SYNTHESIS::null
         # Must parse successfully
         is_valid, errors = validate_debate_octave(result)
         assert is_valid, f"Parse failed: {errors}"
+
+
+class TestOctaveSealing:
+    """Test suite for OCTAVE document sealing (octave-mcp v1.0.0 feature)."""
+
+    def test_seal_debate_transcript(self):
+        """Test sealing a debate transcript."""
+        room = DebateRoom(
+            thread_id="seal-test",
+            topic="Sealing Test",
+            mode=DebateMode.FIXED,
+            status=DebateStatus.SYNTHESIS,
+        )
+        room.turns = [
+            Turn(
+                role="Wind",
+                content="Opening statement",
+                cognition="PATHOS",
+                timestamp=datetime.now(UTC),
+            )
+        ]
+        room.synthesis = "Final resolution"
+
+        # Format and seal
+        octave = format_debate_as_octave(room)
+        sealed = seal_debate_transcript(octave)
+
+        # Should have SEAL section
+        assert "§SEAL" in sealed or "SEAL::" in sealed
+        assert "HASH::" in sealed
+        assert "SHA256" in sealed
+
+    def test_verify_valid_seal(self):
+        """Test verifying a valid seal."""
+        room = DebateRoom(
+            thread_id="verify-test",
+            topic="Verify Test",
+            mode=DebateMode.FIXED,
+            status=DebateStatus.SYNTHESIS,
+            synthesis="Resolution",
+        )
+
+        octave = format_debate_as_octave(room)
+        sealed = seal_debate_transcript(octave)
+
+        result = verify_debate_seal(sealed)
+
+        assert result.is_valid
+        assert result.status == "VERIFIED"
+        assert "verified" in result.message.lower()
+        assert result.expected_hash is not None
+        assert result.actual_hash is not None
+        assert result.expected_hash == result.actual_hash
+
+    def test_detect_tampering(self):
+        """Test that tampered content is detected."""
+        room = DebateRoom(
+            thread_id="tamper-test",
+            topic="Original Topic",
+            mode=DebateMode.FIXED,
+            status=DebateStatus.SYNTHESIS,
+            synthesis="Original resolution",
+        )
+
+        octave = format_debate_as_octave(room)
+        sealed = seal_debate_transcript(octave)
+
+        # Tamper with the content
+        tampered = sealed.replace("Original Topic", "TAMPERED Topic")
+
+        result = verify_debate_seal(tampered)
+
+        assert not result.is_valid
+        assert result.status == "INVALID"
+        assert "modified" in result.message.lower() or "invalid" in result.message.lower()
+
+    def test_verify_no_seal(self):
+        """Test verifying a document without a seal."""
+        room = DebateRoom(
+            thread_id="no-seal-test",
+            topic="No Seal Test",
+            mode=DebateMode.FIXED,
+            status=DebateStatus.ACTIVE,
+        )
+
+        octave = format_debate_as_octave(room)
+
+        result = verify_debate_seal(octave)
+
+        assert not result.is_valid
+        assert result.status in ("NO_SEAL", "ERROR")
+
+    def test_seal_arbitrary_input_produces_sealed_output(self):
+        """Test that sealing works with arbitrary input (lenient parsing).
+
+        octave-mcp v1.0.0 uses lenient parsing which can handle most inputs.
+        The seal function will produce a sealed document even with non-standard input.
+        """
+        # Lenient parsing means most input will parse
+        result = seal_debate_transcript("===TEST===\nCONTENT::test\n===END===")
+
+        # Should have SEAL section added
+        assert "§SEAL" in result or "SEAL::" in result
+        assert "HASH::" in result
+
+    def test_seal_result_dataclass(self):
+        """Test SealResult attributes."""
+        result = SealResult(
+            is_valid=True,
+            status="VERIFIED",
+            message="Test message",
+            expected_hash="abc123",
+            actual_hash="abc123",
+        )
+
+        assert result.is_valid
+        assert result.status == "VERIFIED"
+        assert result.message == "Test message"
+        assert result.expected_hash == "abc123"
+        assert result.actual_hash == "abc123"
+
+
+class TestOctaveLenientValidation:
+    """Test suite for lenient OCTAVE validation (octave-mcp v1.0.0 feature)."""
+
+    def test_lenient_validation_valid_document(self):
+        """Test lenient validation with valid document."""
+        valid_octave = """===DEBATE_TRANSCRIPT===
+
+META:
+  THREAD_ID::"test-123"
+  TOPIC::"Test Topic"
+  MODE::fixed
+  STATUS::active
+
+PARTICIPANTS::[Wind]
+
+TURNS::[
+  T1::Wind[PATHOS]::"Test"
+]
+
+SYNTHESIS::null
+
+===END==="""
+
+        is_valid, errors, warnings = validate_debate_octave_lenient(valid_octave)
+
+        assert is_valid
+        assert len(errors) == 0
+
+    def test_lenient_validation_with_warnings(self):
+        """Test lenient validation captures warnings for minor issues."""
+        # Document with unquoted string values (lenient parsing allows)
+        octave_with_minor_issues = """===DEBATE_TRANSCRIPT===
+
+META:
+  THREAD_ID::"test-123"
+  TOPIC::"Test Topic"
+  MODE::fixed
+  STATUS::active
+
+PARTICIPANTS::[Wind]
+
+TURNS::[]
+
+SYNTHESIS::null
+
+===END==="""
+
+        is_valid, errors, warnings = validate_debate_octave_lenient(octave_with_minor_issues)
+
+        assert is_valid
+        assert len(errors) == 0
+        # Warnings may or may not be present depending on content
+
+    def test_lenient_validation_missing_fields(self):
+        """Test lenient validation catches structural errors."""
+        # Missing required META fields
+        invalid_octave = """===DEBATE_TRANSCRIPT===
+
+META:
+  THREAD_ID::"test"
+
+PARTICIPANTS::[]
+TURNS::[]
+SYNTHESIS::null
+
+===END==="""
+
+        is_valid, errors, warnings = validate_debate_octave_lenient(invalid_octave)
+
+        assert not is_valid
+        assert len(errors) > 0
+        assert any("TOPIC" in err for err in errors)
+
+    def test_lenient_validation_malformed_input(self):
+        """Test lenient validation handles malformed input.
+
+        octave-mcp v1.0.0's lenient parsing may still produce warnings
+        for unparseable content, as it tries to salvage what it can.
+        """
+        is_valid, errors, warnings = validate_debate_octave_lenient("Not OCTAVE")
+
+        # Should fail validation (missing required DEBATE_TRANSCRIPT structure)
+        assert not is_valid
+        assert len(errors) > 0
+        # Warnings may be present from lenient parsing attempts
