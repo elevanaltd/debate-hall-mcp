@@ -148,6 +148,13 @@ Optional: enable repo-local git hooks (prints reminder, or auto-runs bootstrap w
 | `ratify_rfc` | Generate ADR from synthesis, create PR |
 | `human_interject` | Inject human GitHub comment into debate |
 
+### Auto-Orchestration Tools
+
+| Tool | Purpose |
+|------|---------|
+| `run_debate` | Run complete Wind→Wall→Door debate automatically |
+| `resume_debate` | Resume a PAUSED debate after failure |
+
 ## Configuration
 
 ### Minimal (No GitHub)
@@ -164,6 +171,68 @@ The MCP config above is sufficient for local debates.
 
 > **Token scopes needed:** `repo`, `write:discussion`
 > Get one at: GitHub → Settings → Developer settings → Personal access tokens
+
+### Tier Configuration (Auto-Orchestration)
+
+The `run_debate` tool uses tier configurations to determine which AI providers to use for each role.
+
+**Resolution order:**
+1. `DEBATE_HALL_TIERS_FILE` environment variable
+2. `~/.debate-hall/tiers.yaml`
+3. Built-in defaults (standard tier using CLI providers)
+
+**Setup custom tiers:**
+```bash
+mkdir -p ~/.debate-hall
+cp examples/tiers.example.yaml ~/.debate-hall/tiers.yaml
+# Edit to customize providers and settings
+```
+
+**Example tier configuration:**
+```yaml
+# ~/.debate-hall/tiers.yaml
+standard:
+  wind:
+    provider: cli      # Use external CLI (claude, codex, gemini)
+    cli: claude
+    role: wind-agent   # Optional: role for PAL MCP
+  wall:
+    provider: cli
+    cli: codex
+  door:
+    provider: cli
+    cli: gemini
+  settings:
+    consensus_required: true   # Wind/Wall must approve synthesis
+    max_turns: 12
+    max_refinement_loops: 3
+
+premium:
+  wind:
+    provider: openrouter       # Use OpenRouter API
+    model: anthropic/claude-3-opus
+  wall:
+    provider: openrouter
+    model: openai/gpt-4-turbo
+  door:
+    provider: openrouter
+    model: google/gemini-pro
+  settings:
+    consensus_required: true
+    max_turns: 20
+    max_refinement_loops: 5
+```
+
+**Provider options:**
+- `cli`: External AI CLIs (requires `claude`, `codex`, or `gemini` CLI installed)
+- `openrouter`: OpenRouter API (requires `OPENROUTER_API_KEY` env var)
+
+**Settings:**
+- `consensus_required`: If true, Wind and Wall must approve Door's synthesis
+- `max_turns`: Maximum total turns in debate
+- `max_refinement_loops`: How many times Door can refine after rejection
+
+See [examples/tiers.example.yaml](examples/tiers.example.yaml) for complete configuration examples.
 
 See [Usage Patterns](docs/guides/usage-patterns.md) for detailed configuration options.
 
@@ -271,7 +340,7 @@ cd debate-hall-mcp
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# Run tests (496 tests, 92%+ coverage)
+# Run tests (744 tests)
 pytest
 
 # Quality checks

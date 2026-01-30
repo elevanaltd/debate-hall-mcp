@@ -424,7 +424,7 @@ class TestM1ProviderTimeout:
     async def test_default_timeout_is_120_seconds(
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """Default provider timeout should be 120 seconds."""
+        """Default provider timeout should be 120 seconds (aligned with CLI default)."""
         orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
         assert orchestrator._get_provider_timeout() == 120
 

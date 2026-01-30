@@ -37,15 +37,13 @@ from debate_hall_mcp.config import TierConfig
 from debate_hall_mcp.consensus import parse_consensus_response
 from debate_hall_mcp.events import EventType, append_event
 from debate_hall_mcp.prompts import (
-    DOOR_PROMPT,
-    WALL_PROMPT,
-    WIND_PROMPT,
     format_door_user_prompt,
     format_wall_approval_prompt,
     format_wall_user_prompt,
     format_wind_approval_prompt,
     format_wind_user_prompt,
 )
+from debate_hall_mcp.prompts.loader import get_prompt
 from debate_hall_mcp.providers import ProviderResponse, create_provider
 from debate_hall_mcp.state import DebateStatus, load_debate_state, save_debate_state
 from debate_hall_mcp.tools.close import debate_close
@@ -53,7 +51,8 @@ from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.turn import debate_turn
 
 # Default provider timeout in seconds (M1: CE Review)
-DEFAULT_PROVIDER_TIMEOUT = 120
+# Increased from 120 to 300 to accommodate slower CLI providers
+DEFAULT_PROVIDER_TIMEOUT = 300
 
 
 class DebateResult(BaseModel):
@@ -100,8 +99,8 @@ class DebateOrchestrator:
         """Get provider timeout in seconds (M1: CE Review mitigation).
 
         Returns:
-            Timeout in seconds. Default is 120 seconds.
-            Could be extended to use TierSettings.provider_timeout if added.
+            Timeout in seconds from TierSettings.provider_timeout,
+            or DEFAULT_PROVIDER_TIMEOUT (300s) if not configured.
         """
         # Use tier_config setting if available, otherwise default
         settings = self.tier_config.settings
@@ -109,6 +108,24 @@ class DebateOrchestrator:
         if provider_timeout is not None and isinstance(provider_timeout, int):
             return int(provider_timeout)  # Explicit cast for mypy
         return DEFAULT_PROVIDER_TIMEOUT
+
+    def _get_prompt(self, role: str) -> str:
+        """Get prompt for a role, using custom file if configured.
+
+        Uses the Layered Discovery pattern from prompts.loader:
+        1. If prompt_file is set in tier config -> load from file/variant
+        2. If prompt_file is null -> use embedded default
+
+        Args:
+            role: The debate role (wind, wall, door)
+
+        Returns:
+            Prompt string (OCTAVE format)
+        """
+        # Get the role config for this role
+        role_config = getattr(self.tier_config, role.lower())
+        # Get prompt using loader (handles file resolution and defaults)
+        return get_prompt(role, role_config.prompt_file)
 
     def _generate_thread_id(self, topic: str) -> str:
         """Generate a thread ID in date-first format.
@@ -231,7 +248,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
             wind_user_prompt = format_wind_user_prompt(topic, thread_id)
             wind_response: ProviderResponse = await asyncio.wait_for(
                 wind_provider.complete(
-                    system_prompt=WIND_PROMPT,
+                    system_prompt=self._get_prompt("wind"),
                     user_prompt=wind_user_prompt,
                 ),
                 timeout=timeout,
@@ -261,7 +278,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
             wall_user_prompt = format_wall_user_prompt(topic, thread_id)
             wall_response: ProviderResponse = await asyncio.wait_for(
                 wall_provider.complete(
-                    system_prompt=WALL_PROMPT,
+                    system_prompt=self._get_prompt("wall"),
                     user_prompt=wall_user_prompt,
                 ),
                 timeout=timeout,
@@ -291,7 +308,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
             door_user_prompt = format_door_user_prompt(topic, thread_id)
             door_response: ProviderResponse = await asyncio.wait_for(
                 door_provider.complete(
-                    system_prompt=DOOR_PROMPT,
+                    system_prompt=self._get_prompt("door"),
                     user_prompt=door_user_prompt,
                 ),
                 timeout=timeout,
@@ -331,7 +348,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     wind_approval_prompt = format_wind_approval_prompt(topic, thread_id)
                     wind_approval_response: ProviderResponse = await asyncio.wait_for(
                         wind_provider.complete(
-                            system_prompt=WIND_PROMPT,
+                            system_prompt=self._get_prompt("wind"),
                             user_prompt=wind_approval_prompt,
                         ),
                         timeout=timeout,
@@ -362,7 +379,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                         )
                         door_response = await asyncio.wait_for(
                             door_provider.complete(
-                                system_prompt=DOOR_PROMPT,
+                                system_prompt=self._get_prompt("door"),
                                 user_prompt=refinement_prompt,
                             ),
                             timeout=timeout,
@@ -394,7 +411,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     wall_approval_prompt = format_wall_approval_prompt(topic, thread_id)
                     wall_approval_response: ProviderResponse = await asyncio.wait_for(
                         wall_provider.complete(
-                            system_prompt=WALL_PROMPT,
+                            system_prompt=self._get_prompt("wall"),
                             user_prompt=wall_approval_prompt,
                         ),
                         timeout=timeout,
@@ -425,7 +442,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                         )
                         door_response = await asyncio.wait_for(
                             door_provider.complete(
-                                system_prompt=DOOR_PROMPT,
+                                system_prompt=self._get_prompt("door"),
                                 user_prompt=refinement_prompt,
                             ),
                             timeout=timeout,
@@ -586,7 +603,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     wind_user_prompt = format_wind_user_prompt(topic, thread_id)
                     wind_response: ProviderResponse = await asyncio.wait_for(
                         wind_provider.complete(
-                            system_prompt=WIND_PROMPT,
+                            system_prompt=self._get_prompt("wind"),
                             user_prompt=wind_user_prompt,
                         ),
                         timeout=timeout,
@@ -614,7 +631,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     wall_user_prompt = format_wall_user_prompt(topic, thread_id)
                     wall_response: ProviderResponse = await asyncio.wait_for(
                         wall_provider.complete(
-                            system_prompt=WALL_PROMPT,
+                            system_prompt=self._get_prompt("wall"),
                             user_prompt=wall_user_prompt,
                         ),
                         timeout=timeout,
@@ -642,7 +659,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     door_user_prompt = format_door_user_prompt(topic, thread_id)
                     door_response: ProviderResponse = await asyncio.wait_for(
                         door_provider.complete(
-                            system_prompt=DOOR_PROMPT,
+                            system_prompt=self._get_prompt("door"),
                             user_prompt=door_user_prompt,
                         ),
                         timeout=timeout,
@@ -676,7 +693,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     wind_approval_prompt = format_wind_approval_prompt(topic, thread_id)
                     wind_approval_response: ProviderResponse = await asyncio.wait_for(
                         wind_provider.complete(
-                            system_prompt=WIND_PROMPT,
+                            system_prompt=self._get_prompt("wind"),
                             user_prompt=wind_approval_prompt,
                         ),
                         timeout=timeout,
@@ -700,7 +717,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                         )
                         door_response = await asyncio.wait_for(
                             door_provider.complete(
-                                system_prompt=DOOR_PROMPT,
+                                system_prompt=self._get_prompt("door"),
                                 user_prompt=refinement_prompt,
                             ),
                             timeout=timeout,
@@ -729,7 +746,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     wall_approval_prompt = format_wall_approval_prompt(topic, thread_id)
                     wall_approval_response: ProviderResponse = await asyncio.wait_for(
                         wall_provider.complete(
-                            system_prompt=WALL_PROMPT,
+                            system_prompt=self._get_prompt("wall"),
                             user_prompt=wall_approval_prompt,
                         ),
                         timeout=timeout,
@@ -753,7 +770,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                         )
                         door_response = await asyncio.wait_for(
                             door_provider.complete(
-                                system_prompt=DOOR_PROMPT,
+                                system_prompt=self._get_prompt("door"),
                                 user_prompt=refinement_prompt,
                             ),
                             timeout=timeout,
