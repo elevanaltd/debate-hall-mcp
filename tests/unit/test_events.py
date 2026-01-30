@@ -485,7 +485,7 @@ class TestEventCorruptionRecovery:
         events_file = state_dir / f"{thread_id}.events.jsonl"
         with open(events_file, "a") as f:
             f.write('{"id": "broken", "invalid": json\n')  # Corrupt JSON
-            f.write('just a partial line\n')  # Another corrupt line
+            f.write("just a partial line\n")  # Another corrupt line
 
         # Add another valid event
         event3 = append_event(thread_id, EventType.TURN_ADDED, {"n": 3}, state_dir)
@@ -546,7 +546,10 @@ class TestEventCorruptionRecovery:
             load_events(thread_id, state_dir)
 
         # Should have logged a warning about the corrupt line
-        assert any("corrupt" in record.message.lower() or "skip" in record.message.lower() for record in caplog.records)
+        assert any(
+            "corrupt" in record.message.lower() or "skip" in record.message.lower()
+            for record in caplog.records
+        )
 
     def test_load_events_uses_file_lock(self, tmp_path: Path) -> None:
         """Verify load_events uses file locking for read consistency.

@@ -181,7 +181,8 @@ class TestTierConfigLoader:
         # Create config file
         config_file = tmp_path / "tiers.yaml"
         config_file.write_text(
-            dedent("""
+            dedent(
+                """
             standard:
               wind:
                 provider: cli
@@ -196,7 +197,8 @@ class TestTierConfigLoader:
                 consensus_required: true
                 max_turns: 12
                 max_refinement_loops: 3
-        """)
+        """
+            )
         )
 
         monkeypatch.setenv("DEBATE_HALL_TIERS_FILE", str(config_file))
@@ -219,7 +221,8 @@ class TestTierConfigLoader:
 
         config_file = mock_debate_hall / "tiers.yaml"
         config_file.write_text(
-            dedent("""
+            dedent(
+                """
             premium:
               wind:
                 provider: cli
@@ -234,7 +237,8 @@ class TestTierConfigLoader:
                 consensus_required: false
                 max_turns: 20
                 max_refinement_loops: 5
-        """)
+        """
+            )
         )
 
         # Unset env var and mock home directory
@@ -270,7 +274,8 @@ class TestTierConfigLoader:
         # Create config without the requested tier
         config_file = tmp_path / "tiers.yaml"
         config_file.write_text(
-            dedent("""
+            dedent(
+                """
             standard:
               wind:
                 provider: cli
@@ -285,7 +290,8 @@ class TestTierConfigLoader:
                 consensus_required: true
                 max_turns: 12
                 max_refinement_loops: 3
-        """)
+        """
+            )
         )
 
         monkeypatch.setenv("DEBATE_HALL_TIERS_FILE", str(config_file))
@@ -302,7 +308,8 @@ class TestTierConfigLoader:
         # Create env var config
         env_config = tmp_path / "env_tiers.yaml"
         env_config.write_text(
-            dedent("""
+            dedent(
+                """
             standard:
               wind:
                 provider: cli
@@ -317,7 +324,8 @@ class TestTierConfigLoader:
                 consensus_required: true
                 max_turns: 100
                 max_refinement_loops: 3
-        """)
+        """
+            )
         )
 
         # Create home dir config with different values
@@ -326,7 +334,8 @@ class TestTierConfigLoader:
         mock_debate_hall.mkdir(parents=True)
         home_config = mock_debate_hall / "tiers.yaml"
         home_config.write_text(
-            dedent("""
+            dedent(
+                """
             standard:
               wind:
                 provider: cli
@@ -341,7 +350,8 @@ class TestTierConfigLoader:
                 consensus_required: true
                 max_turns: 50
                 max_refinement_loops: 3
-        """)
+        """
+            )
         )
 
         monkeypatch.setenv("DEBATE_HALL_TIERS_FILE", str(env_config))
