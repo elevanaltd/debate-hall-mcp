@@ -36,7 +36,12 @@ from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.github_sync import github_sync_debate as github_sync_debate_impl
 from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.interject import human_interject as human_interject_impl
-from debate_hall_mcp.tools.orchestrate import run_debate as run_debate_impl
+from debate_hall_mcp.tools.orchestrate import (
+    resume_debate as resume_debate_impl,
+)
+from debate_hall_mcp.tools.orchestrate import (
+    run_debate as run_debate_impl,
+)
 from debate_hall_mcp.tools.pick import debate_pick
 from debate_hall_mcp.tools.ratify import ratify_rfc as ratify_rfc_impl
 from debate_hall_mcp.tools.turn import debate_turn
@@ -56,10 +61,11 @@ SERVER_VERSION = PACKAGE_VERSION
 def create_server() -> FastMCP:
     """Create debate-hall MCP server.
 
-    Tools (11):
+    Tools (12):
         init_debate, add_turn, get_debate, close_debate,
         pick_next_speaker, force_close_debate, tombstone_turn,
-        github_sync_debate, ratify_rfc, human_interject, run_debate
+        github_sync_debate, ratify_rfc, human_interject, run_debate,
+        resume_debate
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -306,6 +312,28 @@ def create_server() -> FastMCP:
             topic=topic,
             tier=tier,
             thread_id=thread_id,
+        )
+
+    @server.tool()
+    async def resume_debate(
+        thread_id: str,
+        tier: str = "standard",
+    ) -> dict[str, Any]:
+        """Resume a PAUSED debate from where it left off (Phase 4).
+
+        Allows resuming debates that were paused due to failures
+        (provider timeouts, errors, etc.) during auto-orchestration.
+
+        Args:
+            thread_id: The thread ID of the paused debate
+            tier: Configuration tier (default: "standard")
+
+        Returns:
+            Dictionary with thread_id, topic, status, turn_count, and synthesis
+        """
+        return await resume_debate_impl(
+            thread_id=thread_id,
+            tier=tier,
         )
 
     return server
