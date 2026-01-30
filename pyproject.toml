@@ -31,6 +31,7 @@ dependencies = [
     "python-dotenv>=1.0.0",  # Load .env files for configuration
     "octave-mcp>=0.6.1",  # Update to latest version with enhanced validation and features
     "python-ulid>=3.0.0",  # ULID for event ordering (ADR-0002)
+    "PyYAML>=6.0",  # Tier configuration loading (ADR-0002)
 ]
 
 [project.optional-dependencies]
