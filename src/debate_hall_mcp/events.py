@@ -12,6 +12,14 @@ enabling async orchestration and replay capabilities.
 Concurrency Control:
 Uses filelock for cross-platform file locking to prevent
 concurrent write corruption (Issue #111 - CE Review).
+
+ULID Ordering Limitation:
+Event IDs use standard ULID() generation which provides millisecond
+precision timestamps. Under high-frequency concurrent writes within
+the same millisecond, lexicographic ordering may not reflect exact
+write order. For typical debate orchestration (seconds between turns),
+this is not a practical concern. If strict total ordering is required,
+use the event file line position as a secondary sort key.
 """
 
 import logging
