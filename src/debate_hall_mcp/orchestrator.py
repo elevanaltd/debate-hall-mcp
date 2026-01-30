@@ -196,6 +196,188 @@ As Door (LOGOS), create a refined synthesis that:
 
 Respond with your refined synthesis using the OCTAVE response format."""
 
+    async def _execute_role_turn(
+        self,
+        role: str,
+        provider: ModelProvider,
+        thread_id: str,
+        user_prompt: str,
+        timeout: int,
+    ) -> ProviderResponse:
+        """Execute a single role turn with provider call, recording, and event emission.
+
+        This helper consolidates the common pattern of:
+        1. Calling the provider with timeout
+        2. Recording the debate turn
+        3. Emitting TURN_ADDED event
+
+        Args:
+            role: The debate role (Wind, Wall, Door)
+            provider: The provider instance for this role
+            thread_id: Thread ID for the debate
+            user_prompt: The formatted user prompt to send
+            timeout: Provider timeout in seconds
+
+        Returns:
+            ProviderResponse from the provider
+        """
+        # Role-specific cognition mapping
+        cognition_map = {"Wind": "PATHOS", "Wall": "ETHOS", "Door": "LOGOS"}
+        cognition = cognition_map.get(role, "LOGOS")
+
+        # Call provider with timeout (M1: CE Review mitigation)
+        response: ProviderResponse = await asyncio.wait_for(
+            provider.complete(
+                system_prompt=self._get_prompt(role.lower()),
+                user_prompt=user_prompt,
+            ),
+            timeout=timeout,
+        )
+
+        # Record the debate turn
+        debate_turn(
+            thread_id=thread_id,
+            role=role,
+            content=response.content,
+            cognition=cognition,
+            model=response.model,
+            token_input=response.token_input,
+            token_output=response.token_output,
+            state_dir=self.state_dir,
+        )
+
+        # M3: Emit TURN_ADDED event (redact content_preview)
+        append_event(
+            thread_id=thread_id,
+            event_type=EventType.TURN_ADDED,
+            payload={
+                "role": role,
+                "model": response.model,
+            },
+            state_dir=self.state_dir,
+        )
+
+        return response
+
+    async def _execute_consensus_loop(
+        self,
+        thread_id: str,
+        topic: str,
+        current_synthesis: str,
+        turn_count: int,
+        wind_provider: ModelProvider,
+        wall_provider: ModelProvider,
+        door_provider: ModelProvider,
+        initial_refinement_count: int = 0,
+    ) -> tuple[str, int, str]:
+        """Execute the consensus loop where Wind and Wall approve Door's synthesis.
+
+        This helper consolidates the consensus approval pattern used by both
+        run() and resume() methods. It handles:
+        1. Wind approval -> reject triggers Door refinement
+        2. Wall approval -> reject triggers Door refinement
+        3. Stalemate detection when max loops exceeded
+
+        Args:
+            thread_id: Thread ID for the debate
+            topic: The debate topic
+            current_synthesis: Door's current synthesis content
+            turn_count: Current turn count
+            wind_provider: Provider for Wind role
+            wall_provider: Provider for Wall role
+            door_provider: Provider for Door role
+            initial_refinement_count: Starting refinement count (for resume scenarios
+                where refinements may have already occurred before pause)
+
+        Returns:
+            Tuple of (final_status, final_turn_count, final_synthesis)
+            where status is "synthesis" or "stalemate"
+        """
+        max_refinement_loops = self.tier_config.settings.max_refinement_loops
+        timeout = self._get_provider_timeout()
+        refinement_count = initial_refinement_count
+
+        while refinement_count <= max_refinement_loops:
+            # Wind approval
+            wind_approval_prompt = format_wind_approval_prompt(topic, thread_id)
+            wind_approval_response: ProviderResponse = await asyncio.wait_for(
+                wind_provider.complete(
+                    system_prompt=self._get_prompt("wind"),
+                    user_prompt=wind_approval_prompt,
+                ),
+                timeout=timeout,
+            )
+            wind_vote = parse_consensus_response(wind_approval_response.content)
+
+            # Emit CONSENSUS_VOTE event for Wind
+            append_event(
+                thread_id=thread_id,
+                event_type=EventType.CONSENSUS_VOTE,
+                payload={"role": "Wind", "approved": wind_vote.approved},
+                state_dir=self.state_dir,
+            )
+
+            # If Wind rejects, refine immediately
+            if not wind_vote.approved:
+                refinement_count += 1
+                if refinement_count > max_refinement_loops:
+                    break
+
+                # Door refines based on Wind's feedback
+                refinement_prompt = self._create_refinement_prompt(
+                    topic, thread_id, "Wind", wind_vote.feedback
+                )
+                door_response = await self._execute_role_turn(
+                    "Door", door_provider, thread_id, refinement_prompt, timeout
+                )
+                turn_count += 1
+                current_synthesis = door_response.content
+                continue
+
+            # Wall approval (only if Wind approved)
+            wall_approval_prompt = format_wall_approval_prompt(topic, thread_id)
+            wall_approval_response: ProviderResponse = await asyncio.wait_for(
+                wall_provider.complete(
+                    system_prompt=self._get_prompt("wall"),
+                    user_prompt=wall_approval_prompt,
+                ),
+                timeout=timeout,
+            )
+            wall_vote = parse_consensus_response(wall_approval_response.content)
+
+            # Emit CONSENSUS_VOTE event for Wall
+            append_event(
+                thread_id=thread_id,
+                event_type=EventType.CONSENSUS_VOTE,
+                payload={"role": "Wall", "approved": wall_vote.approved},
+                state_dir=self.state_dir,
+            )
+
+            # If Wall rejects, refine
+            if not wall_vote.approved:
+                refinement_count += 1
+                if refinement_count > max_refinement_loops:
+                    break
+
+                # Door refines based on Wall's feedback
+                refinement_prompt = self._create_refinement_prompt(
+                    topic, thread_id, "Wall", wall_vote.feedback
+                )
+                door_response = await self._execute_role_turn(
+                    "Door", door_provider, thread_id, refinement_prompt, timeout
+                )
+                turn_count += 1
+                current_synthesis = door_response.content
+                continue
+
+            # Both approved - consensus achieved
+            break
+
+        # Determine final status
+        if refinement_count > max_refinement_loops:
+            return ("stalemate", turn_count, current_synthesis)
+        return ("synthesis", turn_count, current_synthesis)
+
     async def run(self, topic: str, thread_id: str | None = None) -> DebateResult:
         """Run a complete debate orchestration.
 
@@ -257,238 +439,43 @@ Respond with your refined synthesis using the OCTAVE response format."""
             wall_provider = self._provider_factory(self.tier_config.wall)
             door_provider = self._provider_factory(self.tier_config.door)
 
-            # 3. Wind turn (PATHOS - Ideation) with timeout (M1)
+            # 3. Wind turn (PATHOS - Ideation)
             wind_user_prompt = format_wind_user_prompt(topic, thread_id)
-            wind_response: ProviderResponse = await asyncio.wait_for(
-                wind_provider.complete(
-                    system_prompt=self._get_prompt("wind"),
-                    user_prompt=wind_user_prompt,
-                ),
-                timeout=timeout,
-            )
-            debate_turn(
-                thread_id=thread_id,
-                role="Wind",
-                content=wind_response.content,
-                cognition="PATHOS",
-                model=wind_response.model,
-                token_input=wind_response.token_input,
-                token_output=wind_response.token_output,
-                state_dir=self.state_dir,
-            )
-            # M3: Redact content_preview from TURN_ADDED events
-            append_event(
-                thread_id=thread_id,
-                event_type=EventType.TURN_ADDED,
-                payload={
-                    "role": "Wind",
-                    "model": wind_response.model,
-                },
-                state_dir=self.state_dir,
+            await self._execute_role_turn(
+                "Wind", wind_provider, thread_id, wind_user_prompt, timeout
             )
 
-            # 4. Wall turn (ETHOS - Validation) with timeout (M1)
+            # 4. Wall turn (ETHOS - Validation)
             wall_user_prompt = format_wall_user_prompt(topic, thread_id)
-            wall_response: ProviderResponse = await asyncio.wait_for(
-                wall_provider.complete(
-                    system_prompt=self._get_prompt("wall"),
-                    user_prompt=wall_user_prompt,
-                ),
-                timeout=timeout,
-            )
-            debate_turn(
-                thread_id=thread_id,
-                role="Wall",
-                content=wall_response.content,
-                cognition="ETHOS",
-                model=wall_response.model,
-                token_input=wall_response.token_input,
-                token_output=wall_response.token_output,
-                state_dir=self.state_dir,
-            )
-            # M3: Redact content_preview from TURN_ADDED events
-            append_event(
-                thread_id=thread_id,
-                event_type=EventType.TURN_ADDED,
-                payload={
-                    "role": "Wall",
-                    "model": wall_response.model,
-                },
-                state_dir=self.state_dir,
+            await self._execute_role_turn(
+                "Wall", wall_provider, thread_id, wall_user_prompt, timeout
             )
 
-            # 5. Door turn (LOGOS - Synthesis) with timeout (M1)
+            # 5. Door turn (LOGOS - Synthesis)
             door_user_prompt = format_door_user_prompt(topic, thread_id)
-            door_response: ProviderResponse = await asyncio.wait_for(
-                door_provider.complete(
-                    system_prompt=self._get_prompt("door"),
-                    user_prompt=door_user_prompt,
-                ),
-                timeout=timeout,
-            )
-            debate_turn(
-                thread_id=thread_id,
-                role="Door",
-                content=door_response.content,
-                cognition="LOGOS",
-                model=door_response.model,
-                token_input=door_response.token_input,
-                token_output=door_response.token_output,
-                state_dir=self.state_dir,
-            )
-            # M3: Redact content_preview from TURN_ADDED events
-            append_event(
-                thread_id=thread_id,
-                event_type=EventType.TURN_ADDED,
-                payload={
-                    "role": "Door",
-                    "model": door_response.model,
-                },
-                state_dir=self.state_dir,
+            door_response = await self._execute_role_turn(
+                "Door", door_provider, thread_id, door_user_prompt, timeout
             )
 
             # Track turn count (3 initial turns: Wind, Wall, Door)
             turn_count = 3
             current_synthesis = door_response.content
+            final_status = "synthesis"
 
             # 6. Consensus loop (Phase 4) - if consensus_required
             if self.tier_config.settings.consensus_required:
-                max_refinement_loops = self.tier_config.settings.max_refinement_loops
-                refinement_count = 0
+                final_status, turn_count, current_synthesis = await self._execute_consensus_loop(
+                    thread_id=thread_id,
+                    topic=topic,
+                    current_synthesis=current_synthesis,
+                    turn_count=turn_count,
+                    wind_provider=wind_provider,
+                    wall_provider=wall_provider,
+                    door_provider=door_provider,
+                )
 
-                while refinement_count <= max_refinement_loops:
-                    # 6a. Wind approval
-                    wind_approval_prompt = format_wind_approval_prompt(topic, thread_id)
-                    wind_approval_response: ProviderResponse = await asyncio.wait_for(
-                        wind_provider.complete(
-                            system_prompt=self._get_prompt("wind"),
-                            user_prompt=wind_approval_prompt,
-                        ),
-                        timeout=timeout,
-                    )
-                    wind_vote = parse_consensus_response(wind_approval_response.content)
-
-                    # Emit CONSENSUS_VOTE event for Wind
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.CONSENSUS_VOTE,
-                        payload={
-                            "role": "Wind",
-                            "approved": wind_vote.approved,
-                        },
-                        state_dir=self.state_dir,
-                    )
-
-                    # If Wind rejects, refine immediately
-                    if not wind_vote.approved:
-                        refinement_count += 1
-                        if refinement_count > max_refinement_loops:
-                            # Max loops exceeded - stalemate
-                            break
-
-                        # Door refines based on Wind's feedback
-                        refinement_prompt = self._create_refinement_prompt(
-                            topic, thread_id, "Wind", wind_vote.feedback
-                        )
-                        door_response = await asyncio.wait_for(
-                            door_provider.complete(
-                                system_prompt=self._get_prompt("door"),
-                                user_prompt=refinement_prompt,
-                            ),
-                            timeout=timeout,
-                        )
-                        debate_turn(
-                            thread_id=thread_id,
-                            role="Door",
-                            content=door_response.content,
-                            cognition="LOGOS",
-                            model=door_response.model,
-                            token_input=door_response.token_input,
-                            token_output=door_response.token_output,
-                            state_dir=self.state_dir,
-                        )
-                        append_event(
-                            thread_id=thread_id,
-                            event_type=EventType.TURN_ADDED,
-                            payload={
-                                "role": "Door",
-                                "model": door_response.model,
-                            },
-                            state_dir=self.state_dir,
-                        )
-                        turn_count += 1
-                        current_synthesis = door_response.content
-                        continue  # Start consensus loop again
-
-                    # 6b. Wall approval (only if Wind approved)
-                    wall_approval_prompt = format_wall_approval_prompt(topic, thread_id)
-                    wall_approval_response: ProviderResponse = await asyncio.wait_for(
-                        wall_provider.complete(
-                            system_prompt=self._get_prompt("wall"),
-                            user_prompt=wall_approval_prompt,
-                        ),
-                        timeout=timeout,
-                    )
-                    wall_vote = parse_consensus_response(wall_approval_response.content)
-
-                    # Emit CONSENSUS_VOTE event for Wall
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.CONSENSUS_VOTE,
-                        payload={
-                            "role": "Wall",
-                            "approved": wall_vote.approved,
-                        },
-                        state_dir=self.state_dir,
-                    )
-
-                    # If Wall rejects, refine
-                    if not wall_vote.approved:
-                        refinement_count += 1
-                        if refinement_count > max_refinement_loops:
-                            # Max loops exceeded - stalemate
-                            break
-
-                        # Door refines based on Wall's feedback
-                        refinement_prompt = self._create_refinement_prompt(
-                            topic, thread_id, "Wall", wall_vote.feedback
-                        )
-                        door_response = await asyncio.wait_for(
-                            door_provider.complete(
-                                system_prompt=self._get_prompt("door"),
-                                user_prompt=refinement_prompt,
-                            ),
-                            timeout=timeout,
-                        )
-                        debate_turn(
-                            thread_id=thread_id,
-                            role="Door",
-                            content=door_response.content,
-                            cognition="LOGOS",
-                            model=door_response.model,
-                            token_input=door_response.token_input,
-                            token_output=door_response.token_output,
-                            state_dir=self.state_dir,
-                        )
-                        append_event(
-                            thread_id=thread_id,
-                            event_type=EventType.TURN_ADDED,
-                            payload={
-                                "role": "Door",
-                                "model": door_response.model,
-                            },
-                            state_dir=self.state_dir,
-                        )
-                        turn_count += 1
-                        current_synthesis = door_response.content
-                        continue  # Start consensus loop again
-
-                    # Both approved - exit consensus loop
-                    break
-
-                # Check if we exceeded max loops (stalemate)
-                if refinement_count > max_refinement_loops:
-                    # Close with stalemate status
+                # Handle stalemate from consensus loop
+                if final_status == "stalemate":
                     debate_close(
                         thread_id=thread_id,
                         synthesis=current_synthesis,
@@ -614,205 +601,47 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 # Complete missing Wind turn if needed (CE Fix #2)
                 if "Wind" not in existing_roles:
                     wind_user_prompt = format_wind_user_prompt(topic, thread_id)
-                    wind_response: ProviderResponse = await asyncio.wait_for(
-                        wind_provider.complete(
-                            system_prompt=self._get_prompt("wind"),
-                            user_prompt=wind_user_prompt,
-                        ),
-                        timeout=timeout,
-                    )
-                    debate_turn(
-                        thread_id=thread_id,
-                        role="Wind",
-                        content=wind_response.content,
-                        cognition="PATHOS",
-                        model=wind_response.model,
-                        token_input=wind_response.token_input,
-                        token_output=wind_response.token_output,
-                        state_dir=self.state_dir,
-                    )
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.TURN_ADDED,
-                        payload={"role": "Wind", "model": wind_response.model},
-                        state_dir=self.state_dir,
+                    await self._execute_role_turn(
+                        "Wind", wind_provider, thread_id, wind_user_prompt, timeout
                     )
                     turn_count += 1
 
                 # Complete missing Wall turn if needed
                 if "Wall" not in existing_roles:
                     wall_user_prompt = format_wall_user_prompt(topic, thread_id)
-                    wall_response: ProviderResponse = await asyncio.wait_for(
-                        wall_provider.complete(
-                            system_prompt=self._get_prompt("wall"),
-                            user_prompt=wall_user_prompt,
-                        ),
-                        timeout=timeout,
-                    )
-                    debate_turn(
-                        thread_id=thread_id,
-                        role="Wall",
-                        content=wall_response.content,
-                        cognition="ETHOS",
-                        model=wall_response.model,
-                        token_input=wall_response.token_input,
-                        token_output=wall_response.token_output,
-                        state_dir=self.state_dir,
-                    )
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.TURN_ADDED,
-                        payload={"role": "Wall", "model": wall_response.model},
-                        state_dir=self.state_dir,
+                    await self._execute_role_turn(
+                        "Wall", wall_provider, thread_id, wall_user_prompt, timeout
                     )
                     turn_count += 1
 
                 # Complete missing Door turn if needed (always needed if we're here)
                 if "Door" not in existing_roles:
                     door_user_prompt = format_door_user_prompt(topic, thread_id)
-                    door_response: ProviderResponse = await asyncio.wait_for(
-                        door_provider.complete(
-                            system_prompt=self._get_prompt("door"),
-                            user_prompt=door_user_prompt,
-                        ),
-                        timeout=timeout,
-                    )
-                    debate_turn(
-                        thread_id=thread_id,
-                        role="Door",
-                        content=door_response.content,
-                        cognition="LOGOS",
-                        model=door_response.model,
-                        token_input=door_response.token_input,
-                        token_output=door_response.token_output,
-                        state_dir=self.state_dir,
-                    )
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.TURN_ADDED,
-                        payload={"role": "Door", "model": door_response.model},
-                        state_dir=self.state_dir,
+                    door_response = await self._execute_role_turn(
+                        "Door", door_provider, thread_id, door_user_prompt, timeout
                     )
                     turn_count += 1
                     current_synthesis = door_response.content
 
             # If we have Wind, Wall, Door turns (>=3), resume from consensus
+            final_status = "synthesis"
             if turn_count >= 3 and self.tier_config.settings.consensus_required:
-                max_refinement_loops = self.tier_config.settings.max_refinement_loops
-                refinement_count = max(0, turn_count - 3)  # Estimate refinements done
+                # Estimate refinements already done before pause
+                initial_refinement_count = max(0, turn_count - 3)
 
-                while refinement_count <= max_refinement_loops:
-                    # Wind approval
-                    wind_approval_prompt = format_wind_approval_prompt(topic, thread_id)
-                    wind_approval_response: ProviderResponse = await asyncio.wait_for(
-                        wind_provider.complete(
-                            system_prompt=self._get_prompt("wind"),
-                            user_prompt=wind_approval_prompt,
-                        ),
-                        timeout=timeout,
-                    )
-                    wind_vote = parse_consensus_response(wind_approval_response.content)
+                final_status, turn_count, current_synthesis = await self._execute_consensus_loop(
+                    thread_id=thread_id,
+                    topic=topic,
+                    current_synthesis=current_synthesis,
+                    turn_count=turn_count,
+                    wind_provider=wind_provider,
+                    wall_provider=wall_provider,
+                    door_provider=door_provider,
+                    initial_refinement_count=initial_refinement_count,
+                )
 
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.CONSENSUS_VOTE,
-                        payload={"role": "Wind", "approved": wind_vote.approved},
-                        state_dir=self.state_dir,
-                    )
-
-                    if not wind_vote.approved:
-                        refinement_count += 1
-                        if refinement_count > max_refinement_loops:
-                            break
-
-                        refinement_prompt = self._create_refinement_prompt(
-                            topic, thread_id, "Wind", wind_vote.feedback
-                        )
-                        door_response = await asyncio.wait_for(
-                            door_provider.complete(
-                                system_prompt=self._get_prompt("door"),
-                                user_prompt=refinement_prompt,
-                            ),
-                            timeout=timeout,
-                        )
-                        debate_turn(
-                            thread_id=thread_id,
-                            role="Door",
-                            content=door_response.content,
-                            cognition="LOGOS",
-                            model=door_response.model,
-                            token_input=door_response.token_input,
-                            token_output=door_response.token_output,
-                            state_dir=self.state_dir,
-                        )
-                        append_event(
-                            thread_id=thread_id,
-                            event_type=EventType.TURN_ADDED,
-                            payload={"role": "Door", "model": door_response.model},
-                            state_dir=self.state_dir,
-                        )
-                        turn_count += 1
-                        current_synthesis = door_response.content
-                        continue
-
-                    # Wall approval
-                    wall_approval_prompt = format_wall_approval_prompt(topic, thread_id)
-                    wall_approval_response: ProviderResponse = await asyncio.wait_for(
-                        wall_provider.complete(
-                            system_prompt=self._get_prompt("wall"),
-                            user_prompt=wall_approval_prompt,
-                        ),
-                        timeout=timeout,
-                    )
-                    wall_vote = parse_consensus_response(wall_approval_response.content)
-
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.CONSENSUS_VOTE,
-                        payload={"role": "Wall", "approved": wall_vote.approved},
-                        state_dir=self.state_dir,
-                    )
-
-                    if not wall_vote.approved:
-                        refinement_count += 1
-                        if refinement_count > max_refinement_loops:
-                            break
-
-                        refinement_prompt = self._create_refinement_prompt(
-                            topic, thread_id, "Wall", wall_vote.feedback
-                        )
-                        door_response = await asyncio.wait_for(
-                            door_provider.complete(
-                                system_prompt=self._get_prompt("door"),
-                                user_prompt=refinement_prompt,
-                            ),
-                            timeout=timeout,
-                        )
-                        debate_turn(
-                            thread_id=thread_id,
-                            role="Door",
-                            content=door_response.content,
-                            cognition="LOGOS",
-                            model=door_response.model,
-                            token_input=door_response.token_input,
-                            token_output=door_response.token_output,
-                            state_dir=self.state_dir,
-                        )
-                        append_event(
-                            thread_id=thread_id,
-                            event_type=EventType.TURN_ADDED,
-                            payload={"role": "Door", "model": door_response.model},
-                            state_dir=self.state_dir,
-                        )
-                        turn_count += 1
-                        current_synthesis = door_response.content
-                        continue
-
-                    # Both approved
-                    break
-
-                # Check for stalemate
-                if refinement_count > max_refinement_loops:
+                # Handle stalemate from consensus loop
+                if final_status == "stalemate":
                     debate_close(
                         thread_id=thread_id,
                         synthesis=current_synthesis,
