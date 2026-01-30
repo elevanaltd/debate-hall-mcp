@@ -2,20 +2,22 @@
 
 META:
   TYPE::PROJECT_CONTEXT
-  VERSION::"2.3"
-  GENERATED::"2026-01-04"
-  STATUS::MCP_TOOLS_INVESTIGATION
+  VERSION::"3.0"
+  GENERATED::"2026-01-30"
+  STATUS::AUTO_ORCHESTRATION_COMPLETE
 
 §1::IDENTITY
 
 NAME::debate-hall-mcp
-PURPOSE::"Production-grade MCP server for Wind/Wall/Door debate orchestration"
+PURPOSE::"Production-grade MCP server for Wind/Wall/Door debate orchestration with auto-orchestration"
 NORTH_STAR::.hestai/workflow/000-DEBATE-HALL-MCP-NORTH-STAR.oct.md
 NORTH_STAR_STATEMENT::"To construct a deterministic crucible where subjective cognitive friction is transmuted into objective structural truth through finite, governed, and verifiable dialectic."
 
 §2::BUILD_STATUS
 
-ALL_PHASES_COMPLETE::[
+CURRENT_PHASE::AUTO_ORCHESTRATION_COMPLETE[Issue_#111]
+
+ORIGINAL_BUILD_PHASES::[
   B0::WORKSPACE_SETUP[COMPLETE],
   B1::FOUNDATION[COMPLETE],
   B2::FEATURE_IMPLEMENTATION[COMPLETE],
@@ -24,16 +26,20 @@ ALL_PHASES_COMPLETE::[
   B5::RELEASE_PREP[COMPLETE]
 ]
 
+ISSUE_111_AUTO_ORCHESTRATION::[
+  P1::FOUNDATION[COMPLETE][PR_#113][events.py+config.py+PAUSED_status],
+  P2::PROVIDERS[COMPLETE][PR_#114][ModelProvider+CliProvider+OpenRouterProvider],
+  P3::ORCHESTRATOR[COMPLETE][PR_#116][DebateOrchestrator+run_debate+prompts],
+  P4::CONSENSUS[COMPLETE][PR_#117][Wind/Wall_approval+refinement_loops+resume_debate],
+  P5::EVENT_DELIVERY[DEFERRED][streaming+callbacks]
+]
+
 §3::QUALITY_METRICS
 
 TESTS::[
-  UNIT::257_tests,
-  E2E::5_tests,
-  TOTAL::262_tests,
+  TOTAL::734_tests,
   STATUS::ALL_PASSING
 ]
-
-COVERAGE::91.44%[exceeds_90%_requirement]
 
 TYPE_SAFETY::mypy_strict[0_errors]
 
@@ -42,81 +48,32 @@ LINT::ruff+black[0_violations]
 §4::IMMUTABLES_IMPLEMENTED
 
 I1::COGNITIVE_STATE_ISOLATION[
-  IMPLEMENTATION::state.py[DebateRoom_model],
-  VERIFICATION::all_state_server_side
+  IMPLEMENTATION::state.py[DebateRoom_model]+prompts[get_debate_instruction],
+  VERIFICATION::all_state_server_side+agents_call_get_debate
 ]
 
 I2::UNIVERSAL_OCTAVE_BINDING[
   IMPLEMENTATION::COMPLETE[output_format_parameter+octave_formatter.py],
   STATUS::cognition_validation_implemented+octave_export_functional,
-  VERIFICATION::test_octave_formatter.py[1046_lines]+test_octave_output.py[356_lines]
+  VERIFICATION::test_octave_formatter.py+test_octave_output.py
 ]
 
 I3::FINITE_DIALECTIC_CLOSURE[
-  IMPLEMENTATION::engine.py[max_turns+max_rounds],
-  VERIFICATION::test_limits_enforcement.py
+  IMPLEMENTATION::engine.py[max_turns+max_rounds]+orchestrator.py[max_refinement_loops],
+  VERIFICATION::test_limits_enforcement.py+test_orchestrator_consensus.py
 ]
 
 I4::VERIFIABLE_EVENT_LEDGER[
-  IMPLEMENTATION::state.py[sha256_hash_chain],
-  VERIFICATION::test_hash_chain+test_tombstone
+  IMPLEMENTATION::state.py[sha256_hash_chain]+events.py[CONSENSUS_VOTE],
+  VERIFICATION::test_hash_chain+test_tombstone+event_log_files
 ]
 
 I5::SOVEREIGN_SAFETY_OVERRIDE[
-  IMPLEMENTATION::tools/admin.py[force_close+tombstone],
-  VERIFICATION::test_admin_functions.py
+  IMPLEMENTATION::tools/admin.py[force_close+tombstone]+orchestrator.py[PAUSED_status],
+  VERIFICATION::test_admin_functions.py+resume_debate_tool
 ]
 
-§5::ARTIFACTS_CREATED
-
-SOURCE_CODE::[
-  src/debate_hall_mcp/__init__.py,
-  src/debate_hall_mcp/state.py,
-  src/debate_hall_mcp/engine.py,
-  src/debate_hall_mcp/server.py,
-  src/debate_hall_mcp/tools/__init__.py,
-  src/debate_hall_mcp/tools/init.py,
-  src/debate_hall_mcp/tools/turn.py,
-  src/debate_hall_mcp/tools/get.py,
-  src/debate_hall_mcp/tools/close.py,
-  src/debate_hall_mcp/tools/pick.py,
-  src/debate_hall_mcp/tools/admin.py
-]
-
-TESTS::[
-  tests/conftest.py,
-  tests/unit/test___init__.py,
-  tests/unit/test_tools_init.py,
-  tests/unit/test_state.py,
-  tests/unit/test_engine.py,
-  tests/unit/test_server.py,
-  tests/unit/tools/test_init.py,
-  tests/unit/tools/test_turn.py,
-  tests/unit/tools/test_get.py,
-  tests/unit/tools/test_close.py,
-  tests/unit/tools/test_pick.py,
-  tests/unit/tools/test_admin.py,
-  tests/e2e/test_debate_flow.py,
-  tests/e2e/test_mediated_mode.py,
-  tests/e2e/test_limits_enforcement.py,
-  tests/e2e/test_admin_functions.py
-]
-
-DOCUMENTATION::[
-  README.md,
-  pyproject.toml,
-  .gitignore,
-  .github/workflows/ci.yml
-]
-
-GOVERNANCE::[
-  .hestai/workflow/000-DEBATE-HALL-MCP-NORTH-STAR.oct.md,
-  .hestai/workflow/orchestration-plan.oct.md,
-  .hestai/context/PROJECT-CONTEXT.oct.md,
-  debates/north-star/transcript.md
-]
-
-§6::MCP_TOOLS_SUMMARY
+§5::MCP_TOOLS_SUMMARY
 
 CORE_TOOLS::[
   init_debate::create_debate_room,
@@ -134,80 +91,83 @@ ADMIN_TOOLS::[
   tombstone_turn::I4_redaction
 ]
 
-§7::META_VALIDATION
-
-PROOF_OF_CONCEPT_SUCCESS::[
-  CLAIM::"Use debate-hall to build debate-hall-mcp",
-  EVIDENCE::debates/north-star/[
-    WIND::proposed_6_immutables,
-    WALL::challenged_with_reality,
-    DOOR::synthesized_to_5_final_immutables
-  ],
-  RESULT::NORTH_STAR_derived_from_Wind/Wall/Door_debate
+AUTO_ORCHESTRATION_TOOLS::[
+  run_debate::fully_automated_Wind_Wall_Door_debate,
+  resume_debate::resume_PAUSED_debates_after_failure
 ]
 
-§8::NEXT_STEPS
-
-RELEASE_READY::[
-  PyPI::pip_install_debate-hall-mcp,
-  GitHub::release_v0.1.0,
-  MCP_Registry::submission_pending
+GITHUB_TOOLS::[
+  github_sync_debate::sync_turns_to_GitHub_Discussion,
+  ratify_rfc::generate_ADR_from_synthesis,
+  human_interject::inject_human_comment_into_debate
 ]
 
-§9::COMPLETED_MILESTONES
+TOTAL_MCP_TOOLS::12
 
-ENFORCEMENT_HARDENING_v010::[
-  STATUS::COMPLETE[2025-12-31],
-  BUILD_ORDER::#36->#37->#38->#39->#40,
-  PR_#42::Issue_#36_cognition_role_normalization[MERGED],
-  PR_#43::Issue_#37_mediated_picks_enforcement[MERGED],
-  PR_#44::Issue_#38_synthesis_semantics[MERGED],
-  PR_#45::Issue_#39_atomic_persistence[MERGED],
-  PR_#46::Issue_#40_audit_trail_tombstone[MERGED],
-  FEATURES_ADDED::[
-    role_cognition_mapping[Wind<->PATHOS,Wall<->ETHOS,Door<->LOGOS],
-    mediated_mode_enforcement[expected_next_role_persisted],
-    synthesis_validation[LOGOS_rules_on_close],
-    atomic_file_writes[tempfile+rename+fsync],
-    audit_trail[AuditEvent_model+audit_log_field],
-    tombstone_context[original_content_hash_preserved]
-  ],
-  SOURCE::PR_#34_quality_review_debate[2025-12-31]
+§6::AUTO_ORCHESTRATION_ARCHITECTURE
+
+PROVIDERS::[
+  ModelProvider::protocol_interface,
+  CliProvider::claude+codex+gemini_CLI_integration,
+  OpenRouterProvider::any_OpenRouter_model
 ]
 
-§10::OPEN_ISSUES
-
-DEFERRED_V020::[
-  genius_insights::READY[audit_foundation_complete]
+TIER_CONFIGURATION::[
+  LOCATION::~/.debate-hall/tiers.yaml_or_env_var_or_defaults,
+  FIELDS::wind+wall+door[provider+cli_or_model+role]+settings[consensus_required+max_turns+max_refinement_loops]
 ]
 
-OPEN_INVESTIGATION::[
-  Issue_#73::phase_2_github_automation[investigation_required],
-  MCP_TOOLS_INVESTIGATION::[.hestai/reports/mcp-tools-investigation-2026-01-04.md]
+CONSENSUS_MECHANISM::[
+  FLOW::Wind_approves->Wall_approves->synthesis_OR_reject->Door_refines,
+  PARSER::fuzzy_APPROVE_REJECT_matching+fail_safe_defaults_to_REJECT,
+  EVENTS::CONSENSUS_VOTE_emitted_for_each_approval
 ]
 
-RESOLVED_SINCE_LAST_UPDATE::[
-  Issue_#29::CLOSED[OCTAVE_auto_generate_complete],
-  Issue_#33::CLOSED[storage_location_fixed],
-  Issue_#26::CLOSED[OCTAVE_format_implemented],
-  Issue_#58::CLOSED[hash_chain_verification_on_load]
+FAILURE_RECOVERY::[
+  STATUS::PAUSED_on_provider_failure,
+  TOOL::resume_debate_continues_from_pause_point,
+  CE_FIX::handles_turn_count_0_through_3_cases
 ]
 
-CLOSED_PRS::[
-  PR_#23::CLOSED[Wind_exploration_no_code],
-  PR_#25::CLOSED[superseded_CLI+wrong_I2_removal+stale_agents],
-  PR_#34::REVIEWED[quality_report_debated+issues_created],
-  PR_#42::MERGED[Issue_#36_cognition_role_normalization],
-  PR_#43::MERGED[Issue_#37_mediated_picks_enforcement],
-  PR_#44::MERGED[Issue_#38_synthesis_semantics],
-  PR_#45::MERGED[Issue_#39_atomic_persistence],
-  PR_#46::MERGED[Issue_#40_audit_trail_tombstone],
-  PR_#47::MERGED[PROJECT_CONTEXT_update],
-  PR_#51::MERGED[cross_platform_os_replace],
-  PR_#52::MERGED[Issues_#48_#49_#50_retrospective_review_fixes],
-  PR_#53::MERGED[Issue_#48_cross_platform_filelock]
+§7::KEY_FILES
+
+SOURCE_CODE::[
+  src/debate_hall_mcp/server.py[12_MCP_tools_registered],
+  src/debate_hall_mcp/orchestrator.py[DebateOrchestrator+consensus_loop],
+  src/debate_hall_mcp/consensus.py[ConsensusResult+parse_consensus_response],
+  src/debate_hall_mcp/config.py[TierConfig+RoleConfig+TierSettings],
+  src/debate_hall_mcp/providers/__init__.py[ModelProvider+create_provider],
+  src/debate_hall_mcp/providers/cli.py[CliProvider],
+  src/debate_hall_mcp/providers/openrouter.py[OpenRouterProvider],
+  src/debate_hall_mcp/prompts/__init__.py[Wind_Wall_Door_approval_prompts],
+  src/debate_hall_mcp/events.py[EventType+append_event],
+  src/debate_hall_mcp/state.py[DebateRoom+DebateStatus],
+  src/debate_hall_mcp/tools/orchestrate.py[run_debate+resume_debate]
 ]
+
+TESTS::[
+  tests/unit/test_consensus.py[28_tests],
+  tests/unit/test_prompts_consensus.py[17_tests],
+  tests/unit/test_orchestrator_consensus.py[10_tests],
+  tests/unit/tools/test_orchestrate_resume.py[13_tests],
+  tests/unit/test_providers.py,
+  tests/unit/test_config.py
+]
+
+§8::RELATED_ISSUES
+
+COMPLETED::[
+  Issue_#111::feat_run_debate_auto_orchestration[CLOSED][all_phases_complete]
+]
+
+DEPENDENT::[
+  Issue_#112::Debate_Hall_App[depends_on_#111]
+]
+
+§9::REPO_INFO
 
 REPO_URL::https://github.com/elevanaltd/debate-hall-mcp
+BRANCH::issue-111-ph4[merged_to_main]
+MERGED_PRS::[#113,#114,#116,#117,#118]
 
 ===END_PROJECT_CONTEXT===

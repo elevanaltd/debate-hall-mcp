@@ -344,6 +344,12 @@ def main() -> None:
 
     Runs server with stdio transport (default for MCP).
     """
+    # Ensure dependencies are synced in development mode
+    # This must happen early, before heavy imports that may fail
+    from debate_hall_mcp.startup import ensure_dependencies
+
+    ensure_dependencies()
+
     server = create_server()
     server.run()
 
