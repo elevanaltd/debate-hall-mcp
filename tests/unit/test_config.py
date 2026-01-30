@@ -4,7 +4,7 @@ Tests cover (ADR-0002 Foundation):
 - RoleConfig model for Wind/Wall/Door provider configuration
 - TierSettings model for tier-specific debate settings
 - TierConfig model combining role configs with settings
-- Tier configuration loader with resolution order
+- Tier configuration loader with file-based resolution
 """
 
 from pathlib import Path
@@ -141,18 +141,18 @@ class TestTierConfig:
                 settings=TierSettings(),
             )
 
-    def test_tier_config_requires_settings(self) -> None:
-        """TierConfig requires settings."""
-        from pydantic import ValidationError
-
+    def test_tier_config_settings_has_default(self) -> None:
+        """TierConfig settings has a default factory."""
         from debate_hall_mcp.config import RoleConfig, TierConfig
 
-        with pytest.raises(ValidationError, match="settings"):
-            TierConfig(
-                wind=RoleConfig(provider="cli", cli="claude"),
-                wall=RoleConfig(provider="cli", cli="codex"),
-                door=RoleConfig(provider="cli", cli="gemini"),
-            )
+        config = TierConfig(
+            wind=RoleConfig(provider="cli", cli="claude"),
+            wall=RoleConfig(provider="cli", cli="codex"),
+            door=RoleConfig(provider="cli", cli="gemini"),
+        )
+        # Settings should use defaults
+        assert config.settings.consensus_required is True
+        assert config.settings.max_turns == 12
 
     def test_tier_config_mixed_providers(self) -> None:
         """TierConfig can mix CLI and OpenRouter providers."""
@@ -170,7 +170,7 @@ class TestTierConfig:
 
 
 class TestTierConfigLoader:
-    """Test tier configuration loader with resolution order."""
+    """Test tier configuration loader with file-based resolution."""
 
     def test_load_tier_config_from_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -236,26 +236,27 @@ class TestTierConfigLoader:
         # Unset env var and mock home directory
         monkeypatch.delenv("DEBATE_HALL_TIERS_FILE", raising=False)
         monkeypatch.setenv("HOME", str(mock_home))
+        # Change to temp dir so ./tiers.yaml isn't found
+        monkeypatch.chdir(tmp_path)
 
         config = load_tier_config("premium")
         assert config.wall.provider == "openrouter"
         assert config.settings.max_turns == 20
 
-    def test_load_tier_config_default_fallback(
+    def test_load_tier_config_no_config_raises_error(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """load_tier_config uses built-in defaults if no config files exist."""
-        from debate_hall_mcp.config import load_tier_config
+        """load_tier_config raises TierConfigNotFoundError if no config files exist."""
+        from debate_hall_mcp.config import TierConfigNotFoundError, load_tier_config
 
         # Point to non-existent locations
         monkeypatch.delenv("DEBATE_HALL_TIERS_FILE", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path / "nonexistent"))
+        monkeypatch.chdir(tmp_path / "also_nonexistent" if False else tmp_path)
 
-        config = load_tier_config("standard")
-        # Should return default "standard" tier
-        assert config is not None
-        assert config.wind.provider in ("cli", "openrouter")
-        assert config.settings is not None
+        # Create empty tmp_path with no tiers.yaml
+        with pytest.raises(TierConfigNotFoundError, match="No tier configuration found"):
+            load_tier_config("standard")
 
     def test_load_tier_config_tier_not_found(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -286,6 +287,36 @@ class TestTierConfigLoader:
 
         with pytest.raises(KeyError, match="nonexistent"):
             load_tier_config("nonexistent")
+
+    def test_load_tier_config_empty_file_raises_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_tier_config raises TierConfigParseError for empty YAML file."""
+        from debate_hall_mcp.config import TierConfigParseError, load_tier_config
+
+        # Create empty config file
+        config_file = tmp_path / "tiers.yaml"
+        config_file.write_text("")
+
+        monkeypatch.setenv("DEBATE_HALL_TIERS_FILE", str(config_file))
+
+        with pytest.raises(TierConfigParseError, match="empty"):
+            load_tier_config("standard")
+
+    def test_load_tier_config_non_mapping_raises_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_tier_config raises TierConfigParseError for non-mapping YAML."""
+        from debate_hall_mcp.config import TierConfigParseError, load_tier_config
+
+        # Create config file with list instead of mapping
+        config_file = tmp_path / "tiers.yaml"
+        config_file.write_text("- item1\n- item2\n")
+
+        monkeypatch.setenv("DEBATE_HALL_TIERS_FILE", str(config_file))
+
+        with pytest.raises(TierConfigParseError, match="must be a YAML mapping"):
+            load_tier_config("standard")
 
     def test_load_tier_config_env_var_priority(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -341,23 +372,84 @@ class TestTierConfigLoader:
         # Should use env var config (max_turns=100) not home config (max_turns=50)
         assert config.settings.max_turns == 100
 
+    def test_load_tier_config_from_project_local(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_tier_config reads from ./tiers.yaml (project-local)."""
+        from debate_hall_mcp.config import load_tier_config
 
-class TestDefaultTiers:
-    """Test built-in DEFAULT_TIERS configuration."""
+        # Create project-local config
+        config_file = tmp_path / "tiers.yaml"
+        config_file.write_text(dedent("""
+            standard:
+              wind:
+                provider: openrouter
+                model: anthropic/claude-sonnet-4
+              wall:
+                provider: openrouter
+                model: anthropic/claude-sonnet-4
+              door:
+                provider: openrouter
+                model: anthropic/claude-sonnet-4
+        """))
 
-    def test_default_tiers_has_standard(self) -> None:
-        """DEFAULT_TIERS includes 'standard' tier."""
-        from debate_hall_mcp.config import DEFAULT_TIERS
+        # Unset env var and point home to non-existent
+        monkeypatch.delenv("DEBATE_HALL_TIERS_FILE", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "nonexistent"))
+        monkeypatch.chdir(tmp_path)
 
-        assert "standard" in DEFAULT_TIERS
+        config = load_tier_config("standard")
+        assert config.wind.provider == "openrouter"
+        assert config.wind.model == "anthropic/claude-sonnet-4"
 
-    def test_default_standard_tier_is_valid(self) -> None:
-        """DEFAULT_TIERS 'standard' tier is a valid TierConfig."""
-        from debate_hall_mcp.config import DEFAULT_TIERS, TierConfig
+    def test_load_tier_config_project_local_priority_over_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Project-local ./tiers.yaml takes priority over ~/.debate-hall/tiers.yaml."""
+        from debate_hall_mcp.config import load_tier_config
 
-        standard = DEFAULT_TIERS["standard"]
-        assert isinstance(standard, TierConfig)
-        assert standard.wind is not None
-        assert standard.wall is not None
-        assert standard.door is not None
-        assert standard.settings is not None
+        # Create project-local config
+        project_config = tmp_path / "tiers.yaml"
+        project_config.write_text(dedent("""
+            standard:
+              wind:
+                provider: openrouter
+                model: project-model
+              wall:
+                provider: openrouter
+                model: project-model
+              door:
+                provider: openrouter
+                model: project-model
+              settings:
+                max_turns: 999
+        """))
+
+        # Create home dir config
+        mock_home = tmp_path / "home"
+        mock_debate_hall = mock_home / ".debate-hall"
+        mock_debate_hall.mkdir(parents=True)
+        home_config = mock_debate_hall / "tiers.yaml"
+        home_config.write_text(dedent("""
+            standard:
+              wind:
+                provider: cli
+                cli: claude
+              wall:
+                provider: cli
+                cli: codex
+              door:
+                provider: cli
+                cli: gemini
+              settings:
+                max_turns: 1
+        """))
+
+        monkeypatch.delenv("DEBATE_HALL_TIERS_FILE", raising=False)
+        monkeypatch.setenv("HOME", str(mock_home))
+        monkeypatch.chdir(tmp_path)
+
+        config = load_tier_config("standard")
+        # Should use project-local (max_turns=999), not home (max_turns=1)
+        assert config.settings.max_turns == 999
+        assert config.wind.model == "project-model"
