@@ -32,6 +32,13 @@ class RoleConfig(BaseModel):
     - cli: For CLI provider, which CLI to use (claude, codex, gemini)
     - model: For OpenRouter provider, the model identifier
     - role: Optional system prompt role name override
+    - prompt_file: Optional custom prompt file path or variant name
+
+    Prompt Resolution (prompt_file):
+    - Absolute path: Load from that file
+    - Relative path (./...): Resolve from cwd
+    - Variant name (e.g., "security"): Resolve to ~/.debate-hall/prompts/{role}-{name}.oct.md
+    - None: Use embedded default (Ship ZERO principle)
     """
 
     provider: Literal["cli", "openrouter"] = Field(
@@ -42,6 +49,10 @@ class RoleConfig(BaseModel):
     )
     model: str | None = Field(default=None, description="Model identifier for openrouter provider")
     role: str | None = Field(default=None, description="System prompt role name override")
+    prompt_file: str | None = Field(
+        default=None,
+        description="Custom prompt file path or variant name (e.g., 'security' -> wind-security.oct.md)",
+    )
 
 
 class TierSettings(BaseModel):

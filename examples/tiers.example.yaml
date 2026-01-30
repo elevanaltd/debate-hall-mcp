@@ -75,3 +75,42 @@ mixed:
     consensus_required: true
     max_turns: 12
     max_refinement_loops: 3
+
+# Security tier - Uses custom security-focused prompts
+# Requires: ~/.debate-hall/prompts/wind-security.oct.md
+# See examples/prompts/ for sample custom prompts
+security:
+  wind:
+    provider: cli
+    cli: claude
+    prompt_file: security  # Resolves to ~/.debate-hall/prompts/wind-security.oct.md
+  wall:
+    provider: cli
+    cli: codex
+    # No prompt_file = use embedded default
+  door:
+    provider: cli
+    cli: gemini
+  settings:
+    consensus_required: true
+    max_turns: 15
+    max_refinement_loops: 4
+
+# Custom prompt tier - Using absolute paths
+custom:
+  wind:
+    provider: openrouter
+    model: anthropic/claude-3-opus
+    prompt_file: /path/to/your/wind-custom.oct.md  # Absolute path
+  wall:
+    provider: openrouter
+    model: openai/gpt-4-turbo
+    prompt_file: ./local-wall-prompt.oct.md  # Relative to cwd
+  door:
+    provider: openrouter
+    model: google/gemini-pro
+    prompt_file: technical  # Named variant -> ~/.debate-hall/prompts/door-technical.oct.md
+  settings:
+    consensus_required: true
+    max_turns: 12
+    max_refinement_loops: 3
