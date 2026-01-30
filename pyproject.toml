@@ -41,7 +41,7 @@ dev = [
     "pytest-cov>=4.1.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
-    "black>=24.0.0",
+    "black==26.1.0",  # Pin to avoid CI/local formatting drift
     "inline-snapshot>=0.15.0",
 ]
 
