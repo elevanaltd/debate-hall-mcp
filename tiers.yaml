@@ -1,0 +1,84 @@
+# Debate Hall MCP - Tier Configuration
+#
+# This file configures the AI providers for auto-orchestrated debates.
+# Resolution order: env var > ./tiers.yaml > ~/.debate-hall/tiers.yaml
+#
+# Provider options:
+# - openrouter: Requires OPENROUTER_API_KEY environment variable
+# - cli: Requires claude/codex/gemini CLI tools installed
+#
+# For OpenRouter models, see: https://openrouter.ai/models
+
+standard:
+  wind:
+    provider: openrouter
+    model: anthropic/claude-sonnet-4
+    role: wind-agent
+  wall:
+    provider: openrouter
+    model: anthropic/claude-sonnet-4
+    role: wall-agent
+  door:
+    provider: openrouter
+    model: anthropic/claude-sonnet-4
+    role: door-agent
+  settings:
+    consensus_required: true
+    max_turns: 12
+    max_refinement_loops: 3
+    provider_timeout: 300
+    fallback:
+      enabled: true
+      provider: openrouter
+      model: anthropic/claude-haiku-4
+      timeout: 60
+
+# Fast tier for quick, low-cost debates
+fast:
+  wind:
+    provider: openrouter
+    model: anthropic/claude-haiku-4
+    role: wind-agent
+    timeout: 60
+  wall:
+    provider: openrouter
+    model: anthropic/claude-haiku-4
+    role: wall-agent
+    timeout: 60
+  door:
+    provider: openrouter
+    model: anthropic/claude-haiku-4
+    role: door-agent
+    timeout: 60
+  settings:
+    consensus_required: false
+    max_turns: 6
+    max_refinement_loops: 1
+    provider_timeout: 60
+    fallback:
+      enabled: false
+
+# Premium tier for complex debates requiring stronger reasoning
+premium:
+  wind:
+    provider: openrouter
+    model: anthropic/claude-opus-4
+    role: wind-agent
+  wall:
+    provider: openrouter
+    model: anthropic/claude-opus-4
+    role: wall-agent
+  door:
+    provider: openrouter
+    model: anthropic/claude-opus-4
+    role: door-agent
+  settings:
+    consensus_required: true
+    max_turns: 16
+    max_refinement_loops: 5
+    provider_timeout: 600
+    fallback:
+      enabled: true
+      provider: openrouter
+      model: anthropic/claude-sonnet-4
+      timeout: 120

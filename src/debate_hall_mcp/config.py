@@ -4,12 +4,14 @@ This module implements:
 - RoleConfig for Wind/Wall/Door provider configuration
 - TierSettings for tier-specific debate settings
 - TierConfig combining role configs with settings
-- load_tier_config for configuration loading with resolution order
+- load_tier_config for configuration loading
 
 Resolution order for tier configuration:
 1. DEBATE_HALL_TIERS_FILE environment variable
-2. ~/.debate-hall/tiers.yaml
-3. Built-in DEFAULT_TIERS
+2. ./tiers.yaml (project-local, for team/repo configs)
+3. ~/.debate-hall/tiers.yaml (user-global)
+
+No hardcoded defaults - configuration must exist in a tiers.yaml file.
 """
 
 import os
@@ -86,7 +88,7 @@ class FallbackConfig(BaseModel):
         default="openrouter", description="Fallback provider type"
     )
     model: str = Field(
-        default="anthropic/claude-haiku-4.5",
+        default="anthropic/claude-haiku-4",
         description="Fallback model (fast/cheap recommended)",
     )
     timeout: int = Field(default=60, description="Fallback provider timeout in seconds")
@@ -134,60 +136,23 @@ class TierConfig(BaseModel):
     wind: RoleConfig = Field(..., description="Wind (PATHOS) role configuration")
     wall: RoleConfig = Field(..., description="Wall (ETHOS) role configuration")
     door: RoleConfig = Field(..., description="Door (LOGOS) role configuration")
-    settings: TierSettings = Field(..., description="Tier settings")
+    settings: TierSettings = Field(default_factory=TierSettings, description="Tier settings")
 
-
-# Built-in default tiers
-DEFAULT_TIERS: dict[str, TierConfig] = {
-    "standard": TierConfig(
-        wind=RoleConfig(provider="cli", cli="claude", role="wind-agent"),
-        wall=RoleConfig(provider="cli", cli="codex", role="wall-agent"),
-        door=RoleConfig(provider="cli", cli="gemini", role="door-agent"),
-        settings=TierSettings(
-            consensus_required=True,
-            max_turns=12,
-            max_refinement_loops=3,
-            provider_timeout=120,
-            fallback=FallbackConfig(
-                enabled=True,
-                provider="openrouter",
-                model="anthropic/claude-haiku-4.5",
-                timeout=60,
-            ),
-        ),
-    ),
-    # Fast tier: OpenRouter-only for quick, reliable debates
-    "fast": TierConfig(
-        wind=RoleConfig(
-            provider="openrouter",
-            model="anthropic/claude-haiku-4.5",
-            role="wind-agent",
-            timeout=60,
-        ),
-        wall=RoleConfig(
-            provider="openrouter",
-            model="anthropic/claude-haiku-4.5",
-            role="wall-agent",
-            timeout=60,
-        ),
-        door=RoleConfig(
-            provider="openrouter",
-            model="anthropic/claude-haiku-4.5",
-            role="door-agent",
-            timeout=60,
-        ),
-        settings=TierSettings(
-            consensus_required=False,  # Skip consensus for speed
-            max_turns=6,
-            max_refinement_loops=1,
-            provider_timeout=60,
-            fallback=FallbackConfig(enabled=False),  # No fallback needed
-        ),
-    ),
-}
 
 # Environment variable for tier configuration file
 TIERS_FILE_ENV_VAR = "DEBATE_HALL_TIERS_FILE"
+
+
+class TierConfigNotFoundError(Exception):
+    """Raised when no tier configuration file is found."""
+
+    pass
+
+
+class TierConfigParseError(Exception):
+    """Raised when tier configuration file cannot be parsed."""
+
+    pass
 
 
 def _load_tiers_from_yaml(file_path: Path) -> dict[str, TierConfig]:
@@ -201,11 +166,20 @@ def _load_tiers_from_yaml(file_path: Path) -> dict[str, TierConfig]:
 
     Raises:
         FileNotFoundError: If file doesn't exist
-        yaml.YAMLError: If YAML is invalid
+        TierConfigParseError: If YAML is empty or invalid structure
+        yaml.YAMLError: If YAML syntax is invalid
         pydantic.ValidationError: If config structure is invalid
     """
     with open(file_path) as f:
         data = yaml.safe_load(f)
+
+    # Guard against empty file or non-mapping YAML
+    if data is None:
+        raise TierConfigParseError(f"Tier configuration file is empty: {file_path}")
+    if not isinstance(data, dict):
+        raise TierConfigParseError(
+            f"Tier configuration must be a YAML mapping, got {type(data).__name__}: {file_path}"
+        )
 
     tiers: dict[str, TierConfig] = {}
     for tier_name, tier_data in data.items():
@@ -219,7 +193,8 @@ def _get_tiers_file_path() -> Path | None:
 
     Resolution order:
     1. DEBATE_HALL_TIERS_FILE environment variable
-    2. ~/.debate-hall/tiers.yaml
+    2. ./tiers.yaml (project-local)
+    3. ~/.debate-hall/tiers.yaml (user-global)
 
     Returns:
         Path to config file, or None if no file exists
@@ -231,7 +206,12 @@ def _get_tiers_file_path() -> Path | None:
         if path.exists():
             return path
 
-    # Priority 2: Home directory config
+    # Priority 2: Project-local config
+    project_config = Path("./tiers.yaml")
+    if project_config.exists():
+        return project_config.resolve()
+
+    # Priority 3: User-global config
     home = Path(os.environ.get("HOME", "~")).expanduser()
     home_config = home / ".debate-hall" / "tiers.yaml"
     if home_config.exists():
@@ -245,8 +225,8 @@ def load_tier_config(tier_name: str) -> TierConfig:
 
     Resolution order:
     1. DEBATE_HALL_TIERS_FILE environment variable
-    2. ~/.debate-hall/tiers.yaml
-    3. Built-in DEFAULT_TIERS
+    2. ./tiers.yaml (project-local)
+    3. ~/.debate-hall/tiers.yaml (user-global)
 
     Args:
         tier_name: Name of the tier to load (e.g., "standard", "premium")
@@ -255,19 +235,26 @@ def load_tier_config(tier_name: str) -> TierConfig:
         TierConfig for the requested tier
 
     Raises:
-        KeyError: If tier_name is not found in available configurations
+        TierConfigNotFoundError: If no configuration file is found
+        KeyError: If tier_name is not found in the configuration file
     """
-    # Try to load from file
     config_file = _get_tiers_file_path()
-    if config_file is not None:
-        tiers = _load_tiers_from_yaml(config_file)
-        if tier_name in tiers:
-            return tiers[tier_name]
-        else:
-            raise KeyError(f"Tier '{tier_name}' not found in {config_file}")
 
-    # Fall back to built-in defaults
-    if tier_name in DEFAULT_TIERS:
-        return DEFAULT_TIERS[tier_name]
+    if config_file is None:
+        raise TierConfigNotFoundError(
+            "No tier configuration found. Create tiers.yaml in:\n"
+            "  - ./tiers.yaml (project-local)\n"
+            "  - ~/.debate-hall/tiers.yaml (user-global)\n"
+            "  - Or set DEBATE_HALL_TIERS_FILE environment variable\n\n"
+            "See https://github.com/elevanaltd/debate-hall-mcp#configuration for examples."
+        )
 
-    raise KeyError(f"Tier '{tier_name}' not found in default tiers")
+    tiers = _load_tiers_from_yaml(config_file)
+
+    if tier_name not in tiers:
+        available = ", ".join(sorted(tiers.keys()))
+        raise KeyError(
+            f"Tier '{tier_name}' not found in {config_file}. " f"Available tiers: {available}"
+        )
+
+    return tiers[tier_name]
