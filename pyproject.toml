@@ -43,6 +43,7 @@ dev = [
     "mypy>=1.13.0",
     "black==26.1.0",  # Pin to avoid CI/local formatting drift
     "inline-snapshot>=0.15.0",
+    "types-PyYAML>=6.0",  # Type stubs for PyYAML (PEP 561 compliance)
 ]
 
 [project.scripts]
