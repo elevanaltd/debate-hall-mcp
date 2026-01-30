@@ -11,7 +11,7 @@ Tests the consensus loop flow:
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -69,6 +69,18 @@ def create_mock_response(content: str, model: str = "test-model") -> ProviderRes
     )
 
 
+def create_mock_provider_factory(mock_provider: AsyncMock) -> callable:
+    """Create a provider factory that returns the mock provider.
+
+    This enables dependency injection for testing.
+    """
+
+    def factory(role_config: RoleConfig) -> AsyncMock:  # noqa: ARG001
+        return mock_provider
+
+    return factory
+
+
 class TestConsensusLoopBothApprove:
     """Tests for when both Wind and Wall approve."""
 
@@ -77,8 +89,6 @@ class TestConsensusLoopBothApprove:
         self, tier_config_consensus: TierConfig, temp_state_dir: Path
     ) -> None:
         """When both Wind and Wall approve, debate should close with synthesis status."""
-        orchestrator = DebateOrchestrator(tier_config_consensus, temp_state_dir)
-
         responses = [
             # Initial debate round
             create_mock_response("## WIND - Possibilities\nExpanding..."),
@@ -89,12 +99,16 @@ class TestConsensusLoopBothApprove:
             create_mock_response("APPROVE\nConstraints properly addressed."),  # Wall
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="Consensus test")
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Consensus test")
 
         assert result.status == "synthesis"
 
@@ -103,7 +117,6 @@ class TestConsensusLoopBothApprove:
         self, tier_config_consensus: TierConfig, temp_state_dir: Path
     ) -> None:
         """When both approve, synthesis should contain Door's synthesis."""
-        orchestrator = DebateOrchestrator(tier_config_consensus, temp_state_dir)
         door_synthesis = "## DOOR - Final Synthesis\nThe integrated solution..."
 
         responses = [
@@ -114,12 +127,16 @@ class TestConsensusLoopBothApprove:
             create_mock_response("APPROVE"),  # Wall
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="Synthesis content test")
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Synthesis content test")
 
         assert result.synthesis is not None
         assert "integrated solution" in result.synthesis.lower()
@@ -133,8 +150,6 @@ class TestConsensusLoopWindRejects:
         self, tier_config_consensus: TierConfig, temp_state_dir: Path
     ) -> None:
         """When Wind rejects, Door should refine and consensus repeats."""
-        orchestrator = DebateOrchestrator(tier_config_consensus, temp_state_dir)
-
         responses = [
             # Initial round
             create_mock_response("Wind: Initial expansion"),
@@ -150,12 +165,16 @@ class TestConsensusLoopWindRejects:
             create_mock_response("APPROVE\nConstraints still valid."),
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="Wind rejection test")
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Wind rejection test")
 
         # Should eventually reach synthesis after refinement
         assert result.status == "synthesis"
@@ -171,8 +190,6 @@ class TestConsensusLoopWallRejects:
         self, tier_config_consensus: TierConfig, temp_state_dir: Path
     ) -> None:
         """When Wall rejects, Door should refine and consensus repeats."""
-        orchestrator = DebateOrchestrator(tier_config_consensus, temp_state_dir)
-
         responses = [
             # Initial round
             create_mock_response("Wind: Initial expansion"),
@@ -188,12 +205,16 @@ class TestConsensusLoopWallRejects:
             create_mock_response("APPROVE\nSecurity addressed."),
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="Wall rejection test")
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Wall rejection test")
 
         assert result.status == "synthesis"
         assert result.turn_count > 3
@@ -216,7 +237,6 @@ class TestConsensusLoopMaxIterations:
                 max_refinement_loops=2,
             ),
         )
-        orchestrator = DebateOrchestrator(config, temp_state_dir)
 
         responses = [
             # Initial round
@@ -233,12 +253,14 @@ class TestConsensusLoopMaxIterations:
             create_mock_response("REJECT"),
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="Max loops test")
+        orchestrator = DebateOrchestrator(
+            config, temp_state_dir, provider_factory=create_mock_provider_factory(mock_provider)
+        )
+
+        result = await orchestrator.run(topic="Max loops test")
 
         assert result.status == "stalemate"
 
@@ -251,8 +273,6 @@ class TestConsensusDisabled:
         self, tier_config_no_consensus: TierConfig, temp_state_dir: Path
     ) -> None:
         """When consensus_required=False, should skip consensus loop."""
-        orchestrator = DebateOrchestrator(tier_config_no_consensus, temp_state_dir)
-
         responses = [
             create_mock_response("Wind response"),
             create_mock_response("Wall response"),
@@ -260,12 +280,16 @@ class TestConsensusDisabled:
             # No consensus responses should be needed
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="No consensus test")
+        orchestrator = DebateOrchestrator(
+            tier_config_no_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="No consensus test")
 
         # Should close immediately with synthesis
         assert result.status == "synthesis"
@@ -281,8 +305,6 @@ class TestConsensusVoteEvents:
         self, tier_config_consensus: TierConfig, temp_state_dir: Path
     ) -> None:
         """Should emit CONSENSUS_VOTE event when Wind votes."""
-        orchestrator = DebateOrchestrator(tier_config_consensus, temp_state_dir)
-
         responses = [
             create_mock_response("Wind"),
             create_mock_response("Wall"),
@@ -291,12 +313,16 @@ class TestConsensusVoteEvents:
             create_mock_response("APPROVE"),  # Wall vote
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="Wind vote event test")
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Wind vote event test")
 
         events = load_events(result.thread_id, temp_state_dir)
         consensus_events = [e for e in events if e.event_type == EventType.CONSENSUS_VOTE]
@@ -311,8 +337,6 @@ class TestConsensusVoteEvents:
         self, tier_config_consensus: TierConfig, temp_state_dir: Path
     ) -> None:
         """Should emit CONSENSUS_VOTE event when Wall votes."""
-        orchestrator = DebateOrchestrator(tier_config_consensus, temp_state_dir)
-
         responses = [
             create_mock_response("Wind"),
             create_mock_response("Wall"),
@@ -321,12 +345,16 @@ class TestConsensusVoteEvents:
             create_mock_response("APPROVE"),  # Wall vote
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="Wall vote event test")
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Wall vote event test")
 
         events = load_events(result.thread_id, temp_state_dir)
         consensus_events = [e for e in events if e.event_type == EventType.CONSENSUS_VOTE]
@@ -340,8 +368,6 @@ class TestConsensusVoteEvents:
         self, tier_config_consensus: TierConfig, temp_state_dir: Path
     ) -> None:
         """CONSENSUS_VOTE event should include approved status."""
-        orchestrator = DebateOrchestrator(tier_config_consensus, temp_state_dir)
-
         responses = [
             create_mock_response("Wind"),
             create_mock_response("Wall"),
@@ -353,12 +379,16 @@ class TestConsensusVoteEvents:
             create_mock_response("APPROVE"),  # Wall
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="Vote status event test")
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Vote status event test")
 
         events = load_events(result.thread_id, temp_state_dir)
         consensus_events = [e for e in events if e.event_type == EventType.CONSENSUS_VOTE]
@@ -376,8 +406,6 @@ class TestTurnCountWithConsensus:
         self, tier_config_consensus: TierConfig, temp_state_dir: Path
     ) -> None:
         """Turn count should include Door's refinement turns."""
-        orchestrator = DebateOrchestrator(tier_config_consensus, temp_state_dir)
-
         responses = [
             # Initial round (3 turns)
             create_mock_response("Wind"),
@@ -392,12 +420,16 @@ class TestTurnCountWithConsensus:
             create_mock_response("APPROVE"),
         ]
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = responses
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
 
-            result = await orchestrator.run(topic="Turn count test")
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Turn count test")
 
         # 3 initial turns + 1 refinement = 4 turns minimum
         assert result.turn_count >= 4
