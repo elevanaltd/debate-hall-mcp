@@ -116,3 +116,16 @@ def get_mastery_primer() -> str:
         The octave-mastery-primer content
     """
     return load_primer("octave-mastery-primer")
+
+
+def clear_primer_cache() -> None:
+    """Clear the primer cache to reload primers from octave-mcp package.
+
+    Call this after upgrading octave-mcp to pick up new primer versions
+    without restarting the server.
+
+    Example:
+        >>> clear_primer_cache()
+        >>> primer = get_literacy_primer()  # Reloads from disk
+    """
+    load_primer.cache_clear()

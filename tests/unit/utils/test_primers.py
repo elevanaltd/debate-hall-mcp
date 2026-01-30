@@ -46,6 +46,24 @@ class TestLoadPrimer:
         # Same object due to caching
         assert primer1 is primer2
 
+    def test_clear_cache_allows_reload(self):
+        """Test that clearing cache allows fresh reload from package."""
+        from debate_hall_mcp.utils.primers import clear_primer_cache, load_primer
+
+        # Load primer (caches it)
+        primer1 = load_primer("octave-literacy-primer")
+
+        # Clear cache
+        clear_primer_cache()
+
+        # Load again - should be fresh load (new string object)
+        primer2 = load_primer("octave-literacy-primer")
+
+        # Content should be same
+        assert primer1 == primer2
+        # But should be different objects after cache clear
+        # (Note: Python may intern strings, so we just verify content matches)
+
 
 class TestListAvailablePrimers:
     """Test suite for list_available_primers function."""

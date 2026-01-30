@@ -2,6 +2,7 @@
 
 from debate_hall_mcp.utils.env import get_env, load_env, reload_env
 from debate_hall_mcp.utils.primers import (
+    clear_primer_cache,
     get_literacy_primer,
     get_mastery_primer,
     list_available_primers,
@@ -16,4 +17,5 @@ __all__ = [
     "list_available_primers",
     "get_literacy_primer",
     "get_mastery_primer",
+    "clear_primer_cache",
 ]
