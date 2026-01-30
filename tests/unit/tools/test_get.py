@@ -219,8 +219,10 @@ class TestDebateGetOctavePreamble:
 
         assert len(result["transcript"]) == 2
         assert result["transcript"][0]["role"] == "System"
-        assert "===PROTOCOL===" in result["transcript"][0]["content"]
-        assert "FORMAT::OCTAVE" in result["transcript"][0]["content"]
+        # Uses official octave-literacy-primer from octave-mcp v1.0.0
+        content = result["transcript"][0]["content"]
+        assert "===OCTAVE_LITERACY_PRIMER===" in content or "===PROTOCOL===" in content
+        assert "===END===" in content
         assert result["transcript"][1]["role"] == "Wind"
 
     def test_octave_preamble_not_present_when_disabled(self, tmp_path: Path) -> None:
