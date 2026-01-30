@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+# Local pre-commit hook - delegates to global ~/.githooks/pre-commit
+# This project uses local .githooks/ for venv bootstrapping (post-checkout/post-merge)
+# but pre-commit logic lives in the global hook to avoid duplication.
+set -eu
+
+GLOBAL_HOOK="$HOME/.githooks/pre-commit"
+
+if [ -x "$GLOBAL_HOOK" ]; then
+  exec "$GLOBAL_HOOK"
+fi
+
+echo "WARNING: Global pre-commit hook not found at $GLOBAL_HOOK"
+echo "Skipping pre-commit checks..."
+exit 0
