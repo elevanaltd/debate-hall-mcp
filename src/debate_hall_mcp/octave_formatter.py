@@ -3,6 +3,11 @@
 Uses the official octave-mcp API for validated, secure OCTAVE format emission.
 
 Implements I2 (Universal OCTAVE Binding) from North Star.
+
+New in octave-mcp v1.0.0:
+- Document sealing for tamper-proof transcripts (seal_document, verify_seal)
+- Lenient parsing with warnings (parse_with_warnings)
+- Repair tiers for self-healing documents
 """
 
 from enum import Enum
@@ -12,13 +17,19 @@ from debate_hall_mcp.state import DebateRoom
 
 try:
     import octave_mcp
+    from octave_mcp import (
+        Document,
+        SealVerificationResult,
+        emit,
+        parse_with_warnings,
+        seal_document,
+        verify_seal,
+    )
+    from octave_mcp.core.sealer import SealStatus
 except ImportError as e:
     raise ImportError(
-        "octave-mcp package is required. Install with: pip install octave-mcp>=0.4.1"
+        "octave-mcp package is required. Install with: pip install octave-mcp>=1.0.0"
     ) from e
-
-# Type imported from octave-mcp library
-from octave_mcp import Document
 
 # Custom type variables
 T = TypeVar("T")
@@ -161,8 +172,8 @@ def format_debate_as_octave(
     doc_str = "\n".join(lines)
 
     # Validate that our manual construction is valid OCTAVE
-    # Note: We don't use emit() because octave-mcp v0.3.0 has a bug in TURNS emission
-    # Our manual escaping is correct and produces valid OCTAVE
+    # Note: We construct manually because octave-mcp emit() doesn't handle
+    # our custom TURNS format (T1::Role[Cognition]::"content")
     try:
         octave_mcp.parse(doc_str)
         # Parse succeeded - our format is valid
@@ -223,3 +234,142 @@ def validate_debate_octave(content: str) -> tuple[bool, list[str]]:
 
     except Exception as e:
         return (False, [f"Parse error: {str(e)}"])
+
+
+def seal_debate_transcript(content: str) -> str:
+    """Add cryptographic seal to a debate transcript for tamper-proofing.
+
+    The seal is a SHA-256 hash of the document content, appended as a
+    §SEAL section. Any modification to the content will invalidate the seal.
+
+    Args:
+        content: Valid OCTAVE-formatted debate transcript
+
+    Returns:
+        OCTAVE string with §SEAL section appended
+
+    Raises:
+        ValueError: If content is not valid OCTAVE
+
+    Example:
+        >>> sealed = seal_debate_transcript(octave_transcript)
+        >>> # Later, verify the transcript hasn't been modified
+        >>> result = verify_debate_seal(sealed)
+        >>> assert result.is_valid
+    """
+    try:
+        doc = octave_mcp.parse(content)
+        sealed_doc = seal_document(doc)
+        return emit(sealed_doc)
+    except Exception as e:
+        raise ValueError(f"Cannot seal invalid OCTAVE document: {e}") from e
+
+
+class SealResult:
+    """Result of verifying a debate transcript seal."""
+
+    def __init__(
+        self,
+        is_valid: bool,
+        status: str,
+        message: str,
+        expected_hash: str | None = None,
+        actual_hash: str | None = None,
+    ) -> None:
+        self.is_valid = is_valid
+        self.status = status
+        self.message = message
+        self.expected_hash = expected_hash
+        self.actual_hash = actual_hash
+
+
+def verify_debate_seal(content: str) -> SealResult:
+    """Verify that a sealed debate transcript has not been tampered with.
+
+    Args:
+        content: OCTAVE-formatted debate transcript with §SEAL section
+
+    Returns:
+        SealResult with verification status and details
+
+    Example:
+        >>> result = verify_debate_seal(sealed_transcript)
+        >>> if result.is_valid:
+        ...     print("Transcript integrity verified")
+        ... else:
+        ...     print(f"TAMPER DETECTED: {result.message}")
+    """
+    try:
+        doc = octave_mcp.parse(content)
+        result: SealVerificationResult = verify_seal(doc)
+
+        return SealResult(
+            is_valid=result.status == SealStatus.VERIFIED,
+            status=result.status.value,
+            message=result.message or "Seal verification complete",
+            expected_hash=result.expected_hash,
+            actual_hash=result.actual_hash,
+        )
+    except Exception as e:
+        return SealResult(
+            is_valid=False,
+            status="ERROR",
+            message=f"Failed to verify seal: {e}",
+        )
+
+
+def validate_debate_octave_lenient(content: str) -> tuple[bool, list[str], list[dict[str, object]]]:
+    """Validate OCTAVE-formatted debate with lenient parsing.
+
+    Uses octave-mcp v1.0.0's parse_with_warnings for more forgiving validation
+    that can handle minor formatting issues while still reporting them.
+
+    Args:
+        content: OCTAVE-formatted string to validate
+
+    Returns:
+        Tuple of (is_valid, errors, warnings)
+        - is_valid: True if document structure is correct (ignoring minor warnings)
+        - errors: List of structural errors that prevent valid parsing
+        - warnings: List of warning dicts from lenient parsing (minor issues)
+
+    Example:
+        >>> is_valid, errors, warnings = validate_debate_octave_lenient(content)
+        >>> if warnings:
+        ...     print(f"Minor issues found: {len(warnings)}")
+    """
+    try:
+        # Use lenient parsing that captures warnings
+        doc, warnings = parse_with_warnings(content)
+
+        # Check required structure
+        errors: list[str] = []
+
+        if doc.name != "DEBATE_TRANSCRIPT":
+            errors.append(f"Invalid document type: {doc.name}")
+
+        # Check META fields
+        if doc.meta:
+            required_meta = ["THREAD_ID", "TOPIC", "MODE", "STATUS"]
+            for field in required_meta:
+                if field not in doc.meta:
+                    errors.append(f"Missing META field: {field}")
+        else:
+            errors.append("Missing META section")
+
+        # Check for required sections
+        section_keys: list[str] = []
+        for section in doc.sections:
+            raw_key = getattr(section, "key", None)
+            if isinstance(raw_key, str):
+                section_keys.append(raw_key)
+
+        required_sections = ["PARTICIPANTS", "TURNS", "SYNTHESIS"]
+        for section_name in required_sections:
+            if section_name not in section_keys:
+                errors.append(f"Missing required section: {section_name}")
+
+        return (len(errors) == 0, errors, warnings)
+
+    except Exception as e:
+        return (False, [f"Parse error: {str(e)}"], [])

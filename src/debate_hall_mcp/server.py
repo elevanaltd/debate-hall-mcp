@@ -152,16 +152,19 @@ def create_server() -> FastMCP:
         thread_id: str,
         synthesis: str,
         output_format: str | None = None,
+        seal: bool = False,
     ) -> dict[str, Any] | str:
         """Finalize debate. synthesis:Door's final resolution->closes room.
 
         Args:
             output_format: 'json' (default), 'octave', or 'both'
+            seal: Add cryptographic seal to OCTAVE output for tamper detection (v1.0.0)
         """
         return debate_close(
             thread_id=thread_id,
             synthesis=synthesis,
             output_format=output_format,  # type: ignore[arg-type]
+            seal=seal,
         )
 
     @server.tool()
