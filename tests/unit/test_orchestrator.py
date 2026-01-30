@@ -421,12 +421,12 @@ class TestM1ProviderTimeout:
         assert error_events[-1].payload.get("error_type") == "TimeoutError"
 
     @pytest.mark.anyio
-    async def test_default_timeout_is_120_seconds(
+    async def test_default_timeout_is_300_seconds(
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """Default provider timeout should be 120 seconds."""
+        """Default provider timeout should be 300 seconds (increased for slow CLIs)."""
         orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
-        assert orchestrator._get_provider_timeout() == 120
+        assert orchestrator._get_provider_timeout() == 300
 
 
 class TestM2DebatePausedOnFailure:

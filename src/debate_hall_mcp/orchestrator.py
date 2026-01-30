@@ -51,7 +51,8 @@ from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.turn import debate_turn
 
 # Default provider timeout in seconds (M1: CE Review)
-DEFAULT_PROVIDER_TIMEOUT = 120
+# Increased from 120 to 300 to accommodate slower CLI providers
+DEFAULT_PROVIDER_TIMEOUT = 300
 
 
 class DebateResult(BaseModel):
@@ -98,8 +99,8 @@ class DebateOrchestrator:
         """Get provider timeout in seconds (M1: CE Review mitigation).
 
         Returns:
-            Timeout in seconds. Default is 120 seconds.
-            Could be extended to use TierSettings.provider_timeout if added.
+            Timeout in seconds from TierSettings.provider_timeout,
+            or DEFAULT_PROVIDER_TIMEOUT (300s) if not configured.
         """
         # Use tier_config setting if available, otherwise default
         settings = self.tier_config.settings

@@ -27,6 +27,7 @@ standard:
     consensus_required: true   # Wind/Wall must approve Door's synthesis
     max_turns: 12              # Maximum total turns in debate
     max_refinement_loops: 3    # Max times Door can refine after rejection
+    provider_timeout: 300      # Timeout per provider call in seconds (default: 300)
 
 # Premium tier using OpenRouter API (requires OPENROUTER_API_KEY env var)
 premium:

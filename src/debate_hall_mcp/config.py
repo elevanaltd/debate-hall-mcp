@@ -66,6 +66,7 @@ class TierSettings(BaseModel):
     - consensus_required: Whether consensus is required for debate closure
     - max_turns: Maximum number of turns allowed in debate
     - max_refinement_loops: Maximum refinement iterations for auto-orchestration
+    - provider_timeout: Timeout in seconds for provider calls (default: 300)
     """
 
     consensus_required: bool = Field(
@@ -73,6 +74,9 @@ class TierSettings(BaseModel):
     )
     max_turns: int = Field(default=12, description="Maximum turns allowed")
     max_refinement_loops: int = Field(default=3, description="Maximum refinement iterations")
+    provider_timeout: int = Field(
+        default=300, description="Provider call timeout in seconds (default: 300)"
+    )
 
 
 class TierConfig(BaseModel):
