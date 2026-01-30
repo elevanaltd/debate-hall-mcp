@@ -27,13 +27,14 @@ Phase 4: Consensus Loop
 
 import asyncio
 import contextlib
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 from ulid import ULID
 
-from debate_hall_mcp.config import TierConfig
+from debate_hall_mcp.config import RoleConfig, TierConfig
 from debate_hall_mcp.consensus import parse_consensus_response
 from debate_hall_mcp.events import EventType, append_event
 from debate_hall_mcp.prompts import (
@@ -44,7 +45,7 @@ from debate_hall_mcp.prompts import (
     format_wind_user_prompt,
 )
 from debate_hall_mcp.prompts.loader import get_prompt
-from debate_hall_mcp.providers import ProviderResponse, create_provider
+from debate_hall_mcp.providers import ModelProvider, ProviderResponse, create_provider
 from debate_hall_mcp.state import DebateStatus, load_debate_state, save_debate_state
 from debate_hall_mcp.tools.close import debate_close
 from debate_hall_mcp.tools.init import debate_init
@@ -53,6 +54,9 @@ from debate_hall_mcp.tools.turn import debate_turn
 # Default provider timeout in seconds (M1: CE Review)
 # Increased from 120 to 300 to accommodate slower CLI providers
 DEFAULT_PROVIDER_TIMEOUT = 300
+
+# Type alias for provider factory function (injectable for testing)
+ProviderFactory = Callable[[RoleConfig], ModelProvider]
 
 
 class DebateResult(BaseModel):
@@ -85,15 +89,24 @@ class DebateOrchestrator:
     - Uses existing debate tools internally
     """
 
-    def __init__(self, tier_config: TierConfig, state_dir: Path) -> None:
+    def __init__(
+        self,
+        tier_config: TierConfig,
+        state_dir: Path,
+        provider_factory: ProviderFactory | None = None,
+    ) -> None:
         """Initialize orchestrator with tier configuration.
 
         Args:
             tier_config: Configuration for Wind/Wall/Door providers
             state_dir: Directory for debate state persistence
+            provider_factory: Optional factory for creating providers.
+                Enables dependency injection for testing (VirtualProvider).
+                Defaults to create_provider for backward compatibility.
         """
         self.tier_config = tier_config
         self.state_dir = state_dir
+        self._provider_factory = provider_factory or create_provider
 
     def _get_provider_timeout(self) -> int:
         """Get provider timeout in seconds (M1: CE Review mitigation).
@@ -240,9 +253,9 @@ Respond with your refined synthesis using the OCTAVE response format."""
             )
 
             # 2. Create providers
-            wind_provider = create_provider(self.tier_config.wind)
-            wall_provider = create_provider(self.tier_config.wall)
-            door_provider = create_provider(self.tier_config.door)
+            wind_provider = self._provider_factory(self.tier_config.wind)
+            wall_provider = self._provider_factory(self.tier_config.wall)
+            door_provider = self._provider_factory(self.tier_config.door)
 
             # 3. Wind turn (PATHOS - Ideation) with timeout (M1)
             wind_user_prompt = format_wind_user_prompt(topic, thread_id)
@@ -585,9 +598,9 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
         try:
             # Create providers
-            wind_provider = create_provider(self.tier_config.wind)
-            wall_provider = create_provider(self.tier_config.wall)
-            door_provider = create_provider(self.tier_config.door)
+            wind_provider = self._provider_factory(self.tier_config.wind)
+            wall_provider = self._provider_factory(self.tier_config.wall)
+            door_provider = self._provider_factory(self.tier_config.door)
 
             # Determine existing turns by role
             existing_roles = {t.role for t in room.turns}

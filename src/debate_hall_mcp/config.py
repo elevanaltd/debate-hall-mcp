@@ -86,7 +86,7 @@ class FallbackConfig(BaseModel):
         default="openrouter", description="Fallback provider type"
     )
     model: str = Field(
-        default="anthropic/claude-3-haiku-20240307",
+        default="anthropic/claude-haiku-4.5",
         description="Fallback model (fast/cheap recommended)",
     )
     timeout: int = Field(default=60, description="Fallback provider timeout in seconds")
@@ -151,7 +151,7 @@ DEFAULT_TIERS: dict[str, TierConfig] = {
             fallback=FallbackConfig(
                 enabled=True,
                 provider="openrouter",
-                model="anthropic/claude-3-haiku-20240307",
+                model="anthropic/claude-haiku-4.5",
                 timeout=60,
             ),
         ),
@@ -160,19 +160,19 @@ DEFAULT_TIERS: dict[str, TierConfig] = {
     "fast": TierConfig(
         wind=RoleConfig(
             provider="openrouter",
-            model="anthropic/claude-3-haiku-20240307",
+            model="anthropic/claude-haiku-4.5",
             role="wind-agent",
             timeout=60,
         ),
         wall=RoleConfig(
             provider="openrouter",
-            model="anthropic/claude-3-haiku-20240307",
+            model="anthropic/claude-haiku-4.5",
             role="wall-agent",
             timeout=60,
         ),
         door=RoleConfig(
             provider="openrouter",
-            model="anthropic/claude-3-haiku-20240307",
+            model="anthropic/claude-haiku-4.5",
             role="door-agent",
             timeout=60,
         ),

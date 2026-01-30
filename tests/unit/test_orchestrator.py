@@ -59,6 +59,20 @@ def create_mock_provider_response(content: str, model: str = "test-model") -> Pr
     )
 
 
+def create_mock_provider_factory(mock_provider: AsyncMock) -> Any:
+    """Create a provider factory that returns the mock provider.
+
+    This enables dependency injection for testing - the orchestrator
+    accepts a provider_factory parameter that allows tests to inject
+    mock providers without patching.
+    """
+
+    def factory(role_config: RoleConfig) -> Any:  # noqa: ARG001
+        return mock_provider
+
+    return factory
+
+
 class TestDebateOrchestratorInit:
     """Tests for DebateOrchestrator initialization."""
 
@@ -82,17 +96,19 @@ class TestDebateOrchestratorRun:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """run() should return a DebateResult."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        # Create mock provider and inject via factory
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response(
+            "## WIND (PATHOS) - Test Response\n\nTest content with steps:\n1. First step\n2. Second step"
+        )
 
-        # Mock the providers
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.return_value = create_mock_provider_response(
-                "## WIND (PATHOS) - Test Response\n\nTest content with steps:\n1. First step\n2. Second step"
-            )
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            result = await orchestrator.run(topic="Test topic")
+        result = await orchestrator.run(topic="Test topic")
 
         assert isinstance(result, DebateResult)
         assert result.thread_id is not None
@@ -103,16 +119,18 @@ class TestDebateOrchestratorRun:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """run() should generate a thread_id if not provided."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response(
+            "Test response\n1. Step one\n2. Step two"
+        )
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.return_value = create_mock_provider_response(
-                "Test response\n1. Step one\n2. Step two"
-            )
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            result = await orchestrator.run(topic="Auto-generated ID test")
+        result = await orchestrator.run(topic="Auto-generated ID test")
 
         # Thread ID should be in date-first format: YYYY-MM-DD-subject
         assert result.thread_id is not None
@@ -127,19 +145,20 @@ class TestDebateOrchestratorRun:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """run() should use the provided thread_id."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
         expected_thread_id = "2026-01-30-custom-thread"
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.return_value = create_mock_provider_response(
-                "Test response\n1. Step\n2. Step"
-            )
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response(
+            "Test response\n1. Step\n2. Step"
+        )
 
-            result = await orchestrator.run(
-                topic="Custom thread test", thread_id=expected_thread_id
-            )
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Custom thread test", thread_id=expected_thread_id)
 
         assert result.thread_id == expected_thread_id
 
@@ -148,36 +167,37 @@ class TestDebateOrchestratorRun:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """run() should call Wind, Wall, Door providers in sequence."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
-
         wind_response = "## WIND (PATHOS) - Possibilities\n\nExploring options..."
         wall_response = "## WALL (ETHOS) - Validation\n\n### VERDICT\nGO\n\n1. Evidence shows...\n2. Therefore..."
         door_response = "## DOOR (LOGOS) - Synthesis\n\n### TENSION_ANALYSIS\n\n1. Analyzing...\n2. Integrating...\n3. Therefore..."
 
         call_order: list[str] = []
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
+        def mock_complete(
+            system_prompt: str, user_prompt: str, **kwargs: Any  # noqa: ARG001
+        ) -> ProviderResponse:
+            # Determine which role based on "Your Role:" line in user_prompt
+            if "Your Role: Wind" in user_prompt:
+                call_order.append("wind")
+                return create_mock_provider_response(wind_response)
+            elif "Your Role: Wall" in user_prompt:
+                call_order.append("wall")
+                return create_mock_provider_response(wall_response)
+            elif "Your Role: Door" in user_prompt:
+                call_order.append("door")
+                return create_mock_provider_response(door_response)
+            return create_mock_provider_response("Unknown response")
 
-            def mock_complete(
-                system_prompt: str, user_prompt: str, **kwargs: Any  # noqa: ARG001
-            ) -> ProviderResponse:
-                # Determine which role based on "Your Role:" line in user_prompt
-                if "Your Role: Wind" in user_prompt:
-                    call_order.append("wind")
-                    return create_mock_provider_response(wind_response)
-                elif "Your Role: Wall" in user_prompt:
-                    call_order.append("wall")
-                    return create_mock_provider_response(wall_response)
-                elif "Your Role: Door" in user_prompt:
-                    call_order.append("door")
-                    return create_mock_provider_response(door_response)
-                return create_mock_provider_response("Unknown response")
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = mock_complete
 
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = mock_complete
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            await orchestrator.run(topic="Sequence test")
+        await orchestrator.run(topic="Sequence test")
 
         # Verify Wind -> Wall -> Door sequence
         assert call_order == ["wind", "wall", "door"]
@@ -187,20 +207,23 @@ class TestDebateOrchestratorRun:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """run() should close the debate with Door's response as synthesis."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
         door_synthesis = "## DOOR (LOGOS) - Final Synthesis\n\n### TENSION_ANALYSIS\n1. First step\n2. Second step\n3. Therefore the synthesis is complete."
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            # Wind and Wall return simple responses
-            mock_provider.complete.side_effect = [
-                create_mock_provider_response("Wind response"),
-                create_mock_provider_response("Wall response with\n1. Step\n2. Step"),
-                create_mock_provider_response(door_synthesis),
-            ]
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        # Wind and Wall return simple responses
+        mock_provider.complete.side_effect = [
+            create_mock_provider_response("Wind response"),
+            create_mock_provider_response("Wall response with\n1. Step\n2. Step"),
+            create_mock_provider_response(door_synthesis),
+        ]
 
-            result = await orchestrator.run(topic="Synthesis test")
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Synthesis test")
 
         assert result.status == "synthesis"
         assert result.synthesis is not None
@@ -215,23 +238,20 @@ class TestDebateOrchestratorProviderCreation:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """Orchestrator should create separate providers for Wind, Wall, Door."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
-
         created_configs: list[RoleConfig] = []
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            # Capture the configs passed to create_provider
-            def capture_config(config: RoleConfig) -> AsyncMock:
-                created_configs.append(config)
-                mock = AsyncMock()
-                mock.complete.return_value = create_mock_provider_response(
-                    "Response\n1. Step\n2. Step"
-                )
-                return mock
+        # Custom factory that captures configs
+        def capture_config(config: RoleConfig) -> AsyncMock:
+            created_configs.append(config)
+            mock = AsyncMock()
+            mock.complete.return_value = create_mock_provider_response("Response\n1. Step\n2. Step")
+            return mock
 
-            mock_create_provider.side_effect = capture_config
+        orchestrator = DebateOrchestrator(
+            tier_config, temp_state_dir, provider_factory=capture_config
+        )
 
-            await orchestrator.run(topic="Provider test")
+        await orchestrator.run(topic="Provider test")
 
         # Should create 3 providers (wind, wall, door)
         assert len(created_configs) == 3
@@ -250,16 +270,18 @@ class TestDebateOrchestratorEventEmission:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """Orchestrator should emit debate_started event after init."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response(
+            "Test\n1. Step\n2. Step"
+        )
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.return_value = create_mock_provider_response(
-                "Test\n1. Step\n2. Step"
-            )
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            result = await orchestrator.run(topic="Event test")
+        result = await orchestrator.run(topic="Event test")
 
         # Load events and check for debate_started
         events = load_events(result.thread_id, temp_state_dir)
@@ -271,16 +293,18 @@ class TestDebateOrchestratorEventEmission:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """Orchestrator should emit turn_added events for each turn."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response(
+            "Test\n1. Step\n2. Step"
+        )
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.return_value = create_mock_provider_response(
-                "Test\n1. Step\n2. Step"
-            )
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            result = await orchestrator.run(topic="Turn events test")
+        result = await orchestrator.run(topic="Turn events test")
 
         # Load events and check for turn_added (should have 3: Wind, Wall, Door)
         events = load_events(result.thread_id, temp_state_dir)
@@ -292,16 +316,18 @@ class TestDebateOrchestratorEventEmission:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """Orchestrator should emit debate_closed event after close."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response(
+            "Test\n1. Step\n2. Step"
+        )
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.return_value = create_mock_provider_response(
-                "Test\n1. Step\n2. Step"
-            )
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            result = await orchestrator.run(topic="Close event test")
+        result = await orchestrator.run(topic="Close event test")
 
         # Load events and check for debate_closed
         events = load_events(result.thread_id, temp_state_dir)
@@ -313,16 +339,18 @@ class TestDebateOrchestratorEventEmission:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """Orchestrator should emit error event when provider fails."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = Exception("Provider API error")
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = Exception("Provider API error")
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            # Should raise the error but also emit an event
-            with pytest.raises(Exception, match="Provider API error"):
-                await orchestrator.run(topic="Error event test")
+        # Should raise the error but also emit an event
+        with pytest.raises(Exception, match="Provider API error"):
+            await orchestrator.run(topic="Error event test")
 
         # Note: We need to capture the thread_id to check events
         # For error case, we may need to adjust the test or implementation
@@ -366,53 +394,53 @@ class TestM1ProviderTimeout:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """Orchestrator should raise TimeoutError when provider times out."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        mock_provider = AsyncMock()
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
+        # Simulate a provider that never returns (hangs indefinitely)
+        async def slow_complete(*_args: Any, **_kwargs: Any) -> ProviderResponse:  # noqa: ARG001
+            await asyncio.sleep(300)  # Longer than any timeout
+            return create_mock_provider_response("Should never reach")
 
-            # Simulate a provider that never returns (hangs indefinitely)
-            async def slow_complete(
-                *_args: Any, **_kwargs: Any  # noqa: ARG001
-            ) -> ProviderResponse:
-                await asyncio.sleep(300)  # Longer than any timeout
-                return create_mock_provider_response("Should never reach")
+        mock_provider.complete.side_effect = slow_complete
 
-            mock_provider.complete.side_effect = slow_complete
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            # Use a short timeout to speed up the test
-            with (
-                patch.object(orchestrator, "_get_provider_timeout", return_value=0.1),
-                pytest.raises(asyncio.TimeoutError),
-            ):
-                await orchestrator.run(topic="Timeout test", thread_id="2026-01-30-timeout-test")
+        # Use a short timeout to speed up the test
+        with (
+            patch.object(orchestrator, "_get_provider_timeout", return_value=0.1),
+            pytest.raises(asyncio.TimeoutError),
+        ):
+            await orchestrator.run(topic="Timeout test", thread_id="2026-01-30-timeout-test")
 
     @pytest.mark.anyio
     async def test_emits_error_event_with_timeout_type_on_timeout(
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """Orchestrator should emit error event with timeout error_type on timeout."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
         thread_id = "2026-01-30-timeout-error-event-test"
+        mock_provider = AsyncMock()
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
+        async def slow_complete(*_args: Any, **_kwargs: Any) -> ProviderResponse:  # noqa: ARG001
+            await asyncio.sleep(300)
+            return create_mock_provider_response("Should never reach")
 
-            async def slow_complete(
-                *_args: Any, **_kwargs: Any  # noqa: ARG001
-            ) -> ProviderResponse:
-                await asyncio.sleep(300)
-                return create_mock_provider_response("Should never reach")
+        mock_provider.complete.side_effect = slow_complete
 
-            mock_provider.complete.side_effect = slow_complete
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            with (
-                patch.object(orchestrator, "_get_provider_timeout", return_value=0.1),
-                pytest.raises(asyncio.TimeoutError),
-            ):
-                await orchestrator.run(topic="Timeout error event test", thread_id=thread_id)
+        with (
+            patch.object(orchestrator, "_get_provider_timeout", return_value=0.1),
+            pytest.raises(asyncio.TimeoutError),
+        ):
+            await orchestrator.run(topic="Timeout error event test", thread_id=thread_id)
 
         # Check that an error event was emitted with timeout type
         events = load_events(thread_id, temp_state_dir)
@@ -437,16 +465,19 @@ class TestM2DebatePausedOnFailure:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """Debate should be marked PAUSED after provider failure (for recovery)."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
         thread_id = "2026-01-30-pause-on-failure-test"
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.side_effect = Exception("Provider API failure")
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = Exception("Provider API failure")
 
-            with pytest.raises(Exception, match="Provider API failure"):
-                await orchestrator.run(topic="Pause test", thread_id=thread_id)
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        with pytest.raises(Exception, match="Provider API failure"):
+            await orchestrator.run(topic="Pause test", thread_id=thread_id)
 
         # Load debate state and verify it's PAUSED
         room = load_debate_state(thread_id, temp_state_dir)
@@ -457,26 +488,27 @@ class TestM2DebatePausedOnFailure:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """Debate should be marked PAUSED after timeout (for recovery)."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
         thread_id = "2026-01-30-pause-on-timeout-test"
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
+        mock_provider = AsyncMock()
 
-            async def slow_complete(
-                *_args: Any, **_kwargs: Any  # noqa: ARG001
-            ) -> ProviderResponse:
-                await asyncio.sleep(300)
-                return create_mock_provider_response("Should never reach")
+        async def slow_complete(*_args: Any, **_kwargs: Any) -> ProviderResponse:  # noqa: ARG001
+            await asyncio.sleep(300)
+            return create_mock_provider_response("Should never reach")
 
-            mock_provider.complete.side_effect = slow_complete
-            mock_create_provider.return_value = mock_provider
+        mock_provider.complete.side_effect = slow_complete
 
-            with (
-                patch.object(orchestrator, "_get_provider_timeout", return_value=0.1),
-                pytest.raises(asyncio.TimeoutError),
-            ):
-                await orchestrator.run(topic="Pause on timeout test", thread_id=thread_id)
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        with (
+            patch.object(orchestrator, "_get_provider_timeout", return_value=0.1),
+            pytest.raises(asyncio.TimeoutError),
+        ):
+            await orchestrator.run(topic="Pause on timeout test", thread_id=thread_id)
 
         # Load debate state and verify it's PAUSED
         room = load_debate_state(thread_id, temp_state_dir)
@@ -491,16 +523,18 @@ class TestM3EventPayloadRedaction:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """TURN_ADDED events should not include content_preview (sensitive data)."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response(
+            "SENSITIVE CONTENT THAT SHOULD NOT APPEAR IN EVENTS"
+        )
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.return_value = create_mock_provider_response(
-                "SENSITIVE CONTENT THAT SHOULD NOT APPEAR IN EVENTS"
-            )
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            result = await orchestrator.run(topic="Redaction test")
+        result = await orchestrator.run(topic="Redaction test")
 
         # Check TURN_ADDED events
         events = load_events(result.thread_id, temp_state_dir)
@@ -517,17 +551,20 @@ class TestM3EventPayloadRedaction:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """ERROR events should only include error_type, not raw error message."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
         thread_id = "2026-01-30-error-redaction-test"
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            # Error message contains sensitive info
-            mock_provider.complete.side_effect = Exception("API key invalid: sk-secret-1234-abcd")
-            mock_create_provider.return_value = mock_provider
+        mock_provider = AsyncMock()
+        # Error message contains sensitive info
+        mock_provider.complete.side_effect = Exception("API key invalid: sk-secret-1234-abcd")
 
-            with pytest.raises(Exception, match="API key invalid"):  # noqa: B017
-                await orchestrator.run(topic="Error redaction test", thread_id=thread_id)
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        with pytest.raises(Exception, match="API key invalid"):  # noqa: B017
+            await orchestrator.run(topic="Error redaction test", thread_id=thread_id)
 
         # Check ERROR events
         events = load_events(thread_id, temp_state_dir)
@@ -544,16 +581,18 @@ class TestM3EventPayloadRedaction:
         self, tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
         """DEBATE_CLOSED events can include synthesis_preview (intended output)."""
-        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response(
+            "Final synthesis content"
+        )
 
-        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
-            mock_provider = AsyncMock()
-            mock_provider.complete.return_value = create_mock_provider_response(
-                "Final synthesis content"
-            )
-            mock_create_provider.return_value = mock_provider
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
 
-            result = await orchestrator.run(topic="Synthesis preview test")
+        result = await orchestrator.run(topic="Synthesis preview test")
 
         # Check DEBATE_CLOSED events
         events = load_events(result.thread_id, temp_state_dir)
