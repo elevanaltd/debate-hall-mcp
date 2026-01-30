@@ -8,17 +8,25 @@ This module implements:
 Event-Driven Architecture:
 Events provide an append-only log of debate state transitions,
 enabling async orchestration and replay capabilities.
+
+Concurrency Control:
+Uses filelock for cross-platform file locking to prevent
+concurrent write corruption (Issue #111 - CE Review).
 """
 
+import logging
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from filelock import FileLock
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from ulid import ULID
 
 from debate_hall_mcp.state import _validate_thread_id_for_filesystem
+
+logger = logging.getLogger(__name__)
 
 
 class EventType(str, Enum):
@@ -83,6 +91,28 @@ def generate_event_id() -> str:
     return str(ULID())
 
 
+def _get_event_file_lock(event_file: Path) -> FileLock:
+    """Get a cross-platform file lock for event file operations.
+
+    Uses filelock library for cross-platform file locking (Issue #111).
+    Works on POSIX (Linux, macOS) and Windows.
+
+    Args:
+        event_file: Path to the event JSONL file
+
+    Returns:
+        FileLock instance that can be used as context manager
+
+    Note:
+        Uses exclusive locks. For our use case this is appropriate
+        since both reads and writes need consistency and contention
+        is expected to be low.
+    """
+    lock_file = event_file.with_suffix(".events.lock")
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    return FileLock(str(lock_file))
+
+
 def append_event(
     thread_id: str,
     event_type: EventType,
@@ -121,9 +151,9 @@ def append_event(
     # Ensure state directory exists
     state_dir.mkdir(parents=True, exist_ok=True)
 
-    # Append to JSONL file
+    # Append to JSONL file with file locking for concurrency safety (Issue #111)
     events_file = state_dir / f"{thread_id}.events.jsonl"
-    with open(events_file, "a") as f:
+    with _get_event_file_lock(events_file), open(events_file, "a") as f:
         f.write(event.model_dump_json() + "\n")
 
     return event
@@ -161,12 +191,27 @@ def load_events(
         raise FileNotFoundError(f"No events file found for thread {thread_id}")
 
     events: list[DebateEvent] = []
-    with open(events_file) as f:
-        for line in f:
+
+    # Use file locking for read consistency (Issue #111 - CE Review)
+    with _get_event_file_lock(events_file), open(events_file) as f:
+        for line_num, line in enumerate(f, start=1):
             line = line.strip()
             if not line:
                 continue
-            event = DebateEvent.model_validate_json(line)
+
+            # Graceful handling of corrupt lines (Issue #111 - CE Review)
+            # Risk: Torn write during crash can corrupt a line
+            # Fix: Skip corrupt lines with warning, don't crash
+            try:
+                event = DebateEvent.model_validate_json(line)
+            except ValidationError as e:
+                logger.warning(
+                    "Skipping corrupt event line %d in %s: %s",
+                    line_num,
+                    events_file.name,
+                    str(e),
+                )
+                continue
 
             # Filter by 'after' if specified (ULID comparison is lexicographic)
             if after is not None and event.id <= after:

@@ -69,8 +69,9 @@ class TestDebateEvent:
 
     def test_event_id_is_ulid_format(self) -> None:
         """Event ID must be a valid ULID (26 chars, Crockford Base32)."""
-        from debate_hall_mcp.events import DebateEvent, EventType
         from ulid import ULID
+
+        from debate_hall_mcp.events import DebateEvent, EventType
 
         # Generate a proper ULID
         ulid_str = str(ULID())
@@ -375,3 +376,206 @@ class TestEventPersistence:
         # ULIDs should be monotonically increasing
         for i in range(len(events) - 1):
             assert events[i].id < events[i + 1].id
+
+
+class TestEventConcurrency:
+    """Test concurrency safety for event persistence (CE review fixes)."""
+
+    def test_concurrent_append_does_not_corrupt_file(self, tmp_path: Path) -> None:
+        """Concurrent appends should not corrupt the JSONL file.
+
+        CE Review Issue #1: Event persistence has no locking.
+        Risk: Concurrent writers can interleave/corrupt JSONL lines.
+        Fix: Add file locking using filelock.
+        """
+        import concurrent.futures
+        import threading
+
+        from debate_hall_mcp.events import EventType, append_event, load_events
+
+        state_dir = tmp_path / "events"
+        thread_id = "concurrent-001"
+        num_writers = 10
+        events_per_writer = 20
+        barrier = threading.Barrier(num_writers)
+
+        def write_events(writer_id: int) -> list[str]:
+            """Write events and return list of event IDs."""
+            barrier.wait()  # Synchronize start
+            event_ids = []
+            for i in range(events_per_writer):
+                event = append_event(
+                    thread_id=thread_id,
+                    event_type=EventType.TURN_ADDED,
+                    payload={"writer": writer_id, "seq": i},
+                    state_dir=state_dir,
+                )
+                event_ids.append(event.id)
+            return event_ids
+
+        # Run concurrent writers
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_writers) as executor:
+            futures = [executor.submit(write_events, i) for i in range(num_writers)]
+            all_written_ids = []
+            for future in concurrent.futures.as_completed(futures):
+                all_written_ids.extend(future.result())
+
+        # Verify all events are readable (no corruption)
+        events = load_events(thread_id, state_dir, limit=1000)
+
+        # All events must be present and valid
+        assert len(events) == num_writers * events_per_writer
+        loaded_ids = {e.id for e in events}
+        assert loaded_ids == set(all_written_ids)
+
+    def test_append_uses_file_lock(self, tmp_path: Path) -> None:
+        """Verify append_event uses file locking for thread safety.
+
+        CE Review Issue #1: append_event should use FileLock.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from debate_hall_mcp.events import EventType, append_event
+
+        state_dir = tmp_path / "events"
+
+        # Mock FileLock to verify it's called
+        mock_lock = MagicMock()
+        mock_lock.__enter__ = MagicMock(return_value=None)
+        mock_lock.__exit__ = MagicMock(return_value=None)
+
+        with patch("debate_hall_mcp.events.FileLock", return_value=mock_lock) as mock_cls:
+            append_event(
+                thread_id="lock-test-001",
+                event_type=EventType.DEBATE_STARTED,
+                payload={},
+                state_dir=state_dir,
+            )
+
+            # FileLock should be instantiated with a lock file path
+            mock_cls.assert_called_once()
+            lock_path = mock_cls.call_args[0][0]
+            assert "lock-test-001" in lock_path
+            assert ".lock" in lock_path or "lock" in lock_path.lower()
+
+            # Lock context manager should be used
+            mock_lock.__enter__.assert_called_once()
+            mock_lock.__exit__.assert_called_once()
+
+
+class TestEventCorruptionRecovery:
+    """Test graceful handling of corrupt event lines (CE review fixes)."""
+
+    def test_load_events_skips_corrupt_lines(self, tmp_path: Path) -> None:
+        """load_events should skip corrupt lines gracefully.
+
+        CE Review Issue #2: No recovery for partial/corrupt lines.
+        Risk: Torn write during crash will break all future loads.
+        Fix: Skip corrupt lines with warning, don't crash.
+        """
+        from debate_hall_mcp.events import EventType, append_event, load_events
+
+        state_dir = tmp_path / "events"
+        thread_id = "corrupt-001"
+
+        # Create valid event
+        event1 = append_event(thread_id, EventType.DEBATE_STARTED, {"n": 1}, state_dir)
+
+        # Manually inject corrupt lines (simulating torn write)
+        events_file = state_dir / f"{thread_id}.events.jsonl"
+        with open(events_file, "a") as f:
+            f.write('{"id": "broken", "invalid": json\n')  # Corrupt JSON
+            f.write('just a partial line\n')  # Another corrupt line
+
+        # Add another valid event
+        event3 = append_event(thread_id, EventType.TURN_ADDED, {"n": 3}, state_dir)
+
+        # load_events should recover valid events, skip corrupt ones
+        events = load_events(thread_id, state_dir, limit=100)
+
+        # Should have both valid events, corrupt lines skipped
+        assert len(events) == 2
+        assert events[0].id == event1.id
+        assert events[1].id == event3.id
+
+    def test_load_events_handles_empty_lines(self, tmp_path: Path) -> None:
+        """load_events handles empty lines gracefully."""
+        from debate_hall_mcp.events import EventType, append_event, load_events
+
+        state_dir = tmp_path / "events"
+        thread_id = "empty-lines-001"
+
+        # Create valid event
+        event1 = append_event(thread_id, EventType.DEBATE_STARTED, {}, state_dir)
+
+        # Inject empty lines
+        events_file = state_dir / f"{thread_id}.events.jsonl"
+        with open(events_file, "a") as f:
+            f.write("\n\n\n")  # Multiple empty lines
+
+        # Add another valid event
+        event2 = append_event(thread_id, EventType.TURN_ADDED, {}, state_dir)
+
+        # Should handle empty lines without error
+        events = load_events(thread_id, state_dir, limit=100)
+        assert len(events) == 2
+        assert events[0].id == event1.id
+        assert events[1].id == event2.id
+
+    def test_load_events_logs_warning_for_corrupt_lines(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """load_events should log warning when skipping corrupt lines."""
+        import logging
+
+        from debate_hall_mcp.events import EventType, append_event, load_events
+
+        state_dir = tmp_path / "events"
+        thread_id = "warn-001"
+
+        # Create valid event
+        append_event(thread_id, EventType.DEBATE_STARTED, {}, state_dir)
+
+        # Inject corrupt line
+        events_file = state_dir / f"{thread_id}.events.jsonl"
+        with open(events_file, "a") as f:
+            f.write("this is not valid json\n")
+
+        # Load with logging capture
+        with caplog.at_level(logging.WARNING):
+            load_events(thread_id, state_dir)
+
+        # Should have logged a warning about the corrupt line
+        assert any("corrupt" in record.message.lower() or "skip" in record.message.lower() for record in caplog.records)
+
+    def test_load_events_uses_file_lock(self, tmp_path: Path) -> None:
+        """Verify load_events uses file locking for read consistency.
+
+        CE Review: Use lock for consistent reads.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from debate_hall_mcp.events import EventType, append_event, load_events
+
+        state_dir = tmp_path / "events"
+        thread_id = "read-lock-001"
+
+        # First create an event file
+        append_event(thread_id, EventType.DEBATE_STARTED, {}, state_dir)
+
+        # Now patch FileLock and verify load_events uses it
+        mock_lock = MagicMock()
+        mock_lock.__enter__ = MagicMock(return_value=None)
+        mock_lock.__exit__ = MagicMock(return_value=None)
+
+        with patch("debate_hall_mcp.events.FileLock", return_value=mock_lock) as mock_cls:
+            load_events(thread_id, state_dir)
+
+            # FileLock should be instantiated
+            assert mock_cls.called
+            lock_path = mock_cls.call_args[0][0]
+            assert thread_id in lock_path
+
+            # Lock context manager should be used
+            mock_lock.__enter__.assert_called()
+            mock_lock.__exit__.assert_called()

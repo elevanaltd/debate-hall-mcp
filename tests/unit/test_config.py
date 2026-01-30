@@ -7,7 +7,6 @@ Tests cover (ADR-0002 Foundation):
 - Tier configuration loader with resolution order
 """
 
-import os
 from pathlib import Path
 from textwrap import dedent
 
