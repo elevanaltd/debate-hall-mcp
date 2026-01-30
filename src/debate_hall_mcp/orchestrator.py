@@ -11,8 +11,14 @@ Architecture (per ADR-0002):
 - Agents call get_debate() to access state (I1: Cognitive State Isolation)
 - Events emitted at each stage for observability
 - Providers created per tier configuration
+
+CE Review Mitigations (Phase 3):
+- M1: Provider timeout handling with asyncio.wait_for()
+- M2: Debate marked PAUSED on failure for recovery
+- M3: Event payload redaction (no content_preview, sanitized errors)
 """
 
+import asyncio
 import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,9 +37,13 @@ from debate_hall_mcp.prompts import (
     format_wind_user_prompt,
 )
 from debate_hall_mcp.providers import ProviderResponse, create_provider
+from debate_hall_mcp.state import DebateStatus, load_debate_state, save_debate_state
 from debate_hall_mcp.tools.close import debate_close
 from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.turn import debate_turn
+
+# Default provider timeout in seconds (M1: CE Review)
+DEFAULT_PROVIDER_TIMEOUT = 120
 
 
 class DebateResult(BaseModel):
@@ -76,6 +86,20 @@ class DebateOrchestrator:
         self.tier_config = tier_config
         self.state_dir = state_dir
 
+    def _get_provider_timeout(self) -> int:
+        """Get provider timeout in seconds (M1: CE Review mitigation).
+
+        Returns:
+            Timeout in seconds. Default is 120 seconds.
+            Could be extended to use TierSettings.provider_timeout if added.
+        """
+        # Use tier_config setting if available, otherwise default
+        settings = self.tier_config.settings
+        provider_timeout = getattr(settings, "provider_timeout", None)
+        if provider_timeout is not None and isinstance(provider_timeout, int):
+            return int(provider_timeout)  # Explicit cast for mypy
+        return DEFAULT_PROVIDER_TIMEOUT
+
     def _generate_thread_id(self, topic: str) -> str:
         """Generate a thread ID in date-first format.
 
@@ -103,11 +127,16 @@ class DebateOrchestrator:
         1. Generate thread_id if not provided
         2. Initialize debate via init_debate
         3. Create providers for Wind, Wall, Door
-        4. Wind turn: expand possibilities
-        5. Wall turn: validate constraints
-        6. Door turn: synthesize resolution
+        4. Wind turn: expand possibilities (with timeout - M1)
+        5. Wall turn: validate constraints (with timeout - M1)
+        6. Door turn: synthesize resolution (with timeout - M1)
         7. Close debate with Door's synthesis
         8. Return DebateResult
+
+        CE Review Mitigations:
+        - M1: Provider calls wrapped with asyncio.wait_for() timeout
+        - M2: On failure, debate is marked PAUSED for recovery
+        - M3: Event payloads redact sensitive content
 
         Args:
             topic: The debate topic
@@ -117,11 +146,16 @@ class DebateOrchestrator:
             DebateResult with debate outcome
 
         Raises:
+            asyncio.TimeoutError: If provider times out (M1)
             Exception: If provider fails or debate cannot be completed
         """
         # Generate thread_id if not provided
         if thread_id is None:
             thread_id = self._generate_thread_id(topic)
+
+        # Track if debate was initialized (for M2: PAUSED on failure)
+        debate_initialized = False
+        timeout = self._get_provider_timeout()
 
         try:
             # 1. Initialize debate
@@ -131,6 +165,7 @@ class DebateOrchestrator:
                 mode="fixed",
                 state_dir=self.state_dir,
             )
+            debate_initialized = True
 
             # Emit debate_started event
             append_event(
@@ -145,11 +180,14 @@ class DebateOrchestrator:
             wall_provider = create_provider(self.tier_config.wall)
             door_provider = create_provider(self.tier_config.door)
 
-            # 3. Wind turn (PATHOS - Ideation)
+            # 3. Wind turn (PATHOS - Ideation) with timeout (M1)
             wind_user_prompt = format_wind_user_prompt(topic, thread_id)
-            wind_response: ProviderResponse = await wind_provider.complete(
-                system_prompt=WIND_PROMPT,
-                user_prompt=wind_user_prompt,
+            wind_response: ProviderResponse = await asyncio.wait_for(
+                wind_provider.complete(
+                    system_prompt=WIND_PROMPT,
+                    user_prompt=wind_user_prompt,
+                ),
+                timeout=timeout,
             )
             debate_turn(
                 thread_id=thread_id,
@@ -161,21 +199,25 @@ class DebateOrchestrator:
                 token_output=wind_response.token_output,
                 state_dir=self.state_dir,
             )
+            # M3: Redact content_preview from TURN_ADDED events
             append_event(
                 thread_id=thread_id,
                 event_type=EventType.TURN_ADDED,
                 payload={
                     "role": "Wind",
-                    "content_preview": wind_response.content[:100],
+                    "model": wind_response.model,
                 },
                 state_dir=self.state_dir,
             )
 
-            # 4. Wall turn (ETHOS - Validation)
+            # 4. Wall turn (ETHOS - Validation) with timeout (M1)
             wall_user_prompt = format_wall_user_prompt(topic, thread_id)
-            wall_response: ProviderResponse = await wall_provider.complete(
-                system_prompt=WALL_PROMPT,
-                user_prompt=wall_user_prompt,
+            wall_response: ProviderResponse = await asyncio.wait_for(
+                wall_provider.complete(
+                    system_prompt=WALL_PROMPT,
+                    user_prompt=wall_user_prompt,
+                ),
+                timeout=timeout,
             )
             debate_turn(
                 thread_id=thread_id,
@@ -187,21 +229,25 @@ class DebateOrchestrator:
                 token_output=wall_response.token_output,
                 state_dir=self.state_dir,
             )
+            # M3: Redact content_preview from TURN_ADDED events
             append_event(
                 thread_id=thread_id,
                 event_type=EventType.TURN_ADDED,
                 payload={
                     "role": "Wall",
-                    "content_preview": wall_response.content[:100],
+                    "model": wall_response.model,
                 },
                 state_dir=self.state_dir,
             )
 
-            # 5. Door turn (LOGOS - Synthesis)
+            # 5. Door turn (LOGOS - Synthesis) with timeout (M1)
             door_user_prompt = format_door_user_prompt(topic, thread_id)
-            door_response: ProviderResponse = await door_provider.complete(
-                system_prompt=DOOR_PROMPT,
-                user_prompt=door_user_prompt,
+            door_response: ProviderResponse = await asyncio.wait_for(
+                door_provider.complete(
+                    system_prompt=DOOR_PROMPT,
+                    user_prompt=door_user_prompt,
+                ),
+                timeout=timeout,
             )
             debate_turn(
                 thread_id=thread_id,
@@ -213,12 +259,13 @@ class DebateOrchestrator:
                 token_output=door_response.token_output,
                 state_dir=self.state_dir,
             )
+            # M3: Redact content_preview from TURN_ADDED events
             append_event(
                 thread_id=thread_id,
                 event_type=EventType.TURN_ADDED,
                 payload={
                     "role": "Door",
-                    "content_preview": door_response.content[:100],
+                    "model": door_response.model,
                 },
                 state_dir=self.state_dir,
             )
@@ -231,7 +278,7 @@ class DebateOrchestrator:
                 output_format="json",
             )
 
-            # Emit debate_closed event
+            # Emit debate_closed event (synthesis_preview is allowed - intended output)
             append_event(
                 thread_id=thread_id,
                 event_type=EventType.DEBATE_CLOSED,
@@ -252,15 +299,22 @@ class DebateOrchestrator:
             )
 
         except Exception as e:
-            # Emit error event (suppress any failure to emit)
+            # M3: Emit error event with only error_type (no message - may contain secrets)
             with contextlib.suppress(Exception):
                 append_event(
                     thread_id=thread_id,
                     event_type=EventType.ERROR,
                     payload={
                         "error_type": type(e).__name__,
-                        "message": str(e),
                     },
                     state_dir=self.state_dir,
                 )
+
+            # M2: Mark debate as PAUSED on failure (for recovery via resume_debate)
+            if debate_initialized:
+                with contextlib.suppress(Exception):
+                    room = load_debate_state(thread_id, self.state_dir)
+                    room.status = DebateStatus.PAUSED
+                    save_debate_state(room, self.state_dir)
+
             raise

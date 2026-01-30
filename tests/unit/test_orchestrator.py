@@ -6,8 +6,12 @@ Tests the orchestrator core loop:
 - Wind/Wall/Door turn sequence
 - Debate closure with Door's synthesis
 - Event emission at each stage
+- Provider timeout handling (M1 - CE Review)
+- Debate PAUSED on failure (M2 - CE Review)
+- Event payload redaction (M3 - CE Review)
 """
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +23,7 @@ from debate_hall_mcp.config import RoleConfig, TierConfig, TierSettings
 from debate_hall_mcp.events import EventType, load_events
 from debate_hall_mcp.orchestrator import DebateOrchestrator, DebateResult
 from debate_hall_mcp.providers import ProviderResponse
+from debate_hall_mcp.state import DebateStatus, load_debate_state
 
 
 @pytest.fixture
@@ -351,3 +356,209 @@ class TestDebateResult:
             synthesis=None,
         )
         assert result.synthesis is None
+
+
+class TestM1ProviderTimeout:
+    """Tests for M1: Provider timeout handling (CE Review mitigation)."""
+
+    @pytest.mark.anyio
+    async def test_raises_timeout_error_when_provider_times_out(
+        self, tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """Orchestrator should raise TimeoutError when provider times out."""
+        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+
+        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
+            mock_provider = AsyncMock()
+
+            # Simulate a provider that never returns (hangs indefinitely)
+            async def slow_complete(
+                *_args: Any, **_kwargs: Any  # noqa: ARG001
+            ) -> ProviderResponse:
+                await asyncio.sleep(300)  # Longer than any timeout
+                return create_mock_provider_response("Should never reach")
+
+            mock_provider.complete.side_effect = slow_complete
+            mock_create_provider.return_value = mock_provider
+
+            # Use a short timeout to speed up the test
+            with (
+                patch.object(orchestrator, "_get_provider_timeout", return_value=0.1),
+                pytest.raises(asyncio.TimeoutError),
+            ):
+                await orchestrator.run(topic="Timeout test", thread_id="2026-01-30-timeout-test")
+
+    @pytest.mark.anyio
+    async def test_emits_error_event_with_timeout_type_on_timeout(
+        self, tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """Orchestrator should emit error event with timeout error_type on timeout."""
+        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        thread_id = "2026-01-30-timeout-error-event-test"
+
+        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
+            mock_provider = AsyncMock()
+
+            async def slow_complete(
+                *_args: Any, **_kwargs: Any  # noqa: ARG001
+            ) -> ProviderResponse:
+                await asyncio.sleep(300)
+                return create_mock_provider_response("Should never reach")
+
+            mock_provider.complete.side_effect = slow_complete
+            mock_create_provider.return_value = mock_provider
+
+            with (
+                patch.object(orchestrator, "_get_provider_timeout", return_value=0.1),
+                pytest.raises(asyncio.TimeoutError),
+            ):
+                await orchestrator.run(topic="Timeout error event test", thread_id=thread_id)
+
+        # Check that an error event was emitted with timeout type
+        events = load_events(thread_id, temp_state_dir)
+        error_events = [e for e in events if e.event_type == EventType.ERROR]
+        assert len(error_events) >= 1
+        assert error_events[-1].payload.get("error_type") == "TimeoutError"
+
+    @pytest.mark.anyio
+    async def test_default_timeout_is_120_seconds(
+        self, tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """Default provider timeout should be 120 seconds."""
+        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        assert orchestrator._get_provider_timeout() == 120
+
+
+class TestM2DebatePausedOnFailure:
+    """Tests for M2: Mark debate as PAUSED on failure (CE Review mitigation)."""
+
+    @pytest.mark.anyio
+    async def test_debate_status_is_paused_after_provider_failure(
+        self, tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """Debate should be marked PAUSED after provider failure (for recovery)."""
+        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        thread_id = "2026-01-30-pause-on-failure-test"
+
+        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
+            mock_provider = AsyncMock()
+            mock_provider.complete.side_effect = Exception("Provider API failure")
+            mock_create_provider.return_value = mock_provider
+
+            with pytest.raises(Exception, match="Provider API failure"):
+                await orchestrator.run(topic="Pause test", thread_id=thread_id)
+
+        # Load debate state and verify it's PAUSED
+        room = load_debate_state(thread_id, temp_state_dir)
+        assert room.status == DebateStatus.PAUSED
+
+    @pytest.mark.anyio
+    async def test_debate_status_is_paused_after_timeout(
+        self, tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """Debate should be marked PAUSED after timeout (for recovery)."""
+        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        thread_id = "2026-01-30-pause-on-timeout-test"
+
+        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
+            mock_provider = AsyncMock()
+
+            async def slow_complete(
+                *_args: Any, **_kwargs: Any  # noqa: ARG001
+            ) -> ProviderResponse:
+                await asyncio.sleep(300)
+                return create_mock_provider_response("Should never reach")
+
+            mock_provider.complete.side_effect = slow_complete
+            mock_create_provider.return_value = mock_provider
+
+            with (
+                patch.object(orchestrator, "_get_provider_timeout", return_value=0.1),
+                pytest.raises(asyncio.TimeoutError),
+            ):
+                await orchestrator.run(topic="Pause on timeout test", thread_id=thread_id)
+
+        # Load debate state and verify it's PAUSED
+        room = load_debate_state(thread_id, temp_state_dir)
+        assert room.status == DebateStatus.PAUSED
+
+
+class TestM3EventPayloadRedaction:
+    """Tests for M3: Redact sensitive content from event payloads (CE Review mitigation)."""
+
+    @pytest.mark.anyio
+    async def test_turn_added_events_do_not_contain_content_preview(
+        self, tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """TURN_ADDED events should not include content_preview (sensitive data)."""
+        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+
+        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
+            mock_provider = AsyncMock()
+            mock_provider.complete.return_value = create_mock_provider_response(
+                "SENSITIVE CONTENT THAT SHOULD NOT APPEAR IN EVENTS"
+            )
+            mock_create_provider.return_value = mock_provider
+
+            result = await orchestrator.run(topic="Redaction test")
+
+        # Check TURN_ADDED events
+        events = load_events(result.thread_id, temp_state_dir)
+        turn_events = [e for e in events if e.event_type == EventType.TURN_ADDED]
+
+        for event in turn_events:
+            # content_preview should not be in payload
+            assert "content_preview" not in event.payload
+            # The payload should still have role and model
+            assert "role" in event.payload
+
+    @pytest.mark.anyio
+    async def test_error_events_only_include_error_type_not_message(
+        self, tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """ERROR events should only include error_type, not raw error message."""
+        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+        thread_id = "2026-01-30-error-redaction-test"
+
+        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
+            mock_provider = AsyncMock()
+            # Error message contains sensitive info
+            mock_provider.complete.side_effect = Exception("API key invalid: sk-secret-1234-abcd")
+            mock_create_provider.return_value = mock_provider
+
+            with pytest.raises(Exception, match="API key invalid"):  # noqa: B017
+                await orchestrator.run(topic="Error redaction test", thread_id=thread_id)
+
+        # Check ERROR events
+        events = load_events(thread_id, temp_state_dir)
+        error_events = [e for e in events if e.event_type == EventType.ERROR]
+
+        for event in error_events:
+            # message should not be in payload (may contain secrets)
+            assert "message" not in event.payload
+            # error_type should still be present
+            assert "error_type" in event.payload
+
+    @pytest.mark.anyio
+    async def test_debate_closed_events_can_include_synthesis_preview(
+        self, tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """DEBATE_CLOSED events can include synthesis_preview (intended output)."""
+        orchestrator = DebateOrchestrator(tier_config, temp_state_dir)
+
+        with patch("debate_hall_mcp.orchestrator.create_provider") as mock_create_provider:
+            mock_provider = AsyncMock()
+            mock_provider.complete.return_value = create_mock_provider_response(
+                "Final synthesis content"
+            )
+            mock_create_provider.return_value = mock_provider
+
+            result = await orchestrator.run(topic="Synthesis preview test")
+
+        # Check DEBATE_CLOSED events
+        events = load_events(result.thread_id, temp_state_dir)
+        closed_events = [e for e in events if e.event_type == EventType.DEBATE_CLOSED]
+
+        # synthesis_preview is allowed in DEBATE_CLOSED
+        assert len(closed_events) == 1
+        assert "synthesis_preview" in closed_events[0].payload

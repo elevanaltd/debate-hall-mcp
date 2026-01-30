@@ -276,3 +276,127 @@ class TestRunDebateTool:
 
             with pytest.raises(KeyError, match="nonexistent"):
                 await run_debate(topic="Invalid tier test", tier="nonexistent")
+
+
+class TestM4InputValidation:
+    """Tests for M4: Input validation at tool boundary (CE Review mitigation)."""
+
+    @pytest.mark.anyio
+    async def test_raises_error_for_empty_topic(self) -> None:
+        """run_debate should raise ValueError for empty topic."""
+        with pytest.raises(ValueError, match="Topic cannot be empty"):
+            await run_debate(topic="")
+
+    @pytest.mark.anyio
+    async def test_raises_error_for_whitespace_only_topic(self) -> None:
+        """run_debate should raise ValueError for whitespace-only topic."""
+        with pytest.raises(ValueError, match="Topic cannot be empty"):
+            await run_debate(topic="   ")
+
+    @pytest.mark.anyio
+    async def test_raises_error_for_topic_exceeding_max_length(self) -> None:
+        """run_debate should raise ValueError for topic exceeding 1000 chars."""
+        long_topic = "x" * 1001
+        with pytest.raises(ValueError, match="Topic exceeds maximum length"):
+            await run_debate(topic=long_topic)
+
+    @pytest.mark.anyio
+    async def test_accepts_topic_at_max_length(
+        self, temp_state_dir: Path, mock_tier_config: TierConfig, mock_debate_result: DebateResult
+    ) -> None:
+        """run_debate should accept a topic exactly at 1000 chars."""
+        topic_1000_chars = "x" * 1000
+        with (
+            patch("debate_hall_mcp.tools.orchestrate.load_tier_config") as mock_load_config,
+            patch("debate_hall_mcp.tools.orchestrate.get_state_dir") as mock_get_state_dir,
+            patch(
+                "debate_hall_mcp.tools.orchestrate.DebateOrchestrator"
+            ) as mock_orchestrator_class,
+        ):
+            mock_load_config.return_value = mock_tier_config
+            mock_get_state_dir.return_value = temp_state_dir
+
+            mock_orchestrator = MagicMock()
+            mock_orchestrator.run = AsyncMock(return_value=mock_debate_result)
+            mock_orchestrator_class.return_value = mock_orchestrator
+
+            result = await run_debate(topic=topic_1000_chars)
+
+        # Should succeed without error
+        assert result["thread_id"] is not None
+
+    @pytest.mark.anyio
+    async def test_raises_error_for_thread_id_with_path_traversal(self) -> None:
+        """run_debate should raise ValueError for thread_id with path traversal."""
+        with pytest.raises(ValueError, match="path-unsafe"):
+            await run_debate(topic="Valid topic", thread_id="../evil-path")
+
+    @pytest.mark.anyio
+    async def test_raises_error_for_thread_id_with_forward_slash(self) -> None:
+        """run_debate should raise ValueError for thread_id with forward slash."""
+        with pytest.raises(ValueError, match="path-unsafe"):
+            await run_debate(topic="Valid topic", thread_id="foo/bar")
+
+    @pytest.mark.anyio
+    async def test_raises_error_for_thread_id_with_backslash(self) -> None:
+        """run_debate should raise ValueError for thread_id with backslash."""
+        with pytest.raises(ValueError, match="path-unsafe"):
+            await run_debate(topic="Valid topic", thread_id="foo\\bar")
+
+    @pytest.mark.anyio
+    async def test_accepts_valid_thread_id(
+        self, temp_state_dir: Path, mock_tier_config: TierConfig
+    ) -> None:
+        """run_debate should accept valid thread_id format."""
+        valid_result = DebateResult(
+            thread_id="2026-01-30-valid-thread-id",
+            topic="Valid topic",
+            status="synthesis",
+            turn_count=3,
+            synthesis="Synthesis",
+        )
+        with (
+            patch("debate_hall_mcp.tools.orchestrate.load_tier_config") as mock_load_config,
+            patch("debate_hall_mcp.tools.orchestrate.get_state_dir") as mock_get_state_dir,
+            patch(
+                "debate_hall_mcp.tools.orchestrate.DebateOrchestrator"
+            ) as mock_orchestrator_class,
+        ):
+            mock_load_config.return_value = mock_tier_config
+            mock_get_state_dir.return_value = temp_state_dir
+
+            mock_orchestrator = MagicMock()
+            mock_orchestrator.run = AsyncMock(return_value=valid_result)
+            mock_orchestrator_class.return_value = mock_orchestrator
+
+            result = await run_debate(
+                topic="Valid topic",
+                thread_id="2026-01-30-valid-thread-id",
+            )
+
+        # Should succeed without error
+        assert result["thread_id"] == "2026-01-30-valid-thread-id"
+
+    @pytest.mark.anyio
+    async def test_allows_none_thread_id(
+        self, temp_state_dir: Path, mock_tier_config: TierConfig, mock_debate_result: DebateResult
+    ) -> None:
+        """run_debate should allow None thread_id (auto-generated)."""
+        with (
+            patch("debate_hall_mcp.tools.orchestrate.load_tier_config") as mock_load_config,
+            patch("debate_hall_mcp.tools.orchestrate.get_state_dir") as mock_get_state_dir,
+            patch(
+                "debate_hall_mcp.tools.orchestrate.DebateOrchestrator"
+            ) as mock_orchestrator_class,
+        ):
+            mock_load_config.return_value = mock_tier_config
+            mock_get_state_dir.return_value = temp_state_dir
+
+            mock_orchestrator = MagicMock()
+            mock_orchestrator.run = AsyncMock(return_value=mock_debate_result)
+            mock_orchestrator_class.return_value = mock_orchestrator
+
+            result = await run_debate(topic="Valid topic", thread_id=None)
+
+        # Should succeed without error
+        assert result["thread_id"] is not None
