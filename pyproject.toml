@@ -30,6 +30,8 @@ dependencies = [
     "httpx>=0.27.0",  # GitHub API client (Issue #15)
     "python-dotenv>=1.0.0",  # Load .env files for configuration
     "octave-mcp>=0.6.1",  # Update to latest version with enhanced validation and features
+    "python-ulid>=3.0.0",  # ULID for event ordering (ADR-0002)
+    "PyYAML>=6.0",  # Tier configuration loading (ADR-0002)
 ]
 
 [project.optional-dependencies]
@@ -39,8 +41,9 @@ dev = [
     "pytest-cov>=4.1.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
-    "black>=24.0.0",
+    "black==26.1.0",  # Pin to avoid CI/local formatting drift
     "inline-snapshot>=0.15.0",
+    "types-PyYAML>=6.0",  # Type stubs for PyYAML (PEP 561 compliance)
 ]
 
 [project.scripts]

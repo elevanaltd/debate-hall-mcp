@@ -25,16 +25,13 @@ def test_content_within_limit_accepted(tmp_path: Path) -> None:
     )
 
     # Content within limit (small valid content)
-    content = (
-        """
+    content = """
 [VERDICT]
 APPROVED
 
 [EVIDENCE]
 - All tests pass
-"""
-        * 10
-    )  # Small repeated content (well under 32k)
+""" * 10  # Small repeated content (well under 32k)
 
     result = debate_turn(
         thread_id="2025-01-01-test-size-ok",

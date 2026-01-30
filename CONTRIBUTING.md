@@ -48,6 +48,23 @@ Or run everything:
 ruff check src tests && mypy src && black --check src tests
 ```
 
+## Adding Dependencies
+
+When adding a new Python dependency, follow this checklist to prevent CI failures:
+
+1. **Add runtime dependency** to `[project.dependencies]` in `pyproject.toml`
+2. **Check for type stubs**: If the package lacks inline types (PEP 561), add `types-{package}` to `[project.optional-dependencies.dev]`
+   - Common examples: `types-PyYAML`, `types-requests`, `types-redis`
+   - Check [typeshed](https://github.com/python/typeshed) or PyPI for available stubs
+3. **Pin formatting/linting tools**: Tools like `black`, `ruff` should be pinned (e.g., `black==26.1.0`) to prevent CI/local drift
+4. **Update lock file**: Run `uv lock` to regenerate `uv.lock`
+5. **Run full quality gates locally** before pushing:
+   ```bash
+   source .venv/bin/activate
+   ruff check src tests && mypy src && black --check src tests && pytest
+   ```
+6. **Reinstall** if needed: `uv pip install -e ".[dev]"`
+
 ## Code Style
 
 - **Python**: 3.11+, strict mypy, ruff + black formatting
