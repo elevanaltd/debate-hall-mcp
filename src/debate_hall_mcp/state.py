@@ -95,9 +95,19 @@ def get_state_dir() -> Path:
 
 
 class DebateStatus(str, Enum):
-    """Status of a debate room (I3: Finite Dialectic Closure)."""
+    """Status of a debate room (I3: Finite Dialectic Closure).
+
+    Status transitions for auto-orchestration (ADR-0002):
+    - ACTIVE: Debate is in progress, accepting turns
+    - PAUSED: Debate temporarily paused, awaiting orchestrator resume
+    - SYNTHESIS: Successfully closed with Door synthesis
+    - STALEMATE: Closed due to no progress
+    - EXHAUSTION: Closed due to resource limits reached
+    - FORCE_CLOSED: Administratively force closed (I5)
+    """
 
     ACTIVE = "active"
+    PAUSED = "paused"
     SYNTHESIS = "synthesis"
     STALEMATE = "stalemate"
     EXHAUSTION = "exhaustion"

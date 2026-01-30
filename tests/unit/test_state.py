@@ -36,6 +36,10 @@ class TestDebateStatus:
         assert DebateStatus.EXHAUSTION.value == "exhaustion"
         assert DebateStatus.FORCE_CLOSED.value == "force_closed"
 
+    def test_paused_status_exists(self) -> None:
+        """Verify PAUSED status exists for auto-orchestration (ADR-0002)."""
+        assert DebateStatus.PAUSED.value == "paused"
+
 
 class TestDebateMode:
     """Test DebateMode enum."""
