@@ -1,0 +1,192 @@
+"""Unit tests for prompt templates (Phase 3: Auto-orchestration).
+
+Tests prompt generation for Wind/Wall/Door agents with:
+- Thread ID reference for state access
+- get_debate() instruction per ADR-0002 (I1: Cognitive State Isolation)
+- Role-specific task instructions
+"""
+
+import pytest
+
+from debate_hall_mcp.prompts import (
+    DOOR_PROMPT,
+    WALL_PROMPT,
+    WIND_PROMPT,
+    format_door_user_prompt,
+    format_wall_user_prompt,
+    format_wind_user_prompt,
+)
+
+
+class TestBasePrompts:
+    """Test that base system prompts exist and have expected structure."""
+
+    def test_wind_prompt_exists(self) -> None:
+        """WIND_PROMPT should exist and contain PATHOS role."""
+        assert WIND_PROMPT is not None
+        assert "PATHOS" in WIND_PROMPT
+        assert "Wind" in WIND_PROMPT
+
+    def test_wall_prompt_exists(self) -> None:
+        """WALL_PROMPT should exist and contain ETHOS role."""
+        assert WALL_PROMPT is not None
+        assert "ETHOS" in WALL_PROMPT
+        assert "Wall" in WALL_PROMPT
+
+    def test_door_prompt_exists(self) -> None:
+        """DOOR_PROMPT should exist and contain LOGOS role."""
+        assert DOOR_PROMPT is not None
+        assert "LOGOS" in DOOR_PROMPT
+        assert "Door" in DOOR_PROMPT
+
+
+class TestWindUserPrompt:
+    """Tests for format_wind_user_prompt (PATHOS - The Ideator)."""
+
+    def test_includes_topic(self) -> None:
+        """User prompt should include the debate topic."""
+        prompt = format_wind_user_prompt(
+            topic="API design patterns", thread_id="2026-01-30-api-design"
+        )
+        assert "API design patterns" in prompt
+
+    def test_includes_thread_id(self) -> None:
+        """User prompt should include thread_id for state access."""
+        prompt = format_wind_user_prompt(topic="Testing strategy", thread_id="2026-01-30-testing")
+        assert "2026-01-30-testing" in prompt
+
+    def test_includes_get_debate_instruction(self) -> None:
+        """User prompt should instruct agent to call get_debate() per ADR-0002."""
+        prompt = format_wind_user_prompt(topic="Architecture", thread_id="2026-01-30-arch")
+        # Must include instruction to call get_debate with thread_id
+        assert "get_debate" in prompt
+        assert "2026-01-30-arch" in prompt
+        assert "include_transcript" in prompt.lower() or "transcript" in prompt.lower()
+
+    def test_includes_wind_role_description(self) -> None:
+        """User prompt should describe Wind's role (ideation/expansion)."""
+        prompt = format_wind_user_prompt(topic="Feature design", thread_id="2026-01-30-feature")
+        # Should mention Wind role or PATHOS cognition
+        assert "Wind" in prompt or "PATHOS" in prompt
+        # Should mention ideation or expansion
+        assert any(
+            term in prompt.lower()
+            for term in ["expand", "explore", "possibilit", "ideat", "divergent"]
+        )
+
+    def test_prompt_is_non_empty_string(self) -> None:
+        """User prompt should return a non-empty string."""
+        prompt = format_wind_user_prompt(topic="Test", thread_id="2026-01-30-test")
+        assert isinstance(prompt, str)
+        assert len(prompt) > 100  # Should be a substantial prompt
+
+
+class TestWallUserPrompt:
+    """Tests for format_wall_user_prompt (ETHOS - The Validator)."""
+
+    def test_includes_topic(self) -> None:
+        """User prompt should include the debate topic."""
+        prompt = format_wall_user_prompt(topic="Security audit", thread_id="2026-01-30-security")
+        assert "Security audit" in prompt
+
+    def test_includes_thread_id(self) -> None:
+        """User prompt should include thread_id for state access."""
+        prompt = format_wall_user_prompt(topic="Code review", thread_id="2026-01-30-review")
+        assert "2026-01-30-review" in prompt
+
+    def test_includes_get_debate_instruction(self) -> None:
+        """User prompt should instruct agent to call get_debate() per ADR-0002."""
+        prompt = format_wall_user_prompt(topic="Validation", thread_id="2026-01-30-val")
+        assert "get_debate" in prompt
+        assert "2026-01-30-val" in prompt
+        assert "include_transcript" in prompt.lower() or "transcript" in prompt.lower()
+
+    def test_includes_wall_role_description(self) -> None:
+        """User prompt should describe Wall's role (validation/constraints)."""
+        prompt = format_wall_user_prompt(topic="Constraints", thread_id="2026-01-30-const")
+        # Should mention Wall role or ETHOS cognition
+        assert "Wall" in prompt or "ETHOS" in prompt
+        # Should mention validation or constraints
+        assert any(
+            term in prompt.lower()
+            for term in ["validat", "constrain", "evidence", "verify", "assess"]
+        )
+
+    def test_prompt_is_non_empty_string(self) -> None:
+        """User prompt should return a non-empty string."""
+        prompt = format_wall_user_prompt(topic="Test", thread_id="2026-01-30-test")
+        assert isinstance(prompt, str)
+        assert len(prompt) > 100
+
+
+class TestDoorUserPrompt:
+    """Tests for format_door_user_prompt (LOGOS - The Synthesizer)."""
+
+    def test_includes_topic(self) -> None:
+        """User prompt should include the debate topic."""
+        prompt = format_door_user_prompt(
+            topic="System integration", thread_id="2026-01-30-integration"
+        )
+        assert "System integration" in prompt
+
+    def test_includes_thread_id(self) -> None:
+        """User prompt should include thread_id for state access."""
+        prompt = format_door_user_prompt(topic="Synthesis", thread_id="2026-01-30-synth")
+        assert "2026-01-30-synth" in prompt
+
+    def test_includes_get_debate_instruction(self) -> None:
+        """User prompt should instruct agent to call get_debate() per ADR-0002."""
+        prompt = format_door_user_prompt(topic="Resolution", thread_id="2026-01-30-res")
+        assert "get_debate" in prompt
+        assert "2026-01-30-res" in prompt
+        assert "include_transcript" in prompt.lower() or "transcript" in prompt.lower()
+
+    def test_includes_door_role_description(self) -> None:
+        """User prompt should describe Door's role (synthesis/resolution)."""
+        prompt = format_door_user_prompt(topic="Resolution", thread_id="2026-01-30-resolve")
+        # Should mention Door role or LOGOS cognition
+        assert "Door" in prompt or "LOGOS" in prompt
+        # Should mention synthesis or integration
+        assert any(
+            term in prompt.lower()
+            for term in ["synthesi", "integrat", "resolv", "converge", "third"]
+        )
+
+    def test_prompt_is_non_empty_string(self) -> None:
+        """User prompt should return a non-empty string."""
+        prompt = format_door_user_prompt(topic="Test", thread_id="2026-01-30-test")
+        assert isinstance(prompt, str)
+        assert len(prompt) > 100
+
+
+class TestPromptConsistency:
+    """Tests for consistency across all prompt functions."""
+
+    @pytest.mark.parametrize(
+        "format_func",
+        [format_wind_user_prompt, format_wall_user_prompt, format_door_user_prompt],
+    )
+    def test_all_prompts_include_thread_id(self, format_func) -> None:
+        """All prompt functions should include the thread_id."""
+        thread_id = "2026-01-30-consistency-test"
+        prompt = format_func(topic="Test topic", thread_id=thread_id)
+        assert thread_id in prompt
+
+    @pytest.mark.parametrize(
+        "format_func",
+        [format_wind_user_prompt, format_wall_user_prompt, format_door_user_prompt],
+    )
+    def test_all_prompts_mention_get_debate(self, format_func) -> None:
+        """All prompt functions should mention get_debate() per ADR-0002."""
+        prompt = format_func(topic="Test", thread_id="2026-01-30-test")
+        assert "get_debate" in prompt
+
+    @pytest.mark.parametrize(
+        "format_func",
+        [format_wind_user_prompt, format_wall_user_prompt, format_door_user_prompt],
+    )
+    def test_all_prompts_mention_wind_wall_door(self, format_func) -> None:
+        """All prompts should mention this is a Wind/Wall/Door debate."""
+        prompt = format_func(topic="Test", thread_id="2026-01-30-test")
+        # Should reference the debate structure
+        assert "Wind" in prompt or "Wall" in prompt or "Door" in prompt
