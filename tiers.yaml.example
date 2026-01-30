@@ -1,5 +1,8 @@
 # Debate Hall MCP - Tier Configuration
 #
+# SETUP: Copy this file to tiers.yaml and customize as needed:
+#   cp tiers.yaml.example tiers.yaml
+#
 # This file configures the AI providers for auto-orchestrated debates.
 # Resolution order: env var > ./tiers.yaml > ~/.debate-hall/tiers.yaml
 #

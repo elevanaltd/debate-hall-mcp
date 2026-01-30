@@ -58,6 +58,9 @@ env/
 # Local AI configuration (use config/ai.yaml.example as template)
 config/ai.yaml
 
+# Local tier configuration (use tiers.yaml.example as template)
+tiers.yaml
+
 # Testing
 .pytest_cache/
 .coverage
