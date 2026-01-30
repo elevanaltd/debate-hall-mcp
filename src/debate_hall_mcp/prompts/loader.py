@@ -3,18 +3,24 @@
 This module implements the Layered Discovery with Optional Naming pattern
 decided in debate 2026-01-30-prompt-config-architecture.
 
-Resolution order:
-1. If prompt_file is absolute path -> load that file
-2. If prompt_file is name (e.g., "security") -> resolve to ~/.debate-hall/prompts/{role}-{name}.oct.md
-3. If prompt_file is null -> use embedded default (Ship ZERO principle)
+Resolution order for named variants (e.g., prompt_file: "security"):
+1. Project-local: ./prompts/{role}-{name}.oct.md
+2. User-global: ~/.debate-hall/prompts/{role}-{name}.oct.md
+3. Embedded default (Ship ZERO principle)
 
-Storage convention:
-    ~/.debate-hall/prompts/
-    ├── wind-default.oct.md      # User's default wind prompt
-    ├── wind-security.oct.md     # Variant for security debates
-    ├── wall-default.oct.md
-    ├── door-legal.oct.md
-    └── ...
+Resolution order for explicit paths:
+1. Absolute path (/path/to/prompt.oct.md) -> load directly
+2. Relative path (./local.oct.md) -> resolve from cwd
+3. Named variant -> layered discovery above
+
+Storage conventions:
+    ./prompts/                           # Project-local (for teams/repos)
+    ├── wind-security.oct.md
+    └── wall-strict.oct.md
+
+    ~/.debate-hall/prompts/              # User-global (personal customization)
+    ├── wind-default.oct.md
+    └── door-technical.oct.md
 """
 
 import os
@@ -22,8 +28,12 @@ from pathlib import Path
 
 from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
 
-# Default prompts directory (XDG-like pattern)
-PROMPTS_DIR = Path(os.environ.get("HOME", "~")).expanduser() / ".debate-hall" / "prompts"
+# Directory names for prompt resolution
+PROJECT_PROMPTS_DIR = Path("./prompts")  # Project-local prompts
+USER_PROMPTS_DIR = Path(os.environ.get("HOME", "~")).expanduser() / ".debate-hall" / "prompts"
+
+# Legacy alias for backward compatibility
+PROMPTS_DIR = USER_PROMPTS_DIR
 
 # Embedded defaults map
 EMBEDDED_PROMPTS: dict[str, str] = {
@@ -42,41 +52,68 @@ class PromptLoadError(Exception):
     pass
 
 
+def _build_variant_filename(role: str, prompt_file: str) -> str:
+    """Build the filename for a named variant.
+
+    Args:
+        role: The role (wind, wall, door)
+        prompt_file: Variant name (e.g., "security" or "wind-security")
+
+    Returns:
+        Filename like "wind-security.oct.md"
+    """
+    # Support both "security" and "wind-security" formats
+    if "-" in prompt_file and prompt_file.startswith(f"{role}-"):
+        # Already has role prefix: "wind-security"
+        return f"{prompt_file}.oct.md"
+    else:
+        # Just variant name: "security" -> "wind-security.oct.md"
+        return f"{role}-{prompt_file}.oct.md"
+
+
 def _resolve_prompt_path(role: str, prompt_file: str) -> Path:
-    """Resolve a prompt_file reference to an absolute path.
+    """Resolve a prompt_file reference using layered discovery.
 
     Resolution logic:
     - If prompt_file is an absolute path -> return as-is
     - If prompt_file is a relative path starting with ./ or ../ -> resolve from cwd
-    - Otherwise treat as variant name -> ~/.debate-hall/prompts/{role}-{name}.oct.md
+    - Otherwise treat as variant name with layered discovery:
+      1. ./prompts/{role}-{name}.oct.md (project-local)
+      2. ~/.debate-hall/prompts/{role}-{name}.oct.md (user-global)
 
     Args:
         role: The role (wind, wall, door) for named resolution
         prompt_file: Path or variant name
 
     Returns:
-        Resolved absolute path
+        Resolved path (may not exist - caller handles FileNotFoundError)
     """
     path = Path(prompt_file)
 
-    # Absolute path
+    # Absolute path - return as-is (caller handles FileNotFoundError)
     if path.is_absolute():
         return path
 
-    # Explicit relative path (./foo or ../foo)
+    # Explicit relative path (./foo or ../foo) - resolve from cwd
     if prompt_file.startswith("./") or prompt_file.startswith("../"):
         return path.resolve()
 
-    # Named variant -> resolve to prompts directory
-    # Support both "security" and "wind-security" formats
-    if "-" in prompt_file and prompt_file.startswith(f"{role}-"):
-        # Already has role prefix: "wind-security"
-        filename = f"{prompt_file}.oct.md"
-    else:
-        # Just variant name: "security" -> "wind-security.oct.md"
-        filename = f"{role}-{prompt_file}.oct.md"
+    # Named variant -> layered discovery
+    filename = _build_variant_filename(role, prompt_file)
 
-    return PROMPTS_DIR / filename
+    # 1. Check project-local first
+    project_path = PROJECT_PROMPTS_DIR / filename
+    if project_path.exists():
+        return project_path.resolve()
+
+    # 2. Check user-global
+    user_path = USER_PROMPTS_DIR / filename
+    if user_path.exists():
+        return user_path
+
+    # 3. Variant not found - return user path for error message clarity
+    # (The error will say "not found at ~/.debate-hall/prompts/...")
+    return user_path
 
 
 def get_prompt(role: str, prompt_file: str | None = None) -> str:
@@ -122,34 +159,19 @@ def get_prompt(role: str, prompt_file: str | None = None) -> str:
         raise PromptLoadError(f"Error reading prompt file {path}: {e}") from e
 
 
-def list_available_prompts(prompts_dir: Path | None = None) -> dict[str, list[str]]:
-    """List all available custom prompts organized by role.
-
-    Scans the prompts directory for .oct.md files matching the
-    naming convention {role}-{variant}.oct.md.
+def _scan_prompts_dir(directory: Path) -> dict[str, set[str]]:
+    """Scan a single directory for prompt files.
 
     Args:
-        prompts_dir: Optional override for prompts directory (for testing)
+        directory: Directory to scan
 
     Returns:
-        Dictionary mapping role to list of variant names:
-        {
-            "wind": ["default", "security", "creative"],
-            "wall": ["default", "strict"],
-            "door": ["default", "technical"]
-        }
-
-    Note:
-        Returns empty dict if prompts directory doesn't exist.
-        This is not an error - it means user hasn't created custom prompts.
+        Dictionary mapping role to set of variant names found
     """
-    directory = prompts_dir if prompts_dir is not None else PROMPTS_DIR
+    result: dict[str, set[str]] = {"wind": set(), "wall": set(), "door": set()}
 
-    # Return empty if directory doesn't exist (not an error)
     if not directory.exists():
-        return {"wind": [], "wall": [], "door": []}
-
-    result: dict[str, list[str]] = {"wind": [], "wall": [], "door": []}
+        return result
 
     # Scan for .oct.md files
     for path in directory.glob("*.oct.md"):
@@ -164,14 +186,55 @@ def list_available_prompts(prompts_dir: Path | None = None) -> dict[str, list[st
             if filename.startswith(f"{role}-"):
                 variant = filename[len(f"{role}-") :]  # e.g., "security"
                 if variant:  # Ensure there's actually a variant name
-                    result[role].append(variant)
+                    result[role].add(variant)
                 break
 
-    # Sort variants alphabetically for consistent output
-    for role in result:
-        result[role].sort()
-
     return result
+
+
+def list_available_prompts(prompts_dir: Path | None = None) -> dict[str, list[str]]:
+    """List all available custom prompts organized by role.
+
+    Scans both project-local (./prompts/) and user-global (~/.debate-hall/prompts/)
+    directories for .oct.md files matching the naming convention {role}-{variant}.oct.md.
+
+    Args:
+        prompts_dir: Optional override for prompts directory (for testing).
+                     If provided, only scans this single directory.
+
+    Returns:
+        Dictionary mapping role to list of variant names:
+        {
+            "wind": ["default", "security", "creative"],
+            "wall": ["default", "strict"],
+            "door": ["default", "technical"]
+        }
+
+    Note:
+        Returns empty lists if no prompts directories exist.
+        This is not an error - it means no custom prompts are configured.
+    """
+    # If explicit directory provided (for testing), only scan that
+    if prompts_dir is not None:
+        variants = _scan_prompts_dir(prompts_dir)
+        return {role: sorted(variants[role]) for role in VALID_ROLES}
+
+    # Merge variants from both directories (project-local takes precedence in resolution,
+    # but we list all available variants from both)
+    result: dict[str, set[str]] = {"wind": set(), "wall": set(), "door": set()}
+
+    # Scan project-local
+    project_variants = _scan_prompts_dir(PROJECT_PROMPTS_DIR)
+    for role in VALID_ROLES:
+        result[role].update(project_variants[role])
+
+    # Scan user-global
+    user_variants = _scan_prompts_dir(USER_PROMPTS_DIR)
+    for role in VALID_ROLES:
+        result[role].update(user_variants[role])
+
+    # Convert to sorted lists
+    return {role: sorted(result[role]) for role in VALID_ROLES}
 
 
 def get_prompts_dir() -> Path:
@@ -199,6 +262,8 @@ __all__ = [
     "get_prompts_dir",
     "ensure_prompts_dir",
     "PromptLoadError",
-    "PROMPTS_DIR",
+    "PROJECT_PROMPTS_DIR",
+    "USER_PROMPTS_DIR",
+    "PROMPTS_DIR",  # Legacy alias for USER_PROMPTS_DIR
     "VALID_ROLES",
 ]

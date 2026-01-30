@@ -37,7 +37,9 @@ class RoleConfig(BaseModel):
     Prompt Resolution (prompt_file):
     - Absolute path: Load from that file
     - Relative path (./...): Resolve from cwd
-    - Variant name (e.g., "security"): Resolve to ~/.debate-hall/prompts/{role}-{name}.oct.md
+    - Variant name (e.g., "security"): Layered discovery:
+      1. ./prompts/{role}-{name}.oct.md (project-local)
+      2. ~/.debate-hall/prompts/{role}-{name}.oct.md (user-global)
     - None: Use embedded default (Ship ZERO principle)
     """
 
