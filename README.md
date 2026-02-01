@@ -44,7 +44,7 @@ RECIPES::[SPEED(3)|STANDARD(12)|DEEP(36)|FORTRESS|LABORATORY]
 - **Deterministic state** with turn limits, hash chain, and verifiable transcripts
 - **Multiple modes**: Fixed sequence or mediated orchestration
 - **GitHub integration**: Sync debates to Discussions, create ADRs from synthesis
-- **OCTAVE export**: Semantic compression format for decision records
+- **OCTAVE export**: Semantic compression format with tamper-proof sealing (v1.0.0)
 
 ## Quick Start
 
@@ -125,7 +125,7 @@ Optional: enable repo-local git hooks (prints reminder, or auto-runs bootstrap w
 | `init_debate` | Create debate: `thread_id`, `topic`, `mode?`, `max_turns?` |
 | `add_turn` | Record turn: `thread_id`, `role`, `content` |
 | `get_debate` | View state: `thread_id`, `include_transcript?` |
-| `close_debate` | Finalize: `thread_id`, `synthesis`, `output_format?` |
+| `close_debate` | Finalize: `thread_id`, `synthesis`, `output_format?`, `seal?` |
 
 ### Mode Tools
 
@@ -176,17 +176,22 @@ The MCP config above is sufficient for local debates.
 
 The `run_debate` tool uses tier configurations to determine which AI providers to use for each role.
 
+**Quick Start:**
+```bash
+# Copy the template and add your API key
+cp tiers.yaml.example tiers.yaml
+export OPENROUTER_API_KEY=your-key-here
+```
+
 **Resolution order:**
 1. `DEBATE_HALL_TIERS_FILE` environment variable
-2. `~/.debate-hall/tiers.yaml`
-3. Built-in defaults (standard tier using CLI providers)
+2. `./tiers.yaml` (project root)
+3. `~/.debate-hall/tiers.yaml` (user home)
+4. Built-in defaults
 
-**Setup custom tiers:**
-```bash
-mkdir -p ~/.debate-hall
-cp examples/tiers.example.yaml ~/.debate-hall/tiers.yaml
-# Edit to customize providers and settings
-```
+**Configuration files:**
+- `tiers.yaml.example` — Simple quick-start template (OpenRouter)
+- `examples/tiers.example.yaml` — Full reference with all options (CLI providers, custom prompts, etc.)
 
 **Example tier configuration:**
 ```yaml
@@ -340,7 +345,7 @@ cd debate-hall-mcp
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 
-# Run tests (744 tests)
+# Run tests (800+ tests)
 pytest
 
 # Quality checks
