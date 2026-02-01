@@ -1,16 +1,20 @@
 # Debate Hall MCP - Tier Configuration
 #
-# SETUP: Copy this file to tiers.yaml and customize as needed:
-#   cp tiers.yaml.example tiers.yaml
+# QUICK START:
+#   1. Copy this file:  cp tiers.yaml.example tiers.yaml
+#   2. Set your API key: export OPENROUTER_API_KEY=your-key
+#   3. Run a debate:    run_debate(topic="Your topic", tier="standard")
 #
-# This file configures the AI providers for auto-orchestrated debates.
 # Resolution order: env var > ./tiers.yaml > ~/.debate-hall/tiers.yaml
 #
 # Provider options:
 # - openrouter: Requires OPENROUTER_API_KEY environment variable
 # - cli: Requires claude/codex/gemini CLI tools installed
 #
-# For OpenRouter models, see: https://openrouter.ai/models
+# For more examples (CLI providers, custom prompts, mixed configs):
+#   See examples/tiers.example.yaml
+#
+# For OpenRouter models: https://openrouter.ai/models
 
 standard:
   wind:

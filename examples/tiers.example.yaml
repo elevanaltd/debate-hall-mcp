@@ -1,7 +1,18 @@
-# Debate Hall MCP - Tier Configuration Example
+# Debate Hall MCP - Tier Configuration Reference
 #
-# Copy this file to ~/.debate-hall/tiers.yaml to customize your debate configuration.
-# Or set DEBATE_HALL_TIERS_FILE=/path/to/your/tiers.yaml
+# This is a REFERENCE FILE showing all configuration options.
+# For quick setup, use the simpler template at the project root:
+#   cp tiers.yaml.example tiers.yaml
+#
+# This reference demonstrates:
+# - CLI providers (claude, codex, gemini)
+# - OpenRouter providers
+# - Custom prompts
+# - Mixed provider configurations
+# - Timeout and fallback settings
+#
+# Copy specific sections to your tiers.yaml as needed.
+# Resolution: env var > ./tiers.yaml > ~/.debate-hall/tiers.yaml
 #
 # Each tier defines:
 # - wind: Configuration for Wind (PATHOS) - creative exploration
