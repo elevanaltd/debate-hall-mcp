@@ -24,6 +24,7 @@
 
 # Raw debate transcripts (OCTAVE compressed versions are committed)
 debates/*.json
+debates/*.jsonl
 debates/*.lock
 
 # Python
