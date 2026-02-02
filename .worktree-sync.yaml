@@ -1,0 +1,14 @@
+# Worktree File Sync Configuration
+# Files listed here will be synced from main repo to worktrees on session start
+#
+# Format:
+#   - path: "relative/path/to/file"
+#     strategy: symlink|copy  # default: symlink
+#
+# Strategy:
+#   symlink - Single source of truth (changes reflect everywhere)
+#   copy    - Isolated divergence (worktree can modify independently)
+
+# Debate tier configuration (API keys/models configured per-user)
+- path: tiers.yaml
+  strategy: symlink
