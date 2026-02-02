@@ -53,6 +53,7 @@ from debate_hall_mcp.tools.close import debate_close
 from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.turn import debate_turn
+from debate_hall_mcp.utils.primers import load_primer
 
 # Default provider timeout in seconds (M1: CE Review)
 # Increased from 120 to 300 to accommodate slower CLI providers
@@ -200,6 +201,61 @@ class DebateOrchestrator:
         lines.append("</DEBATE_STATE>")
         return "\n".join(lines)
 
+    def _get_primer_content(self) -> str:
+        """Get primer content based on primer_tier setting (VTP).
+
+        Primer mapping:
+        - none: No primers (empty string)
+        - literacy: octave-literacy-primer only
+        - standard: octave-literacy-primer + octave-compression-primer
+        - advanced: literacy + compression + octave-ultra-mythic-primer
+
+        Returns:
+            Combined primer content string, or empty string for 'none' tier
+        """
+        primer_tier = self.tier_config.settings.primer_tier
+        if primer_tier == "none":
+            return ""
+
+        primers: list[str] = []
+
+        # All non-none tiers include literacy primer
+        if primer_tier in ("literacy", "standard", "advanced"):
+            primers.append(load_primer("octave-literacy-primer"))
+
+        # Standard and advanced include compression primer
+        if primer_tier in ("standard", "advanced"):
+            primers.append(load_primer("octave-compression-primer"))
+
+        # Advanced includes ultra-mythic primer
+        if primer_tier == "advanced":
+            primers.append(load_primer("octave-ultra-mythic-primer"))
+
+        return "\n\n".join(primers)
+
+    def _get_compression_directive(self) -> str:
+        """Get compression directive based on compression_tier setting (VTP).
+
+        Directive mapping:
+        - none: No directive (empty string)
+        - basic: "Use OCTAVE structure while preserving nuance"
+        - aggressive: "Use OCTAVE compression. Drop nuance, preserve core meaning."
+        - ultra: "Use ULTRA compression. Drop all narrative, preserve protocol only."
+
+        Returns:
+            Compression directive string, or empty string for 'none' tier
+        """
+        compression_tier = self.tier_config.settings.compression_tier
+
+        directives = {
+            "none": "",
+            "basic": "Use OCTAVE structure while preserving nuance",
+            "aggressive": "Use OCTAVE compression. Drop nuance, preserve core meaning.",
+            "ultra": "Use ULTRA compression. Drop all narrative, preserve protocol only.",
+        }
+
+        return directives.get(compression_tier, "")
+
     def _create_refinement_prompt(
         self, topic: str, thread_id: str, rejector: str, feedback: str | None
     ) -> str:
@@ -280,9 +336,22 @@ Respond with your refined synthesis using the OCTAVE response format."""
             state_dir=self.state_dir,
         )
 
-        # Format state as structured block and prepend to user_prompt
+        # Format state as structured block
         state_block = self._format_debate_state(debate_state)
-        enhanced_prompt = f"{state_block}\n\n{user_prompt}"
+
+        # VTP: Build enhanced prompt with primers, compression directive, and state
+        # Order: primers -> compression directive -> state block -> user prompt
+        primer_content = self._get_primer_content()
+        compression_directive = self._get_compression_directive()
+
+        enhanced_prompt = ""
+        if primer_content:
+            enhanced_prompt += f"{primer_content}\n\n"
+        if compression_directive:
+            enhanced_prompt += (
+                f"<COMPRESSION_DIRECTIVE>\n{compression_directive}\n</COMPRESSION_DIRECTIVE>\n\n"
+            )
+        enhanced_prompt += f"{state_block}\n\n{user_prompt}"
 
         # Call provider with timeout (M1: CE Review mitigation)
         response: ProviderResponse = await asyncio.wait_for(
