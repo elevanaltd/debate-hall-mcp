@@ -55,10 +55,7 @@ ENV/
 env/
 .env
 
-# Local AI configuration (use config/ai.yaml.example as template)
-config/ai.yaml
-
-# Local tier configuration (use tiers.yaml.example as template)
+# Local tier configuration (copy tiers.yaml.example to tiers.yaml)
 tiers.yaml
 
 # Testing
