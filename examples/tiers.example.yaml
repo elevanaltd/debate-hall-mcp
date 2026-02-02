@@ -1,33 +1,30 @@
-# Debate Hall MCP - Tier Configuration Reference
+# Debate Hall MCP - Advanced Tier Configuration Reference
 #
-# This is a REFERENCE FILE showing all configuration options.
+# This file shows ADVANCED configurations beyond the basic template.
 # For quick setup, use the simpler template at the project root:
 #   cp tiers.yaml.example tiers.yaml
 #
-# This reference demonstrates:
-# - CLI providers (claude, codex, gemini)
-# - OpenRouter providers
-# - Custom prompts
+# The root template already includes: standard, fast, premium tiers
+# This file demonstrates additional patterns:
+# - CLI providers (claude, codex, gemini CLIs)
 # - Mixed provider configurations
-# - Timeout and fallback settings
+# - Custom prompts
+# - Model selection with CLI args
 #
 # Copy specific sections to your tiers.yaml as needed.
-# Resolution: env var > ./tiers.yaml > ~/.debate-hall/tiers.yaml
-#
-# Each tier defines:
-# - wind: Configuration for Wind (PATHOS) - creative exploration
-# - wall: Configuration for Wall (ETHOS) - constraint validation
-# - door: Configuration for Door (LOGOS) - synthesis
-# - settings: Debate behavior settings (including fallback)
 
-# Standard tier using CLI providers (requires claude, codex, gemini CLIs installed)
-# Includes fallback to OpenRouter Haiku on timeout for reliability
-standard:
+# =============================================================================
+# CLI PROVIDER EXAMPLES
+# =============================================================================
+
+# CLI tier - Uses external AI CLIs instead of OpenRouter API
+# Requires: claude CLI, codex CLI, gemini CLI installed
+cli-standard:
   wind:
     provider: cli
     cli: claude
     role: wind-agent
-    timeout: 120  # Per-role timeout (overrides settings.provider_timeout)
+    timeout: 120
   wall:
     provider: cli
     cli: codex
@@ -42,69 +39,20 @@ standard:
     consensus_required: true
     max_turns: 12
     max_refinement_loops: 3
-    provider_timeout: 120  # Default timeout if role doesn't specify
-    fallback:
-      enabled: true  # On timeout, retry with fallback provider
-      provider: openrouter
-      model: anthropic/claude-haiku-4.5
-      timeout: 60
-
-# Fast tier - OpenRouter only, no consensus, quick debates
-# Best for: Testing, rapid iteration, simple topics
-fast:
-  wind:
-    provider: openrouter
-    model: anthropic/claude-haiku-4.5
-    timeout: 60
-  wall:
-    provider: openrouter
-    model: anthropic/claude-haiku-4.5
-    timeout: 60
-  door:
-    provider: openrouter
-    model: anthropic/claude-haiku-4.5
-    timeout: 60
-  settings:
-    consensus_required: false  # Skip Wind/Wall approval
-    max_turns: 6
-    max_refinement_loops: 1
-    provider_timeout: 60
-    fallback:
-      enabled: false  # OpenRouter is already reliable
-
-# Premium tier using powerful models via OpenRouter
-# Best for: Complex debates, high-stakes decisions
-premium:
-  wind:
-    provider: openrouter
-    model: anthropic/claude-3-opus-20240229
-    timeout: 180
-  wall:
-    provider: openrouter
-    model: openai/gpt-5-mini
-    timeout: 180
-  door:
-    provider: openrouter
-    model: google/gemini-1.5-pro
-    timeout: 180
-  settings:
-    consensus_required: true
-    max_turns: 20
-    max_refinement_loops: 5
-    provider_timeout: 180
+    provider_timeout: 120
     fallback:
       enabled: true
       provider: openrouter
-      model: anthropic/claude-3-sonnet-20240229
-      timeout: 90
+      model: anthropic/claude-haiku-4
+      timeout: 60
 
-# CLI with model selection - Use specific models with CLI providers
+# CLI with specific model selection
 # Demonstrates: model and cli_args configuration
 cli-with-models:
   wind:
     provider: cli
     cli: claude
-    model: claude-3-5-sonnet-20241022  # Specific model for claude CLI
+    model: claude-sonnet-4-20250514  # Specific model for claude CLI
     cli_args:
       verbose: true  # Pass --verbose flag
     timeout: 120
@@ -116,7 +64,7 @@ cli-with-models:
   door:
     provider: cli
     cli: gemini
-    model: google/gemini-3-flash-preview  # Specific model for gemini CLI
+    model: gemini-2.5-flash  # Specific model for gemini CLI
     timeout: 120
   settings:
     consensus_required: true
@@ -126,10 +74,15 @@ cli-with-models:
     fallback:
       enabled: true
       provider: openrouter
-      model: anthropic/claude-haiku-4.5
+      model: anthropic/claude-haiku-4
       timeout: 60
 
+# =============================================================================
+# MIXED PROVIDER EXAMPLES
+# =============================================================================
+
 # Mixed tier - CLI for some roles, OpenRouter for others
+# Useful when you have some CLIs installed but not all
 mixed:
   wind:
     provider: cli
@@ -137,7 +90,7 @@ mixed:
     timeout: 120
   wall:
     provider: openrouter
-    model: openai/gpt-5-mini
+    model: openai/gpt-4.1-mini
     timeout: 90
   door:
     provider: cli
@@ -151,8 +104,12 @@ mixed:
     fallback:
       enabled: true
       provider: openrouter
-      model: anthropic/claude-haiku-4.5
+      model: anthropic/claude-haiku-4
       timeout: 60
+
+# =============================================================================
+# CUSTOM PROMPT EXAMPLES
+# =============================================================================
 
 # Security tier - Uses custom security-focused prompts
 # Custom prompts are resolved in order:
@@ -182,22 +139,22 @@ security:
     fallback:
       enabled: true
       provider: openrouter
-      model: anthropic/claude-3-sonnet-20240229
+      model: anthropic/claude-sonnet-4
       timeout: 90
 
-# Custom prompt tier - Using absolute and relative paths
-custom:
+# Custom prompt paths - absolute and relative
+custom-prompts:
   wind:
     provider: openrouter
-    model: anthropic/claude-3-opus-20240229
+    model: anthropic/claude-opus-4
     prompt_file: /path/to/your/wind-custom.oct.md  # Absolute path
   wall:
     provider: openrouter
-    model: openai/gpt-5-mini
+    model: openai/gpt-4.1
     prompt_file: ./local-wall-prompt.oct.md  # Relative to cwd
   door:
     provider: openrouter
-    model: google/gemini-1.5-pro
+    model: google/gemini-2.5-pro
     prompt_file: technical  # Named variant -> door-technical.oct.md
   settings:
     consensus_required: true
