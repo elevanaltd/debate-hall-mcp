@@ -83,6 +83,66 @@ class TestTierSettings:
         assert settings.max_turns == 8
         assert settings.max_refinement_loops == 5
 
+    def test_tier_settings_has_primer_tier_field(self) -> None:
+        """TierSettings has primer_tier field for VTP primer injection."""
+        from debate_hall_mcp.config import TierSettings
+
+        settings = TierSettings()
+        assert hasattr(settings, "primer_tier")
+        # Default should be "standard" (literacy + compression)
+        assert settings.primer_tier == "standard"
+
+    def test_tier_settings_has_compression_tier_field(self) -> None:
+        """TierSettings has compression_tier field for VTP compression directive."""
+        from debate_hall_mcp.config import TierSettings
+
+        settings = TierSettings()
+        assert hasattr(settings, "compression_tier")
+        # Default should be "aggressive"
+        assert settings.compression_tier == "aggressive"
+
+    def test_tier_settings_primer_tier_accepts_valid_values(self) -> None:
+        """TierSettings primer_tier accepts none/literacy/standard/advanced."""
+        from debate_hall_mcp.config import TierSettings
+
+        for tier in ["none", "literacy", "standard", "advanced"]:
+            settings = TierSettings(primer_tier=tier)
+            assert settings.primer_tier == tier
+
+    def test_tier_settings_compression_tier_accepts_valid_values(self) -> None:
+        """TierSettings compression_tier accepts none/basic/aggressive/ultra."""
+        from debate_hall_mcp.config import TierSettings
+
+        for tier in ["none", "basic", "aggressive", "ultra"]:
+            settings = TierSettings(compression_tier=tier)
+            assert settings.compression_tier == tier
+
+    def test_tier_settings_primer_tier_rejects_invalid(self) -> None:
+        """TierSettings primer_tier rejects invalid values."""
+        from pydantic import ValidationError
+
+        from debate_hall_mcp.config import TierSettings
+
+        with pytest.raises(ValidationError, match="primer_tier"):
+            TierSettings(primer_tier="invalid")
+
+    def test_tier_settings_compression_tier_rejects_invalid(self) -> None:
+        """TierSettings compression_tier rejects invalid values."""
+        from pydantic import ValidationError
+
+        from debate_hall_mcp.config import TierSettings
+
+        with pytest.raises(ValidationError, match="compression_tier"):
+            TierSettings(compression_tier="invalid")
+
+    def test_tier_settings_vtp_defaults(self) -> None:
+        """TierSettings VTP fields have correct defaults: standard/aggressive."""
+        from debate_hall_mcp.config import TierSettings
+
+        settings = TierSettings()
+        assert settings.primer_tier == "standard"
+        assert settings.compression_tier == "aggressive"
+
 
 class TestTierConfig:
     """Test TierConfig model combining role configs with settings."""

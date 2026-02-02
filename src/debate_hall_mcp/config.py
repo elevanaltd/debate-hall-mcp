@@ -105,6 +105,9 @@ class TierSettings(BaseModel):
     - max_refinement_loops: Maximum refinement iterations for auto-orchestration
     - provider_timeout: Default timeout in seconds for provider calls
     - fallback: Configuration for provider fallback on timeout/failure
+    - context_lines: Limit transcript injection to N recent turns (None = all)
+    - primer_tier: Which OCTAVE primers to inject (VTP)
+    - compression_tier: How aggressively agents should compress output (VTP)
     """
 
     consensus_required: bool = Field(
@@ -118,6 +121,18 @@ class TierSettings(BaseModel):
     fallback: FallbackConfig = Field(
         default_factory=FallbackConfig,
         description="Fallback provider configuration for timeout recovery",
+    )
+    context_lines: int | None = Field(
+        default=None,
+        description="Limit transcript injection to N recent turns (None = all). Controls token usage.",
+    )
+    primer_tier: Literal["none", "literacy", "standard", "advanced"] = Field(
+        default="standard",
+        description="Which OCTAVE primers to inject (standard = literacy + compression)",
+    )
+    compression_tier: Literal["none", "basic", "aggressive", "ultra"] = Field(
+        default="aggressive",
+        description="How aggressively agents should compress output",
     )
 
 

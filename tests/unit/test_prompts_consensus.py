@@ -1,10 +1,14 @@
-"""Unit tests for consensus prompts (Phase 4: Consensus Implementation).
+"""Unit tests for consensus prompts (Phase 4: Consensus Implementation + VTP).
 
 Tests the Wind/Wall approval prompt formatters:
 - format_wind_approval_prompt
 - format_wall_approval_prompt
 - Prompt structure and content
-- Thread ID inclusion for get_debate() calls
+- DEBATE_STATE reference for VTP pattern
+
+VTP Pattern: The orchestrator pre-fetches debate state and injects it into
+the prompt via <DEBATE_STATE> tags. Agents receive state passively instead
+of needing to call get_debate() themselves.
 """
 
 from debate_hall_mcp.prompts import (
@@ -22,14 +26,14 @@ class TestFormatWindApprovalPrompt:
         assert "AI governance" in prompt
 
     def test_includes_thread_id(self) -> None:
-        """Wind approval prompt should include thread_id for get_debate() call."""
+        """Wind approval prompt should include thread_id for reference."""
         prompt = format_wind_approval_prompt(topic="Test topic", thread_id="2026-01-30-test-abc")
         assert "2026-01-30-test-abc" in prompt
 
-    def test_includes_get_debate_instruction(self) -> None:
-        """Wind approval prompt should instruct agent to call get_debate()."""
+    def test_includes_debate_state_reference(self) -> None:
+        """Wind approval prompt should reference DEBATE_STATE for VTP pattern."""
         prompt = format_wind_approval_prompt(topic="Test", thread_id="2026-01-30-test")
-        assert "get_debate" in prompt.lower()
+        assert "DEBATE_STATE" in prompt
 
     def test_identifies_role_as_wind(self) -> None:
         """Wind approval prompt should identify the role as Wind."""
@@ -62,14 +66,14 @@ class TestFormatWallApprovalPrompt:
         assert "Data privacy" in prompt
 
     def test_includes_thread_id(self) -> None:
-        """Wall approval prompt should include thread_id for get_debate() call."""
+        """Wall approval prompt should include thread_id for reference."""
         prompt = format_wall_approval_prompt(topic="Test topic", thread_id="2026-01-30-test-xyz")
         assert "2026-01-30-test-xyz" in prompt
 
-    def test_includes_get_debate_instruction(self) -> None:
-        """Wall approval prompt should instruct agent to call get_debate()."""
+    def test_includes_debate_state_reference(self) -> None:
+        """Wall approval prompt should reference DEBATE_STATE for VTP pattern."""
         prompt = format_wall_approval_prompt(topic="Test", thread_id="2026-01-30-test")
-        assert "get_debate" in prompt.lower()
+        assert "DEBATE_STATE" in prompt
 
     def test_identifies_role_as_wall(self) -> None:
         """Wall approval prompt should identify the role as Wall."""
