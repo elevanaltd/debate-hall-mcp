@@ -235,8 +235,6 @@ premium:
 - `max_turns`: Maximum total turns in debate
 - `max_refinement_loops`: How many times Door can refine after rejection
 
-See [examples/tiers.example.yaml](examples/tiers.example.yaml) for complete configuration examples.
-
 See [Usage Patterns](docs/guides/usage-patterns.md) for detailed configuration options.
 
 ## Example
