@@ -1,9 +1,13 @@
-"""Unit tests for prompt templates (Phase 3: Auto-orchestration).
+"""Unit tests for prompt templates (Phase 3: Auto-orchestration + VTP).
 
 Tests prompt generation for Wind/Wall/Door agents with:
 - Thread ID reference for state access
-- get_debate() instruction per ADR-0002 (I1: Cognitive State Isolation)
+- DEBATE_STATE reference for VTP (Virtual Tool Preload) pattern
 - Role-specific task instructions
+
+VTP Pattern: The orchestrator pre-fetches debate state and injects it into
+the prompt via <DEBATE_STATE> tags. Agents receive state passively instead
+of needing to call get_debate() themselves.
 """
 
 import pytest
@@ -55,13 +59,12 @@ class TestWindUserPrompt:
         prompt = format_wind_user_prompt(topic="Testing strategy", thread_id="2026-01-30-testing")
         assert "2026-01-30-testing" in prompt
 
-    def test_includes_get_debate_instruction(self) -> None:
-        """User prompt should instruct agent to call get_debate() per ADR-0002."""
+    def test_includes_debate_state_reference(self) -> None:
+        """User prompt should reference DEBATE_STATE for VTP pattern."""
         prompt = format_wind_user_prompt(topic="Architecture", thread_id="2026-01-30-arch")
-        # Must include instruction to call get_debate with thread_id
-        assert "get_debate" in prompt
+        # Must reference DEBATE_STATE tags (injected by orchestrator)
+        assert "DEBATE_STATE" in prompt
         assert "2026-01-30-arch" in prompt
-        assert "include_transcript" in prompt.lower() or "transcript" in prompt.lower()
 
     def test_includes_wind_role_description(self) -> None:
         """User prompt should describe Wind's role (ideation/expansion)."""
@@ -94,12 +97,12 @@ class TestWallUserPrompt:
         prompt = format_wall_user_prompt(topic="Code review", thread_id="2026-01-30-review")
         assert "2026-01-30-review" in prompt
 
-    def test_includes_get_debate_instruction(self) -> None:
-        """User prompt should instruct agent to call get_debate() per ADR-0002."""
+    def test_includes_debate_state_reference(self) -> None:
+        """User prompt should reference DEBATE_STATE for VTP pattern."""
         prompt = format_wall_user_prompt(topic="Validation", thread_id="2026-01-30-val")
-        assert "get_debate" in prompt
+        # Must reference DEBATE_STATE tags (injected by orchestrator)
+        assert "DEBATE_STATE" in prompt
         assert "2026-01-30-val" in prompt
-        assert "include_transcript" in prompt.lower() or "transcript" in prompt.lower()
 
     def test_includes_wall_role_description(self) -> None:
         """User prompt should describe Wall's role (validation/constraints)."""
@@ -134,12 +137,12 @@ class TestDoorUserPrompt:
         prompt = format_door_user_prompt(topic="Synthesis", thread_id="2026-01-30-synth")
         assert "2026-01-30-synth" in prompt
 
-    def test_includes_get_debate_instruction(self) -> None:
-        """User prompt should instruct agent to call get_debate() per ADR-0002."""
+    def test_includes_debate_state_reference(self) -> None:
+        """User prompt should reference DEBATE_STATE for VTP pattern."""
         prompt = format_door_user_prompt(topic="Resolution", thread_id="2026-01-30-res")
-        assert "get_debate" in prompt
+        # Must reference DEBATE_STATE tags (injected by orchestrator)
+        assert "DEBATE_STATE" in prompt
         assert "2026-01-30-res" in prompt
-        assert "include_transcript" in prompt.lower() or "transcript" in prompt.lower()
 
     def test_includes_door_role_description(self) -> None:
         """User prompt should describe Door's role (synthesis/resolution)."""
@@ -176,10 +179,10 @@ class TestPromptConsistency:
         "format_func",
         [format_wind_user_prompt, format_wall_user_prompt, format_door_user_prompt],
     )
-    def test_all_prompts_mention_get_debate(self, format_func) -> None:
-        """All prompt functions should mention get_debate() per ADR-0002."""
+    def test_all_prompts_mention_debate_state(self, format_func) -> None:
+        """All prompt functions should mention DEBATE_STATE for VTP pattern."""
         prompt = format_func(topic="Test", thread_id="2026-01-30-test")
-        assert "get_debate" in prompt
+        assert "DEBATE_STATE" in prompt
 
     @pytest.mark.parametrize(
         "format_func",

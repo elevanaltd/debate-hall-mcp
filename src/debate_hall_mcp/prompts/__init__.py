@@ -4,11 +4,15 @@ These prompts represent the "Cognitive Kernel" of the debate agents.
 They are embedded directly in the MCP to ensure availability ("Ship ZERO")
 while remaining uncoupled from the user's file system ("Wall's Constraint").
 
-Auto-Orchestration Support (ADR-0002):
+Auto-Orchestration Support (ADR-0002 + VTP):
 The format_*_user_prompt functions generate user prompts that include:
 - Thread ID for state access
-- Instruction to call get_debate() to see prior turns
-- This maintains I1 (Cognitive State Isolation) - agents fetch state, not injected
+- Reference to <DEBATE_STATE> tags (injected by orchestrator via VTP)
+
+Virtual Tool Preload (VTP): The orchestrator pre-fetches debate state and
+injects it into the prompt. Agents receive state passively instead of needing
+to call get_debate() themselves. This enables provider-agnostic design since
+OpenRouter/API models cannot execute tool calls.
 """
 
 WIND_PROMPT = """===WIND_PATHOS===
@@ -429,12 +433,12 @@ CLOSING_AUTHORITY::[
 def format_wind_user_prompt(topic: str, thread_id: str) -> str:
     """Format user prompt for Wind (PATHOS) agent in auto-orchestration.
 
-    Per ADR-0002, agents call get_debate() to access prior turns rather than
-    having context injected. This maintains I1 (Cognitive State Isolation).
+    Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
+    the prompt via <DEBATE_STATE> tags. Agents receive state passively.
 
     Args:
         topic: The debate topic to explore
-        thread_id: Thread ID for state access via get_debate()
+        thread_id: Thread ID for reference
 
     Returns:
         Formatted user prompt with thread reference and task instructions
@@ -445,7 +449,7 @@ Topic: {topic}
 Thread ID: {thread_id}
 Your Role: Wind (PATHOS) - The Ideator
 
-To see prior turns from other agents, call: get_debate("{thread_id}", include_transcript=true)
+The current debate state is provided above in <DEBATE_STATE> tags.
 
 Your task: Explore possibilities and expand the solution space for this topic.
 
@@ -464,12 +468,12 @@ Respond using the OCTAVE response format defined in your system prompt."""
 def format_wall_user_prompt(topic: str, thread_id: str) -> str:
     """Format user prompt for Wall (ETHOS) agent in auto-orchestration.
 
-    Per ADR-0002, agents call get_debate() to access prior turns rather than
-    having context injected. This maintains I1 (Cognitive State Isolation).
+    Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
+    the prompt via <DEBATE_STATE> tags. Agents receive state passively.
 
     Args:
         topic: The debate topic to validate
-        thread_id: Thread ID for state access via get_debate()
+        thread_id: Thread ID for reference
 
     Returns:
         Formatted user prompt with thread reference and task instructions
@@ -480,7 +484,7 @@ Topic: {topic}
 Thread ID: {thread_id}
 Your Role: Wall (ETHOS) - The Validator
 
-To see prior turns from other agents, call: get_debate("{thread_id}", include_transcript=true)
+The current debate state is provided above in <DEBATE_STATE> tags.
 
 Your task: Validate Wind's proposals against evidence and real constraints.
 
@@ -500,12 +504,12 @@ Respond using the OCTAVE response format defined in your system prompt."""
 def format_door_user_prompt(topic: str, thread_id: str) -> str:
     """Format user prompt for Door (LOGOS) agent in auto-orchestration.
 
-    Per ADR-0002, agents call get_debate() to access prior turns rather than
-    having context injected. This maintains I1 (Cognitive State Isolation).
+    Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
+    the prompt via <DEBATE_STATE> tags. Agents receive state passively.
 
     Args:
         topic: The debate topic to synthesize
-        thread_id: Thread ID for state access via get_debate()
+        thread_id: Thread ID for reference
 
     Returns:
         Formatted user prompt with thread reference and task instructions
@@ -516,7 +520,7 @@ Topic: {topic}
 Thread ID: {thread_id}
 Your Role: Door (LOGOS) - The Synthesizer
 
-To see prior turns from other agents, call: get_debate("{thread_id}", include_transcript=true)
+The current debate state is provided above in <DEBATE_STATE> tags.
 
 Your task: Synthesize Wind's possibilities and Wall's constraints into an emergent third-way solution.
 
@@ -536,12 +540,12 @@ Respond using the OCTAVE response format defined in your system prompt."""
 def format_wind_approval_prompt(topic: str, thread_id: str) -> str:
     """Format user prompt for Wind (PATHOS) consensus approval review.
 
-    Per ADR-0002, agents call get_debate() to access prior turns rather than
-    having context injected. This maintains I1 (Cognitive State Isolation).
+    Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
+    the prompt via <DEBATE_STATE> tags. Agents receive state passively.
 
     Args:
         topic: The debate topic
-        thread_id: Thread ID for state access via get_debate()
+        thread_id: Thread ID for reference
 
     Returns:
         Formatted user prompt for consensus review
@@ -552,7 +556,7 @@ Topic: {topic}
 Thread ID: {thread_id}
 Your Role: Wind (PATHOS) - Consensus Reviewer
 
-To review Door's synthesis and prior turns, call: get_debate("{thread_id}", include_transcript=true)
+The current debate state including Door's synthesis is provided above in <DEBATE_STATE> tags.
 
 Your task: Review Door's synthesis and vote APPROVE or REJECT.
 
@@ -583,12 +587,12 @@ The emergent capabilities enable the innovation we sought."""
 def format_wall_approval_prompt(topic: str, thread_id: str) -> str:
     """Format user prompt for Wall (ETHOS) consensus approval review.
 
-    Per ADR-0002, agents call get_debate() to access prior turns rather than
-    having context injected. This maintains I1 (Cognitive State Isolation).
+    Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
+    the prompt via <DEBATE_STATE> tags. Agents receive state passively.
 
     Args:
         topic: The debate topic
-        thread_id: Thread ID for state access via get_debate()
+        thread_id: Thread ID for reference
 
     Returns:
         Formatted user prompt for consensus review
@@ -599,7 +603,7 @@ Topic: {topic}
 Thread ID: {thread_id}
 Your Role: Wall (ETHOS) - Consensus Reviewer
 
-To review Door's synthesis and prior turns, call: get_debate("{thread_id}", include_transcript=true)
+The current debate state including Door's synthesis is provided above in <DEBATE_STATE> tags.
 
 Your task: Review Door's synthesis and vote APPROVE or REJECT.
 

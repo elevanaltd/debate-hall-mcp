@@ -7,8 +7,9 @@ This module implements:
 The orchestrator uses existing debate tools (init, turn, close) internally,
 maintaining backward compatibility while enabling automated multi-model debates.
 
-Architecture (per ADR-0002):
-- Agents call get_debate() to access state (I1: Cognitive State Isolation)
+Architecture (per ADR-0002 + VTP):
+- VTP (Virtual Tool Preload): Orchestrator pre-fetches state via debate_get()
+  and injects it into prompts. Agents receive state passively.
 - Events emitted at each stage for observability
 - Providers created per tier configuration
 
@@ -30,6 +31,7 @@ import contextlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 from ulid import ULID
@@ -48,6 +50,7 @@ from debate_hall_mcp.prompts.loader import get_prompt
 from debate_hall_mcp.providers import ModelProvider, ProviderResponse, create_provider
 from debate_hall_mcp.state import DebateStatus, load_debate_state, save_debate_state
 from debate_hall_mcp.tools.close import debate_close
+from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.turn import debate_turn
 
@@ -160,6 +163,43 @@ class DebateOrchestrator:
         ulid_suffix = str(ULID())[:8].lower()
         return f"{today}-{safe_subject}-{ulid_suffix}"
 
+    def _format_debate_state(self, debate_state: dict[str, Any]) -> str:
+        """Format debate state as a structured block for prompt injection (VTP).
+
+        Virtual Tool Preload (VTP) pattern: Pre-fetches debate state and injects
+        it into the prompt so agents receive state passively instead of needing
+        to call get_debate() themselves. This enables provider-agnostic design
+        since OpenRouter/API models cannot execute tool calls.
+
+        Args:
+            debate_state: Result from debate_get()
+
+        Returns:
+            Formatted string with DEBATE_STATE tags
+        """
+        lines = ["<DEBATE_STATE>"]
+        lines.append(f"THREAD_ID::{debate_state['thread_id']}")
+        lines.append(f"TOPIC::{debate_state['topic']}")
+        lines.append(f"STATUS::{debate_state['status']}")
+        lines.append(f"TURN_COUNT::{debate_state['turn_count']}")
+
+        if debate_state.get("synthesis"):
+            synthesis_preview = debate_state["synthesis"][:200]
+            lines.append(f"SYNTHESIS::{synthesis_preview}...")
+
+        if debate_state.get("transcript"):
+            lines.append("\nTRANSCRIPT::")
+            for turn in debate_state["transcript"]:
+                role = turn.get("role", "Unknown")
+                content = turn.get("content", "")
+                # Truncate long content
+                if len(content) > 500:
+                    content = content[:500] + "..."
+                lines.append(f"  [{role}]:: {content}")
+
+        lines.append("</DEBATE_STATE>")
+        return "\n".join(lines)
+
     def _create_refinement_prompt(
         self, topic: str, thread_id: str, rejector: str, feedback: str | None
     ) -> str:
@@ -181,7 +221,7 @@ Topic: {topic}
 Thread ID: {thread_id}
 Your Role: Door (LOGOS) - Synthesis Refiner
 
-To see prior turns and your previous synthesis, call: get_debate("{thread_id}", include_transcript=true)
+The current debate state is provided above in <DEBATE_STATE> tags.
 
 {rejector} has REJECTED your synthesis with the following feedback:
 {feedback_text}
@@ -207,9 +247,15 @@ Respond with your refined synthesis using the OCTAVE response format."""
         """Execute a single role turn with provider call, recording, and event emission.
 
         This helper consolidates the common pattern of:
-        1. Calling the provider with timeout
-        2. Recording the debate turn
-        3. Emitting TURN_ADDED event
+        1. Pre-fetching debate state (VTP: Virtual Tool Preload)
+        2. Injecting state into prompt
+        3. Calling the provider with timeout
+        4. Recording the debate turn
+        5. Emitting TURN_ADDED event
+
+        VTP enables provider-agnostic design: agents receive state passively
+        instead of needing to call get_debate() themselves (which OpenRouter/API
+        models cannot do).
 
         Args:
             role: The debate role (Wind, Wall, Door)
@@ -225,11 +271,24 @@ Respond with your refined synthesis using the OCTAVE response format."""
         cognition_map = {"Wind": "PATHOS", "Wall": "ETHOS", "Door": "LOGOS"}
         cognition = cognition_map.get(role, "LOGOS")
 
+        # VTP: Pre-fetch debate state and inject into prompt
+        context_lines = self.tier_config.settings.context_lines
+        debate_state = debate_get(
+            thread_id=thread_id,
+            include_transcript=True,
+            context_lines=context_lines,
+            state_dir=self.state_dir,
+        )
+
+        # Format state as structured block and prepend to user_prompt
+        state_block = self._format_debate_state(debate_state)
+        enhanced_prompt = f"{state_block}\n\n{user_prompt}"
+
         # Call provider with timeout (M1: CE Review mitigation)
         response: ProviderResponse = await asyncio.wait_for(
             provider.complete(
                 system_prompt=self._get_prompt(role.lower()),
-                user_prompt=user_prompt,
+                user_prompt=enhanced_prompt,
             ),
             timeout=timeout,
         )
