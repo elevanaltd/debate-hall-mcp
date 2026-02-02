@@ -189,9 +189,7 @@ export OPENROUTER_API_KEY=your-key-here
 3. `~/.debate-hall/tiers.yaml` (user home)
 4. Built-in defaults
 
-**Configuration files:**
-- `tiers.yaml.example` — Simple quick-start template (OpenRouter)
-- `examples/tiers.example.yaml` — Full reference with all options (CLI providers, custom prompts, etc.)
+See `tiers.yaml.example` for all configuration options including CLI providers and custom prompts.
 
 **Example tier configuration:**
 ```yaml
