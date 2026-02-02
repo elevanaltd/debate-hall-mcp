@@ -117,10 +117,39 @@ sequence: [Wind, Wall, Wall, Wall, Door]
 
 ---
 
+## Example 4: OCTAVE Compression Tier Comparison
+
+**Thread:** `docs/examples/compression-tier-comparison.oct.md`
+
+**Question:** What compression tier should debate-hall use for context injection?
+
+**Methodology:** Same topic debated 4 times with different OCTAVE compression levels:
+- **D (No OCTAVE)**: Prose output, 11,051 chars
+- **C (Basic OCTAVE)**: Literacy primer only, 10,378 chars (-6%)
+- **A (AGGRESSIVE)**: Drop nuance, keep causality, 4,513 chars (-59%)
+- **B (ULTRA)**: Atoms only, 1,737 chars (-84%)
+
+**Participants:** Wind (Claude Opus), Wall (Codex), Door (Gemini 3 Pro)
+
+### Key Finding
+
+All four debates converged on **identical solutions** despite vastly different output sizes:
+
+| Tier | Solution Name | Core Mechanism |
+|------|--------------|----------------|
+| D | "Pre-emptive State Injection" | Orchestrator pre-fetches → injects |
+| C | "Virtual Tool Preload (VTP)" | Inject the RESULT not the LOG |
+| A | "System-Side Tooling" | Tools for State Mgmt, not Cognition |
+| B | "Phantom Tool Protocol" | Context Injection + Synthetic Trace |
+
+**Lesson:** OCTAVE compression preserves decision-relevant atoms. 84% reduction is achievable without quality loss. AGGRESSIVE tier is optimal for typical debates.
+
+---
+
 ## Raw Debate Files
 
 All debates are stored in the `debates/` directory:
-- **JSON format**: Full transcript with hashes, speaker metadata
+- **JSON format**: Full transcript with hashes, speaker metadata (gitignored)
 - **OCTAVE format**: Committed decision records (`.oct.md`)
 
 These serve as both examples and audit trail.
