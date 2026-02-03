@@ -48,7 +48,12 @@ from debate_hall_mcp.prompts import (
 )
 from debate_hall_mcp.prompts.loader import get_prompt
 from debate_hall_mcp.providers import ModelProvider, ProviderResponse, create_provider
-from debate_hall_mcp.state import DebateStatus, load_debate_state, save_debate_state
+from debate_hall_mcp.state import (
+    ConsensusMetadata,
+    DebateStatus,
+    load_debate_state,
+    save_debate_state,
+)
 from debate_hall_mcp.tools.close import debate_close
 from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.init import debate_init
@@ -393,7 +398,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
         wall_provider: ModelProvider,
         door_provider: ModelProvider,
         initial_refinement_count: int = 0,
-    ) -> tuple[str, int, str]:
+    ) -> tuple[str, int, str, ConsensusMetadata]:
         """Execute the consensus loop where Wind and Wall approve Door's synthesis.
 
         This helper consolidates the consensus approval pattern used by both
@@ -414,12 +419,16 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 where refinements may have already occurred before pause)
 
         Returns:
-            Tuple of (final_status, final_turn_count, final_synthesis)
+            Tuple of (final_status, final_turn_count, final_synthesis, consensus_metadata)
             where status is "synthesis" or "stalemate"
         """
         max_refinement_loops = self.tier_config.settings.max_refinement_loops
         timeout = self._get_provider_timeout()
         refinement_count = initial_refinement_count
+
+        # Track vote states for ConsensusMetadata
+        final_wind_approved: bool | None = None
+        final_wall_approved: bool | None = None
 
         while refinement_count <= max_refinement_loops:
             # Wind approval
@@ -432,6 +441,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 timeout=timeout,
             )
             wind_vote = parse_consensus_response(wind_approval_response.content)
+            final_wind_approved = wind_vote.approved
 
             # Emit CONSENSUS_VOTE event for Wind
             append_event(
@@ -444,6 +454,8 @@ Respond with your refined synthesis using the OCTAVE response format."""
             # If Wind rejects, refine immediately
             if not wind_vote.approved:
                 refinement_count += 1
+                # Reset Wall vote since we're starting a new consensus round
+                final_wall_approved = None
                 if refinement_count > max_refinement_loops:
                     break
 
@@ -468,6 +480,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 timeout=timeout,
             )
             wall_vote = parse_consensus_response(wall_approval_response.content)
+            final_wall_approved = wall_vote.approved
 
             # Emit CONSENSUS_VOTE event for Wall
             append_event(
@@ -497,10 +510,21 @@ Respond with your refined synthesis using the OCTAVE response format."""
             # Both approved - consensus achieved
             break
 
-        # Determine final status
-        if refinement_count > max_refinement_loops:
-            return ("stalemate", turn_count, current_synthesis)
-        return ("synthesis", turn_count, current_synthesis)
+        # Determine final status and create consensus metadata
+        max_reached = refinement_count > max_refinement_loops
+        consensus_reached = not max_reached and final_wind_approved and final_wall_approved
+
+        consensus_metadata = ConsensusMetadata(
+            consensus_reached=consensus_reached is True,
+            wind_approved=final_wind_approved,
+            wall_approved=final_wall_approved,
+            refinement_count=refinement_count,
+            max_refinements_reached=max_reached,
+        )
+
+        if max_reached:
+            return ("stalemate", turn_count, current_synthesis, consensus_metadata)
+        return ("synthesis", turn_count, current_synthesis, consensus_metadata)
 
     async def run(self, topic: str, thread_id: str | None = None) -> DebateResult:
         """Run a complete debate orchestration.
@@ -587,8 +611,14 @@ Respond with your refined synthesis using the OCTAVE response format."""
             final_status = "synthesis"
 
             # 6. Consensus loop (Phase 4) - if consensus_required
+            consensus_metadata: ConsensusMetadata | None = None
             if self.tier_config.settings.consensus_required:
-                final_status, turn_count, current_synthesis = await self._execute_consensus_loop(
+                (
+                    final_status,
+                    turn_count,
+                    current_synthesis,
+                    consensus_metadata,
+                ) = await self._execute_consensus_loop(
                     thread_id=thread_id,
                     topic=topic,
                     current_synthesis=current_synthesis,
@@ -600,6 +630,11 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
                 # Handle stalemate from consensus loop
                 if final_status == "stalemate":
+                    # Set consensus_metadata on room before closing
+                    room = load_debate_state(thread_id, self.state_dir)
+                    room.consensus_metadata = consensus_metadata
+                    save_debate_state(room, self.state_dir)
+
                     debate_close(
                         thread_id=thread_id,
                         synthesis=current_synthesis,
@@ -624,7 +659,13 @@ Respond with your refined synthesis using the OCTAVE response format."""
                         synthesis=current_synthesis,
                     )
 
-            # 7. Close debate with Door's synthesis (consensus achieved or not required)
+            # 7. Set consensus_metadata on room before closing (if consensus was executed)
+            if consensus_metadata is not None:
+                room = load_debate_state(thread_id, self.state_dir)
+                room.consensus_metadata = consensus_metadata
+                save_debate_state(room, self.state_dir)
+
+            # 8. Close debate with Door's synthesis (consensus achieved or not required)
             debate_close(
                 thread_id=thread_id,
                 synthesis=current_synthesis,
@@ -643,7 +684,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 state_dir=self.state_dir,
             )
 
-            # 8. Return result
+            # 9. Return result
             return DebateResult(
                 thread_id=thread_id,
                 topic=topic,
@@ -749,11 +790,17 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
             # If we have Wind, Wall, Door turns (>=3), resume from consensus
             final_status = "synthesis"
+            consensus_metadata: ConsensusMetadata | None = None
             if turn_count >= 3 and self.tier_config.settings.consensus_required:
                 # Estimate refinements already done before pause
                 initial_refinement_count = max(0, turn_count - 3)
 
-                final_status, turn_count, current_synthesis = await self._execute_consensus_loop(
+                (
+                    final_status,
+                    turn_count,
+                    current_synthesis,
+                    consensus_metadata,
+                ) = await self._execute_consensus_loop(
                     thread_id=thread_id,
                     topic=topic,
                     current_synthesis=current_synthesis,
@@ -766,6 +813,11 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
                 # Handle stalemate from consensus loop
                 if final_status == "stalemate":
+                    # Set consensus_metadata on room before closing
+                    room = load_debate_state(thread_id, self.state_dir)
+                    room.consensus_metadata = consensus_metadata
+                    save_debate_state(room, self.state_dir)
+
                     debate_close(
                         thread_id=thread_id,
                         synthesis=current_synthesis,
@@ -789,6 +841,12 @@ Respond with your refined synthesis using the OCTAVE response format."""
                         turn_count=turn_count,
                         synthesis=current_synthesis,
                     )
+
+            # Set consensus_metadata on room before closing (if consensus was executed)
+            if consensus_metadata is not None:
+                room = load_debate_state(thread_id, self.state_dir)
+                room.consensus_metadata = consensus_metadata
+                save_debate_state(room, self.state_dir)
 
             # Close with synthesis
             debate_close(

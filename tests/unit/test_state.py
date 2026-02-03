@@ -5,6 +5,7 @@ Tests cover:
 - DebateMode enum values
 - Turn model with timestamp and hash
 - DebateRoom model with thread_id, topic, mode, status, limits
+- ConsensusMetadata model for consensus loop results
 - State persistence to JSON with hash chain (I4 compliance)
 """
 
@@ -15,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from debate_hall_mcp.state import (
+    ConsensusMetadata,
     DebateMode,
     DebateRoom,
     DebateStatus,
@@ -745,3 +747,122 @@ class TestInjectedContext:
         assert loaded_room.injected_context[0].comment_id == "DC_persist123"
         assert loaded_room.injected_context[0].author == "persistuser"
         assert loaded_room.injected_context[0].injection_type == "logos"
+
+
+class TestConsensusMetadata:
+    """Test ConsensusMetadata model for consensus loop results."""
+
+    def test_consensus_metadata_model_validation_minimal(self) -> None:
+        """ConsensusMetadata with only required field (consensus_reached)."""
+        metadata = ConsensusMetadata(consensus_reached=True)
+        assert metadata.consensus_reached is True
+        assert metadata.wind_approved is None
+        assert metadata.wall_approved is None
+        assert metadata.refinement_count == 0
+        assert metadata.max_refinements_reached is False
+
+    def test_consensus_metadata_model_validation_full(self) -> None:
+        """ConsensusMetadata with all fields populated."""
+        metadata = ConsensusMetadata(
+            consensus_reached=True,
+            wind_approved=True,
+            wall_approved=True,
+            refinement_count=2,
+            max_refinements_reached=False,
+        )
+        assert metadata.consensus_reached is True
+        assert metadata.wind_approved is True
+        assert metadata.wall_approved is True
+        assert metadata.refinement_count == 2
+        assert metadata.max_refinements_reached is False
+
+    def test_consensus_metadata_stalemate(self) -> None:
+        """ConsensusMetadata for stalemate scenario."""
+        metadata = ConsensusMetadata(
+            consensus_reached=False,
+            wind_approved=True,
+            wall_approved=False,
+            refinement_count=3,
+            max_refinements_reached=True,
+        )
+        assert metadata.consensus_reached is False
+        assert metadata.wind_approved is True
+        assert metadata.wall_approved is False
+        assert metadata.refinement_count == 3
+        assert metadata.max_refinements_reached is True
+
+
+class TestDebateRoomConsensusMetadata:
+    """Test DebateRoom with consensus_metadata field."""
+
+    def test_debate_room_with_consensus_metadata(self) -> None:
+        """DebateRoom with consensus_metadata populated."""
+        metadata = ConsensusMetadata(
+            consensus_reached=True,
+            wind_approved=True,
+            wall_approved=True,
+            refinement_count=1,
+            max_refinements_reached=False,
+        )
+        room = DebateRoom(
+            thread_id="consensus-001",
+            topic="Consensus Test",
+            mode=DebateMode.FIXED,
+            consensus_metadata=metadata,
+        )
+        assert room.consensus_metadata is not None
+        assert room.consensus_metadata.consensus_reached is True
+        assert room.consensus_metadata.wind_approved is True
+        assert room.consensus_metadata.wall_approved is True
+        assert room.consensus_metadata.refinement_count == 1
+
+    def test_debate_room_without_consensus_metadata(self) -> None:
+        """DebateRoom without consensus_metadata (backwards compatibility)."""
+        room = DebateRoom(
+            thread_id="no-consensus-001",
+            topic="No Consensus Test",
+            mode=DebateMode.FIXED,
+        )
+        assert room.consensus_metadata is None
+
+    def test_debate_room_consensus_metadata_persistence(self, tmp_path: Path) -> None:
+        """ConsensusMetadata persists correctly with room state."""
+        metadata = ConsensusMetadata(
+            consensus_reached=True,
+            wind_approved=True,
+            wall_approved=True,
+            refinement_count=2,
+            max_refinements_reached=False,
+        )
+        room = DebateRoom(
+            thread_id="consensus-persist-001",
+            topic="Persistence Test",
+            mode=DebateMode.FIXED,
+            consensus_metadata=metadata,
+        )
+
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        loaded_room = load_debate_state("consensus-persist-001", state_dir)
+        assert loaded_room.consensus_metadata is not None
+        assert loaded_room.consensus_metadata.consensus_reached is True
+        assert loaded_room.consensus_metadata.wind_approved is True
+        assert loaded_room.consensus_metadata.wall_approved is True
+        assert loaded_room.consensus_metadata.refinement_count == 2
+        assert loaded_room.consensus_metadata.max_refinements_reached is False
+
+    def test_debate_room_without_consensus_loads_correctly(self, tmp_path: Path) -> None:
+        """DebateRoom without consensus_metadata loads correctly (backwards compat)."""
+        # Create room without consensus_metadata
+        room = DebateRoom(
+            thread_id="no-consensus-persist-001",
+            topic="No Consensus Persistence",
+            mode=DebateMode.FIXED,
+        )
+
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        loaded_room = load_debate_state("no-consensus-persist-001", state_dir)
+        assert loaded_room.consensus_metadata is None
