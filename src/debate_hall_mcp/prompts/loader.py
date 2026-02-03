@@ -24,6 +24,7 @@ Storage conventions:
 """
 
 import os
+import re
 from pathlib import Path
 
 from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
@@ -31,6 +32,10 @@ from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
 # Directory names for prompt resolution
 PROJECT_PROMPTS_DIR = Path("./prompts")  # Project-local prompts
 USER_PROMPTS_DIR = Path(os.environ.get("HOME", "~")).expanduser() / ".debate-hall" / "prompts"
+
+# Directory names for agent resolution
+PROJECT_AGENTS_DIR = Path("./agents")  # Local agent prompts
+HESTAI_AGENTS_DIR = Path(".hestai-sys/library/agents")  # HestAI system agents
 
 # Legacy alias for backward compatibility
 PROMPTS_DIR = USER_PROMPTS_DIR
@@ -50,6 +55,84 @@ class PromptLoadError(Exception):
     """Error raised when prompt loading fails."""
 
     pass
+
+
+def _normalize_role_name(role_name: str) -> str:
+    """Normalize a role name for file lookup.
+
+    Converts spaces to hyphens and lowercases the name.
+    - "critical engineer" -> "critical-engineer"
+    - "Technical Architect" -> "technical-architect"
+
+    Args:
+        role_name: Raw role name from configuration
+
+    Returns:
+        Normalized role name suitable for filename lookup
+    """
+    return role_name.lower().replace(" ", "-")
+
+
+def _is_hestai_integration_enabled() -> bool:
+    """Check if HestAI integration is enabled via environment variable.
+
+    Returns:
+        True if HESTAI_INTEGRATION env var is set to 'true' (case-insensitive)
+    """
+    return os.environ.get("HESTAI_INTEGRATION", "").lower() == "true"
+
+
+def get_agent_prompt(role_name: str) -> str | None:
+    """Get agent prompt by role name with layered resolution.
+
+    Resolution order:
+    1. ./agents/{role_name}.oct.md (debate-hall primary)
+    2. .hestai-sys/library/agents/{role_name}.oct.md (if HESTAI_INTEGRATION=true)
+    3. Return None (signal to use fallback prompt_file/embedded logic)
+
+    Role name normalization:
+    - Spaces converted to hyphens
+    - Lowercased
+    - "critical engineer" -> "critical-engineer"
+
+    Security:
+    - Only alphanumeric characters and hyphens allowed after normalization
+    - Path traversal attempts (../, /, etc.) are blocked
+
+    Args:
+        role_name: The role name (e.g., "ideator", "critical engineer")
+
+    Returns:
+        Agent prompt content if found, None otherwise
+    """
+    normalized_name = _normalize_role_name(role_name)
+
+    # SECURITY: Ensure normalized name is safe (alphanumeric + hyphens only)
+    # This prevents path traversal attacks like "../../etc/passwd"
+    if not re.match(r"^[a-z0-9-]+$", normalized_name):
+        return None  # Invalid characters, fall back to default
+
+    filename = f"{normalized_name}.oct.md"
+
+    # 1. Check project-local ./agents/ directory first
+    local_path = PROJECT_AGENTS_DIR / filename
+    if local_path.exists():
+        try:
+            return local_path.read_text(encoding="utf-8")
+        except OSError:
+            pass  # Fall through to next resolution layer
+
+    # 2. Check HestAI system agents if integration is enabled
+    if _is_hestai_integration_enabled():
+        hestai_path = HESTAI_AGENTS_DIR / filename
+        if hestai_path.exists():
+            try:
+                return hestai_path.read_text(encoding="utf-8")
+            except OSError:
+                pass  # Fall through to return None
+
+    # 3. Not found anywhere - return None to signal fallback
+    return None
 
 
 def _build_variant_filename(role: str, prompt_file: str) -> str:
@@ -258,12 +341,15 @@ def ensure_prompts_dir() -> Path:
 
 __all__ = [
     "get_prompt",
+    "get_agent_prompt",
     "list_available_prompts",
     "get_prompts_dir",
     "ensure_prompts_dir",
     "PromptLoadError",
     "PROJECT_PROMPTS_DIR",
     "USER_PROMPTS_DIR",
+    "PROJECT_AGENTS_DIR",
+    "HESTAI_AGENTS_DIR",
     "PROMPTS_DIR",  # Legacy alias for USER_PROMPTS_DIR
     "VALID_ROLES",
 ]
