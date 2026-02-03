@@ -185,17 +185,13 @@ class DebateOrchestrator:
         lines.append(f"TURN_COUNT::{debate_state['turn_count']}")
 
         if debate_state.get("synthesis"):
-            synthesis_preview = debate_state["synthesis"][:200]
-            lines.append(f"SYNTHESIS::{synthesis_preview}...")
+            lines.append(f"SYNTHESIS::{debate_state['synthesis']}")
 
         if debate_state.get("transcript"):
             lines.append("\nTRANSCRIPT::")
             for turn in debate_state["transcript"]:
                 role = turn.get("role", "Unknown")
                 content = turn.get("content", "")
-                # Truncate long content
-                if len(content) > 500:
-                    content = content[:500] + "..."
                 lines.append(f"  [{role}]:: {content}")
 
         lines.append("</DEBATE_STATE>")
