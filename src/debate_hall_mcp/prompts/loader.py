@@ -24,6 +24,7 @@ Storage conventions:
 """
 
 import os
+import re
 from pathlib import Path
 
 from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
@@ -94,6 +95,10 @@ def get_agent_prompt(role_name: str) -> str | None:
     - Lowercased
     - "critical engineer" -> "critical-engineer"
 
+    Security:
+    - Only alphanumeric characters and hyphens allowed after normalization
+    - Path traversal attempts (../, /, etc.) are blocked
+
     Args:
         role_name: The role name (e.g., "ideator", "critical engineer")
 
@@ -101,6 +106,12 @@ def get_agent_prompt(role_name: str) -> str | None:
         Agent prompt content if found, None otherwise
     """
     normalized_name = _normalize_role_name(role_name)
+
+    # SECURITY: Ensure normalized name is safe (alphanumeric + hyphens only)
+    # This prevents path traversal attacks like "../../etc/passwd"
+    if not re.match(r"^[a-z0-9-]+$", normalized_name):
+        return None  # Invalid characters, fall back to default
+
     filename = f"{normalized_name}.oct.md"
 
     # 1. Check project-local ./agents/ directory first

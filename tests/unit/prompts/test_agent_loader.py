@@ -203,3 +203,88 @@ class TestGetAgentPromptNormalization:
 
         assert result is not None
         assert "IMPLEMENTATION_LEAD" in result
+
+
+class TestGetAgentPromptSecurity:
+    """Test security: path traversal and invalid character prevention."""
+
+    def test_get_agent_prompt_path_traversal_blocked(self, tmp_path, monkeypatch):
+        """Path traversal attempts should be blocked even if file exists at traversed path.
+
+        This test creates a file structure where path traversal WOULD succeed
+        if not blocked, proving the security fix actually prevents it.
+        """
+        # Create the structure: agents/ and private/ at same level
+        agents_dir = tmp_path / "project" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        # Create a "secret" file that path traversal would try to access
+        private_dir = tmp_path / "private"
+        private_dir.mkdir()
+        secret_file = private_dir / "secret.oct.md"
+        secret_file.write_text("===SECRET_DATA===\nThis should not be accessible\n===END===")
+
+        # Point PROJECT_AGENTS_DIR to agents dir
+        monkeypatch.setattr("debate_hall_mcp.prompts.loader.PROJECT_AGENTS_DIR", agents_dir)
+
+        # Attempt path traversal: ../../private/secret would resolve to private/secret.oct.md
+        result = get_agent_prompt("../../private/secret")
+
+        # Should be None because path traversal is blocked, NOT because file doesn't exist
+        assert result is None
+
+    def test_get_agent_prompt_invalid_characters_blocked(self, tmp_path, monkeypatch):
+        """Invalid characters in role name should be blocked even if file exists."""
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+
+        # Create nested structure that slash would navigate to
+        nested = agents_dir / "role" / "with"
+        nested.mkdir(parents=True)
+        (nested / "slashes.oct.md").write_text("===NESTED===\n===END===")
+
+        monkeypatch.setattr("debate_hall_mcp.prompts.loader.PROJECT_AGENTS_DIR", agents_dir)
+
+        result = get_agent_prompt("role/with/slashes")
+        assert result is None
+
+    def test_get_agent_prompt_dots_blocked(self):
+        """Role names with dots should be blocked."""
+        result = get_agent_prompt("role.with.dots")
+        assert result is None
+
+    def test_get_agent_prompt_underscores_blocked(self):
+        """Role names with underscores should be blocked (use hyphens)."""
+        result = get_agent_prompt("role_with_underscores")
+        assert result is None
+
+    def test_get_agent_prompt_backslash_blocked(self):
+        """Windows-style path traversal should be blocked."""
+        result = get_agent_prompt("..\\..\\private\\secret")
+        assert result is None
+
+    def test_get_agent_prompt_valid_hyphenated_role_allowed(self, tmp_path, monkeypatch):
+        """Valid hyphenated role names should still work."""
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "valid-role-name.oct.md").write_text("===VALID===\n===END===")
+
+        monkeypatch.setattr("debate_hall_mcp.prompts.loader.PROJECT_AGENTS_DIR", agents_dir)
+
+        result = get_agent_prompt("valid-role-name")
+
+        assert result is not None
+        assert "VALID" in result
+
+    def test_get_agent_prompt_numeric_suffix_allowed(self, tmp_path, monkeypatch):
+        """Role names with numbers should work."""
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "agent-v2.oct.md").write_text("===AGENT_V2===\n===END===")
+
+        monkeypatch.setattr("debate_hall_mcp.prompts.loader.PROJECT_AGENTS_DIR", agents_dir)
+
+        result = get_agent_prompt("agent-v2")
+
+        assert result is not None
+        assert "AGENT_V2" in result
