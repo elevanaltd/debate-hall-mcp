@@ -46,7 +46,7 @@ from debate_hall_mcp.prompts import (
     format_wind_approval_prompt,
     format_wind_user_prompt,
 )
-from debate_hall_mcp.prompts.loader import get_prompt
+from debate_hall_mcp.prompts.loader import get_agent_prompt, get_prompt
 from debate_hall_mcp.providers import ModelProvider, ProviderResponse, create_provider
 from debate_hall_mcp.state import (
     ConsensusMetadata,
@@ -132,11 +132,12 @@ class DebateOrchestrator:
         return DEFAULT_PROVIDER_TIMEOUT
 
     def _get_prompt(self, role: str) -> str:
-        """Get prompt for a role, using custom file if configured.
+        """Get prompt for a role, with layered resolution.
 
-        Uses the Layered Discovery pattern from prompts.loader:
-        1. If prompt_file is set in tier config -> load from file/variant
-        2. If prompt_file is null -> use embedded default
+        Resolution order:
+        1. If role config has 'role' set -> try agent resolution from ./agents/ or .hestai-sys/
+        2. If agent not found, fall back to prompt_file (Layered Discovery pattern)
+        3. If prompt_file is null -> use embedded default
 
         Args:
             role: The debate role (wind, wall, door)
@@ -146,7 +147,14 @@ class DebateOrchestrator:
         """
         # Get the role config for this role
         role_config = getattr(self.tier_config, role.lower())
-        # Get prompt using loader (handles file resolution and defaults)
+
+        # 1. Try role-based agent resolution if role is configured
+        if role_config.role:
+            agent_prompt = get_agent_prompt(role_config.role)
+            if agent_prompt is not None:
+                return agent_prompt
+
+        # 2. Fall back to existing prompt_file/embedded logic
         return get_prompt(role, role_config.prompt_file)
 
     def _generate_thread_id(self, topic: str) -> str:

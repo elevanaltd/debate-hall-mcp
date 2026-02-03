@@ -601,3 +601,129 @@ class TestM3EventPayloadRedaction:
         # synthesis_preview is allowed in DEBATE_CLOSED
         assert len(closed_events) == 1
         assert "synthesis_preview" in closed_events[0].payload
+
+
+class TestOrchestratorRoleBasedPromptResolution:
+    """Tests for role-based agent prompt resolution in orchestrator._get_prompt()."""
+
+    @pytest.mark.anyio
+    async def test_get_prompt_uses_role_config_when_agent_found(self, temp_state_dir: Path) -> None:
+        """_get_prompt() should use role-based agent resolution when agent file exists."""
+        # Create tier config with role set (but no prompt_file)
+        tier_config = TierConfig(
+            wind=RoleConfig(provider="cli", cli="claude", role="test-ideator"),
+            wall=RoleConfig(provider="cli", cli="codex", role="test-validator"),
+            door=RoleConfig(provider="cli", cli="gemini", role="test-synthesizer"),
+            settings=TierSettings(consensus_required=False),
+        )
+
+        # Create agents directory with test agent
+        agents_dir = temp_state_dir.parent / "agents"
+        agents_dir.mkdir()
+        (agents_dir / "test-ideator.oct.md").write_text(
+            "===TEST_IDEATOR_AGENT===\nAgent from role config\n===END==="
+        )
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response("Test response")
+
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        # Patch PROJECT_AGENTS_DIR to use our temp directory
+        with patch("debate_hall_mcp.prompts.loader.PROJECT_AGENTS_DIR", agents_dir):
+            # Get the prompt through the orchestrator's method
+            wind_prompt = orchestrator._get_prompt("wind")
+
+        # Should contain content from the agent file, not embedded default
+        assert "TEST_IDEATOR_AGENT" in wind_prompt
+        assert "Agent from role config" in wind_prompt
+
+    @pytest.mark.anyio
+    async def test_get_prompt_falls_back_to_prompt_file_when_agent_not_found(
+        self, temp_state_dir: Path
+    ) -> None:
+        """_get_prompt() should fall back to prompt_file when agent file not found."""
+        # Create custom prompt file
+        prompts_dir = temp_state_dir.parent / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "wind-custom.oct.md").write_text(
+            "===CUSTOM_PROMPT_FILE===\nCustom prompt content\n===END==="
+        )
+
+        # Config has role (agent not found) AND prompt_file (fallback)
+        tier_config = TierConfig(
+            wind=RoleConfig(
+                provider="cli",
+                cli="claude",
+                role="nonexistent-agent",  # This agent doesn't exist
+                prompt_file="custom",  # This should be used as fallback
+            ),
+            wall=RoleConfig(provider="cli", cli="codex"),
+            door=RoleConfig(provider="cli", cli="gemini"),
+            settings=TierSettings(consensus_required=False),
+        )
+
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(AsyncMock()),
+        )
+
+        # Patch directories
+        nonexistent_agents = temp_state_dir.parent / "nonexistent_agents"
+        with (
+            patch("debate_hall_mcp.prompts.loader.PROJECT_AGENTS_DIR", nonexistent_agents),
+            patch("debate_hall_mcp.prompts.loader.PROJECT_PROMPTS_DIR", prompts_dir),
+        ):
+            wind_prompt = orchestrator._get_prompt("wind")
+
+        # Should fall back to prompt_file resolution
+        assert "CUSTOM_PROMPT_FILE" in wind_prompt
+
+    @pytest.mark.anyio
+    async def test_get_prompt_falls_back_to_embedded_when_nothing_found(
+        self, temp_state_dir: Path
+    ) -> None:
+        """_get_prompt() should fall back to embedded default when nothing else found."""
+        from debate_hall_mcp.prompts import WIND_PROMPT
+
+        # Config has role (agent not found) but no prompt_file
+        tier_config = TierConfig(
+            wind=RoleConfig(
+                provider="cli",
+                cli="claude",
+                role="nonexistent-agent",  # This agent doesn't exist
+                # No prompt_file - should fall back to embedded
+            ),
+            wall=RoleConfig(provider="cli", cli="codex"),
+            door=RoleConfig(provider="cli", cli="gemini"),
+            settings=TierSettings(consensus_required=False),
+        )
+
+        orchestrator = DebateOrchestrator(
+            tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(AsyncMock()),
+        )
+
+        # Patch to nonexistent directories
+        nonexistent = temp_state_dir.parent / "nonexistent"
+        with (
+            patch("debate_hall_mcp.prompts.loader.PROJECT_AGENTS_DIR", nonexistent),
+            patch(
+                "debate_hall_mcp.prompts.loader.PROJECT_PROMPTS_DIR",
+                nonexistent / "prompts",
+            ),
+            patch(
+                "debate_hall_mcp.prompts.loader.USER_PROMPTS_DIR",
+                nonexistent / "user",
+            ),
+        ):
+            wind_prompt = orchestrator._get_prompt("wind")
+
+        # Should fall back to embedded WIND_PROMPT
+        assert wind_prompt == WIND_PROMPT
