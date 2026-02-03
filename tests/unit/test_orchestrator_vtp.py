@@ -322,3 +322,103 @@ class TestOrchestratorVTPIntegration:
                 assert "<COMPRESSION_DIRECTIVE>" not in user_prompt
                 # Should start with state block directly
                 assert user_prompt.startswith("<DEBATE_STATE>")
+
+
+class TestFormatDebateStateNoTruncation:
+    """Test that _format_debate_state preserves full content (#131)."""
+
+    def test_format_debate_state_preserves_full_turn_content(self, tmp_path: Path) -> None:
+        """Verify turn content is NOT truncated (#131).
+
+        Issue #131: Content truncation to 500 chars destroys context agents need.
+        """
+        tier_config = TierConfig(
+            wind=RoleConfig(provider="cli", cli="claude"),
+            wall=RoleConfig(provider="cli", cli="codex"),
+            door=RoleConfig(provider="cli", cli="gemini"),
+            settings=TierSettings(),
+        )
+        orchestrator = DebateOrchestrator(tier_config, tmp_path)
+
+        # Create content longer than 500 chars
+        long_content = "x" * 1000
+        state = {
+            "thread_id": "test-thread",
+            "topic": "test topic",
+            "status": "OPEN",
+            "turn_count": 1,
+            "transcript": [{"role": "Wind", "content": long_content}],
+        }
+
+        result = orchestrator._format_debate_state(state)
+
+        # Full content must be preserved - no truncation
+        assert long_content in result
+        # Ensure no truncation ellipsis in turn content
+        # (split by role marker to isolate turn content)
+        wind_section = result.split("[Wind]::")[1].split("</DEBATE_STATE>")[0]
+        assert "..." not in wind_section
+
+    def test_format_debate_state_preserves_full_synthesis(self, tmp_path: Path) -> None:
+        """Verify synthesis is NOT truncated (#131).
+
+        Issue #131: Synthesis truncation to 200 chars loses critical context.
+        """
+        tier_config = TierConfig(
+            wind=RoleConfig(provider="cli", cli="claude"),
+            wall=RoleConfig(provider="cli", cli="codex"),
+            door=RoleConfig(provider="cli", cli="gemini"),
+            settings=TierSettings(),
+        )
+        orchestrator = DebateOrchestrator(tier_config, tmp_path)
+
+        # Create synthesis longer than 200 chars
+        long_synthesis = "s" * 500
+        state = {
+            "thread_id": "test-thread",
+            "topic": "test topic",
+            "status": "CLOSED",
+            "turn_count": 3,
+            "synthesis": long_synthesis,
+        }
+
+        result = orchestrator._format_debate_state(state)
+
+        # Full synthesis must be preserved
+        assert long_synthesis in result
+        # Ensure no truncation ellipsis after synthesis
+        synthesis_line = [line for line in result.split("\n") if "SYNTHESIS::" in line][0]
+        assert not synthesis_line.endswith("...")
+
+    def test_format_debate_state_handles_multiple_long_turns(self, tmp_path: Path) -> None:
+        """Verify multiple long turns are all preserved (#131)."""
+        tier_config = TierConfig(
+            wind=RoleConfig(provider="cli", cli="claude"),
+            wall=RoleConfig(provider="cli", cli="codex"),
+            door=RoleConfig(provider="cli", cli="gemini"),
+            settings=TierSettings(),
+        )
+        orchestrator = DebateOrchestrator(tier_config, tmp_path)
+
+        # Create multiple turns with long content
+        wind_content = "wind_" + "w" * 800
+        wall_content = "wall_" + "a" * 800
+        door_content = "door_" + "d" * 800
+        state = {
+            "thread_id": "test-thread",
+            "topic": "test topic",
+            "status": "CLOSED",
+            "turn_count": 3,
+            "transcript": [
+                {"role": "Wind", "content": wind_content},
+                {"role": "Wall", "content": wall_content},
+                {"role": "Door", "content": door_content},
+            ],
+        }
+
+        result = orchestrator._format_debate_state(state)
+
+        # All full content must be preserved
+        assert wind_content in result
+        assert wall_content in result
+        assert door_content in result

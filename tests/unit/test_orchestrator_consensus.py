@@ -8,6 +8,7 @@ Tests the consensus loop flow:
 - consensus_required=False skips loop
 - CONSENSUS_VOTE events emitted
 - Turn count reflects all turns including consensus
+- ConsensusMetadata population in DebateRoom
 """
 
 from pathlib import Path
@@ -19,6 +20,7 @@ from debate_hall_mcp.config import RoleConfig, TierConfig, TierSettings
 from debate_hall_mcp.events import EventType, load_events
 from debate_hall_mcp.orchestrator import DebateOrchestrator
 from debate_hall_mcp.providers import ProviderResponse
+from debate_hall_mcp.state import load_debate_state
 
 
 @pytest.fixture
@@ -433,3 +435,131 @@ class TestTurnCountWithConsensus:
 
         # 3 initial turns + 1 refinement = 4 turns minimum
         assert result.turn_count >= 4
+
+
+class TestConsensusMetadataPopulation:
+    """Tests for ConsensusMetadata population by orchestrator."""
+
+    @pytest.mark.anyio
+    async def test_orchestrator_populates_consensus_metadata_on_success(
+        self, tier_config_consensus: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """Orchestrator populates consensus_metadata when both Wind and Wall approve."""
+        responses = [
+            # Initial debate round
+            create_mock_response("## WIND - Possibilities\nExpanding..."),
+            create_mock_response("## WALL - Validation\nValidating..."),
+            create_mock_response("## DOOR - Synthesis\nSynthesizing..."),
+            # Consensus round - both approve
+            create_mock_response("APPROVE\nThe synthesis is well-integrated."),  # Wind
+            create_mock_response("APPROVE\nConstraints properly addressed."),  # Wall
+        ]
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
+
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Consensus metadata test")
+
+        # Load the room and check consensus_metadata
+        room = load_debate_state(result.thread_id, temp_state_dir)
+        assert room.consensus_metadata is not None
+        assert room.consensus_metadata.consensus_reached is True
+        assert room.consensus_metadata.wind_approved is True
+        assert room.consensus_metadata.wall_approved is True
+        assert room.consensus_metadata.refinement_count == 0
+        assert room.consensus_metadata.max_refinements_reached is False
+
+    @pytest.mark.anyio
+    async def test_orchestrator_populates_consensus_metadata_on_stalemate(
+        self, temp_state_dir: Path
+    ) -> None:
+        """Orchestrator populates consensus_metadata when max refinements reached."""
+        # Use config with max_refinement_loops=2 for faster test
+        config = TierConfig(
+            wind=RoleConfig(provider="cli", cli="claude", role="wind-agent"),
+            wall=RoleConfig(provider="cli", cli="codex", role="wall-agent"),
+            door=RoleConfig(provider="cli", cli="gemini", role="door-agent"),
+            settings=TierSettings(
+                consensus_required=True,
+                max_turns=20,
+                max_refinement_loops=2,
+            ),
+        )
+
+        responses = [
+            # Initial round
+            create_mock_response("Wind: Initial"),
+            create_mock_response("Wall: Initial"),
+            create_mock_response("Door: Initial"),
+            # Loop 1: Wind rejects
+            create_mock_response("REJECT"),
+            create_mock_response("Door: Refinement 1"),
+            # Loop 2: Wind rejects again
+            create_mock_response("REJECT"),
+            create_mock_response("Door: Refinement 2"),
+            # Loop 3 would exceed max_refinement_loops=2
+            create_mock_response("REJECT"),
+        ]
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
+
+        orchestrator = DebateOrchestrator(
+            config, temp_state_dir, provider_factory=create_mock_provider_factory(mock_provider)
+        )
+
+        result = await orchestrator.run(topic="Stalemate metadata test")
+
+        # Load the room and check consensus_metadata
+        room = load_debate_state(result.thread_id, temp_state_dir)
+        assert room.consensus_metadata is not None
+        assert room.consensus_metadata.consensus_reached is False
+        assert room.consensus_metadata.wind_approved is False  # Last rejection was Wind
+        assert room.consensus_metadata.wall_approved is None  # Wall never voted in final round
+        assert room.consensus_metadata.refinement_count == 3  # max + 1 (the final rejection)
+        assert room.consensus_metadata.max_refinements_reached is True
+
+    @pytest.mark.anyio
+    async def test_orchestrator_populates_consensus_metadata_after_refinement(
+        self, tier_config_consensus: TierConfig, temp_state_dir: Path
+    ) -> None:
+        """Orchestrator populates consensus_metadata with refinement_count when refinements occurred."""
+        responses = [
+            # Initial round
+            create_mock_response("Wind: Initial expansion"),
+            create_mock_response("Wall: Initial validation"),
+            create_mock_response("Door: Initial synthesis"),
+            # First consensus - Wind rejects
+            create_mock_response("REJECT\nMissing creative potential."),
+            # Refinement
+            create_mock_response("Door: Refined synthesis incorporating feedback"),
+            # Second consensus - both approve
+            create_mock_response("APPROVE\nNow captures possibilities."),
+            create_mock_response("APPROVE\nConstraints still valid."),
+        ]
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = responses
+
+        orchestrator = DebateOrchestrator(
+            tier_config_consensus,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run(topic="Refinement metadata test")
+
+        # Load the room and check consensus_metadata
+        room = load_debate_state(result.thread_id, temp_state_dir)
+        assert room.consensus_metadata is not None
+        assert room.consensus_metadata.consensus_reached is True
+        assert room.consensus_metadata.wind_approved is True
+        assert room.consensus_metadata.wall_approved is True
+        assert room.consensus_metadata.refinement_count == 1
+        assert room.consensus_metadata.max_refinements_reached is False

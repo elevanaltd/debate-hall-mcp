@@ -206,6 +206,35 @@ class InjectedContext(BaseModel):
         return v
 
 
+class ConsensusMetadata(BaseModel):
+    """Consensus result metadata for decision record extraction.
+
+    Tracks the outcome of the Wind/Wall consensus loop for closed debates.
+    Optional for non-orchestrated debates or debates without consensus.
+
+    Fields:
+    - consensus_reached: Whether Wind and Wall both approved synthesis
+    - wind_approved: Wind's final vote (None if no vote)
+    - wall_approved: Wall's final vote (None if no vote)
+    - refinement_count: Number of Door refinement rounds needed
+    - max_refinements_reached: True if consensus loop hit max_refinement_loops
+    """
+
+    consensus_reached: bool = Field(
+        ..., description="Whether Wind and Wall both approved synthesis"
+    )
+    wind_approved: bool | None = Field(
+        default=None, description="Wind's final vote (None if no vote)"
+    )
+    wall_approved: bool | None = Field(
+        default=None, description="Wall's final vote (None if no vote)"
+    )
+    refinement_count: int = Field(default=0, description="Number of Door refinement rounds needed")
+    max_refinements_reached: bool = Field(
+        default=False, description="True if consensus loop hit max_refinement_loops"
+    )
+
+
 class GitHubBinding(BaseModel):
     """GitHub binding for syncing debate turns to Discussion/Issue comments (Issue #15).
 
@@ -382,6 +411,10 @@ class DebateRoom(BaseModel):
     injected_context: list[InjectedContext] = Field(
         default_factory=list,
         description="Human-injected context from GitHub comments (Issue #17)",
+    )
+    consensus_metadata: ConsensusMetadata | None = Field(
+        default=None,
+        description="Consensus loop result (populated by orchestrator on close)",
     )
 
 
