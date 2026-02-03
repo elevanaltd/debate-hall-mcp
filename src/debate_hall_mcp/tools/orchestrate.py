@@ -14,6 +14,7 @@ Phase 4 Additions:
 - resume_debate: Resumes debates from PAUSED status after failures
 """
 
+from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.config import load_tier_config
@@ -49,6 +50,7 @@ async def run_debate(
     topic: str,
     tier: str = "standard",
     thread_id: str | None = None,
+    state_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Run an automated Wind/Wall/Door debate.
 
@@ -63,6 +65,7 @@ async def run_debate(
         topic: The debate topic to explore (1-1000 chars, non-empty)
         tier: Tier configuration name (default: "standard")
         thread_id: Optional thread ID (auto-generated if not provided)
+        state_dir: Directory for state files (defaults to ./debates)
 
     Returns:
         Dictionary with debate result:
@@ -86,7 +89,8 @@ async def run_debate(
     tier_config = load_tier_config(tier)
 
     # Get state directory
-    state_dir = get_state_dir()
+    if state_dir is None:
+        state_dir = get_state_dir()
 
     # Create orchestrator
     orchestrator = DebateOrchestrator(tier_config, state_dir)
@@ -107,6 +111,7 @@ async def run_debate(
 async def resume_debate(
     thread_id: str,
     tier: str = "standard",
+    state_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Resume a PAUSED debate from where it left off.
 
@@ -123,6 +128,7 @@ async def resume_debate(
     Args:
         thread_id: The thread ID of the paused debate
         tier: Tier configuration name (default: "standard")
+        state_dir: Directory for state files (defaults to ./debates)
 
     Returns:
         Dictionary with debate result (same format as run_debate):
@@ -143,7 +149,8 @@ async def resume_debate(
     _validate_thread_id_for_filesystem(thread_id)
 
     # Get state directory
-    state_dir = get_state_dir()
+    if state_dir is None:
+        state_dir = get_state_dir()
 
     # Validate debate exists and is PAUSED before creating orchestrator
     room = load_debate_state(thread_id, state_dir)

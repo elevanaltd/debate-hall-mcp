@@ -33,6 +33,7 @@ from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
 from debate_hall_mcp.tools.admin import debate_force_close, debate_tombstone
 from debate_hall_mcp.tools.close import debate_close
 from debate_hall_mcp.tools.decision import extract_decision_record as extract_decision_record_impl
+from debate_hall_mcp.tools.decision import resolve_question as resolve_question_impl
 from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.github_sync import github_sync_debate as github_sync_debate_impl
 from debate_hall_mcp.tools.init import debate_init
@@ -62,11 +63,11 @@ SERVER_VERSION = PACKAGE_VERSION
 def create_server() -> FastMCP:
     """Create debate-hall MCP server.
 
-    Tools (13):
+    Tools (14):
         init_debate, add_turn, get_debate, close_debate,
         pick_next_speaker, force_close_debate, tombstone_turn,
         github_sync_debate, ratify_rfc, human_interject, run_debate,
-        resume_debate, extract_decision_record
+        resume_debate, extract_decision_record, resolve_question
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -365,6 +366,43 @@ def create_server() -> FastMCP:
             ValueError: If debate is not closed (ACTIVE or PAUSED status)
         """
         return extract_decision_record_impl(
+            thread_id=thread_id,
+        )
+
+    @server.tool()
+    async def resolve_question(
+        topic: str,
+        tier: str = "standard",
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolve a question through structured debate and return decision record.
+
+        High-level Layer 3 API that combines run_debate + extract_decision_record
+        into a single operation. Agents call this for quick, verified decisions.
+
+        Process:
+        1. Generate thread_id if not provided (YYYY-MM-DD-topic-slug format)
+        2. Run full Wind/Wall/Door debate via run_debate
+        3. Extract DecisionRecord from closed debate
+        4. Return verified decision ready for use
+
+        Args:
+            topic: The question or topic to resolve
+            tier: Tier configuration name (default: "standard")
+            thread_id: Optional custom thread ID (auto-generated if None)
+
+        Returns:
+            Dictionary with DecisionRecord fields plus debate metadata:
+            - All DecisionRecord fields (identity, outcome, rationale, validation, provenance)
+            - debate_result: The raw run_debate result for reference
+
+        Raises:
+            RuntimeError: If debate fails or cannot be closed
+            ValueError: If tier configuration is invalid
+        """
+        return await resolve_question_impl(
+            topic=topic,
+            tier=tier,
             thread_id=thread_id,
         )
 
