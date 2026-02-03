@@ -126,13 +126,13 @@ class TestDebateGetWithTranscript:
         assert result["transcript"][0]["content"] == "Wind says hello"
         assert "timestamp" in result["transcript"][0]
 
-    def test_debate_get_transcript_context_lines(self, tmp_path: Path) -> None:
-        """context_lines limits transcript depth and adds omission indicator."""
+    def test_debate_get_transcript_context_turns(self, tmp_path: Path) -> None:
+        """context_turns limits transcript depth and adds omission indicator."""
         debate_init(
             thread_id="2025-01-01-test-context-1",
             topic="Test",
             mode="fixed",
-            octave_preamble=False,  # Disable to test context_lines logic
+            octave_preamble=False,  # Disable to test context_turns logic
             state_dir=tmp_path,
         )
         # Add 3 turns
@@ -147,11 +147,11 @@ class TestDebateGetWithTranscript:
         result = debate_get(
             thread_id="2025-01-01-test-context-1",
             include_transcript=True,
-            context_lines=2,
+            context_turns=2,
             state_dir=tmp_path,
         )
 
-        # With context_lines=2, we get: System omission message + 2 turns
+        # With context_turns=2, we get: System omission message + 2 turns
         assert len(result["transcript"]) == 3
         assert result["transcript"][0]["role"] == "System"
         assert "1 earlier turns omitted" in result["transcript"][0]["content"]
@@ -358,3 +358,39 @@ class TestDebateGetWithMetadata:
         assert turn_entry["agent_role"] is None
         assert turn_entry["model"] is None
         assert turn_entry["cognition"] is None
+
+
+class TestDebateGetContextTurns:
+    """Tests for context_turns parameter."""
+
+    def test_context_turns_limits_transcript_depth(self, tmp_path: Path) -> None:
+        """context_turns limits transcript depth and adds omission indicator."""
+        debate_init(
+            thread_id="2025-01-01-test-turns-1",
+            topic="Test",
+            mode="fixed",
+            octave_preamble=False,
+            state_dir=tmp_path,
+        )
+        # Add 3 turns
+        for role in ["Wind", "Wall", "Door"]:
+            debate_turn(
+                thread_id="2025-01-01-test-turns-1",
+                role=role,
+                content=f"{role} content",
+                state_dir=tmp_path,
+            )
+
+        result = debate_get(
+            thread_id="2025-01-01-test-turns-1",
+            include_transcript=True,
+            context_turns=2,
+            state_dir=tmp_path,
+        )
+
+        # With context_turns=2, we get: System omission message + 2 turns
+        assert len(result["transcript"]) == 3
+        assert result["transcript"][0]["role"] == "System"
+        assert "1 earlier turns omitted" in result["transcript"][0]["content"]
+        assert result["transcript"][1]["role"] == "Wall"
+        assert result["transcript"][2]["role"] == "Door"

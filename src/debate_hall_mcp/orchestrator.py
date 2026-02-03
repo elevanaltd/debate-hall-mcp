@@ -329,11 +329,11 @@ Respond with your refined synthesis using the OCTAVE response format."""
         cognition = cognition_map.get(role, "LOGOS")
 
         # VTP: Pre-fetch debate state and inject into prompt
-        context_lines = self.tier_config.settings.context_lines
+        context_turns = self.tier_config.settings.context_turns
         debate_state = debate_get(
             thread_id=thread_id,
             include_transcript=True,
-            context_lines=context_lines,
+            context_turns=context_turns,
             state_dir=self.state_dir,
         )
 

@@ -49,7 +49,7 @@ def debate_get(
     thread_id: str,
     include_transcript: bool = False,
     include_metadata: bool = False,
-    context_lines: int | None = None,
+    context_turns: int | None = None,
     state_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Get debate state, optionally with transcript.
@@ -58,7 +58,7 @@ def debate_get(
         thread_id: Thread identifier
         include_transcript: If True, include turn history
         include_metadata: If True, include agent_role/model/cognition for each turn
-        context_lines: Limit transcript to N recent turns (None = all)
+        context_turns: Limit transcript to N recent turns (None = all)
         state_dir: Directory for state files (defaults to ./debates)
 
     Returns:
@@ -98,9 +98,10 @@ def debate_get(
     if include_transcript:
         turns_to_include = room.turns
         omitted_count = 0
-        if context_lines is not None and context_lines > 0:
-            omitted_count = max(0, len(room.turns) - context_lines)
-            turns_to_include = room.turns[-context_lines:]
+
+        if context_turns is not None and context_turns > 0:
+            omitted_count = max(0, len(room.turns) - context_turns)
+            turns_to_include = room.turns[-context_turns:]
 
         transcript: list[dict[str, Any]] = []
 
