@@ -18,7 +18,7 @@ Environment Configuration:
     - DEBATE_HALL_STATE_DIR: Custom state directory (default: project-relative detection)
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -139,14 +139,14 @@ def create_server() -> FastMCP:
         thread_id: str,
         include_transcript: bool = False,
         include_metadata: bool = False,
-        context_lines: int | None = None,
+        context_turns: int | None = None,
     ) -> dict[str, Any]:
-        """State+optional transcript. include_transcript→adds turn history. context_lines:limit depth."""
+        """State+optional transcript. include_transcript→adds turn history. context_turns:limit depth."""
         return debate_get(
             thread_id=thread_id,
             include_transcript=include_transcript,
             include_metadata=include_metadata,
-            context_lines=context_lines,
+            context_turns=context_turns,
         )
 
     @server.tool()
@@ -297,6 +297,8 @@ def create_server() -> FastMCP:
         topic: str,
         tier: str = "standard",
         thread_id: str | None = None,
+        compression_tier: Literal["none", "basic", "aggressive", "ultra"] | None = None,
+        primer_tier: Literal["none", "literacy", "standard", "advanced"] | None = None,
     ) -> dict[str, Any]:
         """Auto-orchestrate a Wind/Wall/Door debate (ADR-0002).
 
@@ -309,6 +311,8 @@ def create_server() -> FastMCP:
             topic: The debate topic to explore
             tier: Configuration tier (default: "standard")
             thread_id: Optional custom thread ID (auto-generated if not provided)
+            compression_tier: Override compression tier (None = use tier default)
+            primer_tier: Override primer tier (None = use tier default)
 
         Returns:
             Dictionary with thread_id, topic, status, turn_count, and synthesis
@@ -317,12 +321,16 @@ def create_server() -> FastMCP:
             topic=topic,
             tier=tier,
             thread_id=thread_id,
+            compression_tier=compression_tier,
+            primer_tier=primer_tier,
         )
 
     @server.tool()
     async def resume_debate(
         thread_id: str,
         tier: str = "standard",
+        compression_tier: Literal["none", "basic", "aggressive", "ultra"] | None = None,
+        primer_tier: Literal["none", "literacy", "standard", "advanced"] | None = None,
     ) -> dict[str, Any]:
         """Resume a PAUSED debate from where it left off (Phase 4).
 
@@ -332,6 +340,8 @@ def create_server() -> FastMCP:
         Args:
             thread_id: The thread ID of the paused debate
             tier: Configuration tier (default: "standard")
+            compression_tier: Override compression tier (None = use tier default)
+            primer_tier: Override primer tier (None = use tier default)
 
         Returns:
             Dictionary with thread_id, topic, status, turn_count, and synthesis
@@ -339,6 +349,8 @@ def create_server() -> FastMCP:
         return await resume_debate_impl(
             thread_id=thread_id,
             tier=tier,
+            compression_tier=compression_tier,
+            primer_tier=primer_tier,
         )
 
     @server.tool()

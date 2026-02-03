@@ -143,6 +143,13 @@ class TestTierSettings:
         assert settings.primer_tier == "standard"
         assert settings.compression_tier == "aggressive"
 
+    def test_tier_settings_context_turns_field(self) -> None:
+        """TierSettings has context_turns field (Issue #134 rename)."""
+        from debate_hall_mcp.config import TierSettings
+
+        settings = TierSettings(context_turns=5)
+        assert settings.context_turns == 5
+
 
 class TestTierConfig:
     """Test TierConfig model combining role configs with settings."""
