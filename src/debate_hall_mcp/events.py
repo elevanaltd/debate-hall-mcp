@@ -24,7 +24,7 @@ use the event file line position as a secondary sort key.
 
 import logging
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +37,7 @@ from debate_hall_mcp.state import _validate_thread_id_for_filesystem
 logger = logging.getLogger(__name__)
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Types of debate events for auto-orchestration (ADR-0002).
 
     Event lifecycle:

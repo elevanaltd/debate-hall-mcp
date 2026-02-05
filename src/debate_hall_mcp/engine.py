@@ -13,7 +13,7 @@ Immutables Compliance:
 """
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from debate_hall_mcp.state import DebateMode, DebateRoom, DebateStatus, Turn
 from debate_hall_mcp.validation import CognitionValidator, ValidationResult
@@ -23,7 +23,7 @@ from debate_hall_mcp.validation import CognitionValidator, ValidationResult
 MIN_SYNTHESIS_LENGTH_FOR_VALIDATION = 100
 
 
-class TerminationReason(str, Enum):
+class TerminationReason(StrEnum):
     """Reasons for debate termination (I3, I5 compliance)."""
 
     SYNTHESIS = "synthesis"  # Door provided final synthesis

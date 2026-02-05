@@ -1,7 +1,7 @@
 ---
 name: debate-hall
 description: Wind/Wall/Door multi-perspective debate orchestration using debate-hall-mcp tools. Use when facilitating structured debates, architectural decisions, or multi-perspective analysis.
-triggers: ["debate", "wind wall door", "dialectic", "multi-perspective", "structured decision", "architecture decision"]
+triggers: ["debate", "wind wall door", "dialectic", "multi-perspective", "structured decision", "architecture decision", "run debate", "resolve question"]
 allowed-tools: ["Read", "Write", "Edit", "Bash", "mcp__debate-hall__*"]
 ---
 
@@ -9,9 +9,10 @@ allowed-tools: ["Read", "Write", "Edit", "Bash", "mcp__debate-hall__*"]
 
 META:
   TYPE::SKILL
-  VERSION::"2.1"
+  VERSION::"3.0"
   PURPOSE::"Wind/Wall/Door debate orchestration via MCP tools"
   DOMAIN::ATHENA[strategic_decisions]⊕HERMES[orchestration]
+  UPDATED::"2026-02-04"
 
 §1::PATTERN
   TRIAD::[
@@ -21,7 +22,85 @@ META:
   ]
   DYNAMIC::WIND⇌WALL→DOOR[tension_produces_emergence]
 
-§2::WORKFLOW
+§2::AUTO_ORCHESTRATION
+  // PREFERRED: Let the server handle Wind→Wall→Door orchestration
+  PURPOSE::"Single-call debates with automatic multi-model orchestration"
+
+  TOOLS::[
+    run_debate(topic,tier?,thread_id?,compression_tier?,primer_tier?)→full_debate_with_synthesis,
+    resolve_question(topic,tier?,thread_id?)→debate+decision_record[Layer_3_API],
+    resume_debate(thread_id,tier?)→continue_paused_debate
+  ]
+
+  RUN_DEBATE::[
+    topic::REQUIRED[question_or_decision],
+    tier::"fast"|"standard"|"premium"[default:standard],
+    thread_id::OPTIONAL[auto_generated_if_omitted],
+    compression_tier::"none"|"basic"|"aggressive"|"ultra"[VTP_override],
+    primer_tier::"none"|"literacy"|"standard"|"advanced"[VTP_override]
+  ]
+
+  RESOLVE_QUESTION::[
+    PURPOSE::"Highest-level API - debate + decision record in one call",
+    RETURNS::DecisionRecord[thread_id,synthesis,rationale,validation,provenance]
+  ]
+
+  RESUME_DEBATE::[
+    PURPOSE::"Continue PAUSED debates after provider timeouts",
+    USE_WHEN::status="PAUSED"
+  ]
+
+§2.1::TIER_CONFIGURATIONS
+  // Pre-configured debate profiles with model/agent assignments
+
+  FAST::[
+    COST::~$0.02,
+    MODELS::[gemini-3-flash,gpt-5.1-codex-mini,claude-haiku-4.5],
+    AGENTS::[wind-agent,wall-agent,door-agent],
+    MAX_TURNS::6,
+    CONSENSUS::false,
+    USE_FOR::[exploration,low_stakes,rapid_iteration]
+  ]
+
+  STANDARD::[
+    COST::~$0.30,
+    MODELS::[gemini-3-pro,gpt-5.2-codex,claude-sonnet-4.5],
+    AGENTS::[ideator,validator,synthesizer],
+    MAX_TURNS::12,
+    REFINEMENT_LOOPS::4,
+    CONSENSUS::false,
+    USE_FOR::[design_decisions,medium_complexity,typical_debates]
+  ]
+
+  PREMIUM::[
+    COST::~$0.60,
+    MODELS::[claude-opus-4.5,gpt-5.2-pro,gemini-3-pro],
+    AGENTS::[edge-optimizer,critical-engineer,technical-architect],
+    MAX_TURNS::16,
+    REFINEMENT_LOOPS::5,
+    CONSENSUS::true,
+    USE_FOR::[production_decisions,high_stakes,architectural_choices]
+  ]
+
+§2.2::DECISION_GRAVITY_MAPPING
+  // Select tier based on decision weight
+
+  GRAVITY_SCALE::[
+    LOW[<40]::fast[exploration,reversible,low_impact],
+    MEDIUM[40-60]::standard[design,moderate_impact,some_risk],
+    HIGH[>60]::premium[production,irreversible,high_impact]
+  ]
+
+  EXAMPLES::[
+    fast::[naming_conventions,ui_tweaks,tooling_choices],
+    standard::[api_design,module_boundaries,testing_strategy],
+    premium::[security_architecture,data_model,external_contracts]
+  ]
+
+  RULE::"When in doubt, start with fast. Escalate to premium if synthesis is insufficient."
+
+§3::MANUAL_WORKFLOW
+  // For custom orchestration when auto doesn't fit
   SEQUENCE::INIT→TURN→GET→CLOSE
   TOOLS::[
     init_debate(thread_id,topic,mode?,max_turns?,max_rounds?,strict_cognition?),
@@ -30,7 +109,7 @@ META:
     close_debate(thread_id,synthesis,output_format?)
   ]
 
-§3::TOOL_PARAMS
+§3.1::TOOL_PARAMS
   INIT_DEBATE::[
     thread_id::REQUIRED[date-first_unique_identifier, FORMAT:"YYYY-MM-DD-descriptor", EXAMPLE:"2026-01-06-microservices-decision"],
     topic::REQUIRED[question_or_issue],
@@ -107,13 +186,15 @@ META:
   TIER_1_BASIC::[
     AGENTS::[wind-agent.oct.md,wall-agent.oct.md,door-agent.oct.md],
     BEHAVIOR::[explores_obvious_paths,balanced_judgment,balanced_integration],
-    USE_FOR::[quick_decisions,standard_debates]
+    USE_FOR::[quick_decisions,standard_debates],
+    MAPPED_TO::fast_tier
   ]
   TIER_2_SPECIALIST::[
     PATHOS::[ideator[minimal_elegant],edge-optimizer[hidden_vectors]],
     ETHOS::[validator[cold_truth],critical-engineer[production_readiness]],
-    LOGOS::[synthesizer[breakthrough_1+1=3]],
-    USE_FOR::[architectural_decisions,security_reviews,innovation]
+    LOGOS::[synthesizer[breakthrough_1+1=3],technical-architect[system_design]],
+    USE_FOR::[architectural_decisions,security_reviews,innovation],
+    MAPPED_TO::standard_and_premium_tiers
   ]
   TIER_3_DOMAIN_MIX::[
     SECURITY::edge-optimizer+critical-engineer+technical-architect,
@@ -123,7 +204,7 @@ META:
   MAPPING::specialists→cognition_role[PATHOS→Wind,ETHOS→Wall,LOGOS→Door]
 
 §6::RECIPES
-  // Pre-defined configurations for common scenarios
+  // Pre-defined configurations for common scenarios (manual mode)
   SPEED::[turns:3,mode:fixed,ratio:1:1:1,agents:Tier_1],
   STANDARD::[turns:12,mode:fixed,ratio:4:4:4,agents:Tier_1_or_2],
   DEEP::[turns:36,mode:fixed,ratio:12:12:12,agents:Tier_2],
@@ -135,7 +216,8 @@ META:
   FLASH_DEBATE::[
     PURPOSE::"Quick 3-turn decision cycle",
     SEQUENCE::init→wind_turn→wall_turn→door_turn→close,
-    CONSTRAINT::"Server orchestrates state, caller supplies content"
+    CONSTRAINT::"Server orchestrates state, caller supplies content",
+    PREFER::run_debate(topic,tier:"fast")[auto_orchestrated]
   ]
   SOCRATIC::[
     PURPOSE::"Premise clarification before positions",
@@ -145,10 +227,12 @@ META:
   ]
   MULTI_MODEL::[
     // Evidence: M019 Model Cognitive Optimization Study (29% quality improvement)
+    // Now handled automatically by tier configurations
     WIND::clink(claude,ideator)→PATHOS_exploration,    // Claude: divergent thinking, metaphor
     WALL::clink(codex,validator)→ETHOS_validation,     // GPT: analytical rigor, structured eval
     DOOR::clink(gemini,synthesizer)→LOGOS_integration, // Gemini: pattern synthesis, emergence
-    AUDIT::agent_role+model_in_turn_metadata
+    AUDIT::agent_role+model_in_turn_metadata,
+    PREFER::run_debate[handles_model_assignment_per_tier]
   ]
   PARALLEL_DRAFT_SEQUENTIAL_COMMIT::[
     PURPOSE::"Enable parallel external agents without breaking Wind→Wall→Door synthesis",
@@ -170,12 +254,33 @@ META:
   ]
   INTEGRATION::[
     IF::complexity_trigger_detected,
-    THEN::init_debate(thread_id:"ho-{task}-{ts}",topic:decision_point,mode:"mediated"),
-    RUN::Wind→Wall→Door_cycle,
+    THEN::run_debate(topic:decision_point,tier:gravity_mapped),
     APPLY::synthesis_to_task
   ]
 
-§9::ADMIN
+§9::POST_DEBATE
+  // After debate completes
+  EXTRACT_DECISION::[
+    TOOL::extract_decision_record(thread_id),
+    RETURNS::DecisionRecord[synthesis,rationale,validation,provenance],
+    USE_FOR::[audit_trail,future_reference,ADR_input]
+  ]
+
+  ADR_WORKFLOW::[
+    IF::synthesis_is_architectural_decision,
+    THEN::[
+      extract_decision_record(thread_id),
+      delegate_to::design-architect|technical-architect,
+      create::ADR_from_synthesis
+    ]
+  ]
+
+  GITHUB_INTEGRATION::[
+    github_sync_debate(thread_id,repo,target_id)→sync_to_discussion,
+    ratify_rfc(thread_id,repo,adr_number)→create_ADR_PR
+  ]
+
+§10::ADMIN
   FORCE_CLOSE::[
     PURPOSE::"I5 safety kill switch",
     CALL::force_close_debate(thread_id,reason)
@@ -185,7 +290,9 @@ META:
     CALL::tombstone_turn(thread_id,turn_index,reason)
   ]
 
-§10::BEST_PRACTICES
+§11::BEST_PRACTICES
+  AUTO_FIRST::"Prefer run_debate over manual orchestration unless custom control needed"
+  TIER_SELECTION::"Match tier to decision gravity (fast→standard→premium)"
   SINGLE_AGENT::adopt_each_role_in_sequence["What if..."|"Yes, but..."|"Therefore..."]
   MULTI_AGENT::assign_models_per_cognition[creative→Wind,analytical→Wall,balanced→Door]
   THIRD_WAY::"Best debates synthesize what neither Wind nor Wall proposed alone"
@@ -195,19 +302,34 @@ META:
     DOOR_BARRIER::"Door must read latest state after Wind+Wall commits",
     WALL_FRAMEWORK_MODE::"If drafting early, write constraints/questions, then apply to actual Wind output before commit"
   ]
+  ESCALATION::"If fast synthesis insufficient, re-run with premium tier"
 
-§11::EXAMPLE
-  // Microservices decision
-  INIT::init_debate("microservices-decision","Should we migrate to microservices?")
-  WIND::"What if we decomposed? Independent scaling, tech diversity, team autonomy..."
-  WALL::"Yes, but 3 developers. Operational complexity, distributed transactions..."
-  DOOR::"Therefore: Modular monolith. Design boundaries now, deploy unified. Extract when team grows."
-  CLOSE::close_debate(thread_id,synthesis,output_format:"octave")
+§12::EXAMPLES
 
-§12::RESOURCES
+  // Quick exploration (fast tier)
+  QUICK::run_debate("Should we use Redis or Memcached for session storage?",tier:"fast")
+
+  // Standard architectural decision
+  STANDARD::run_debate("How should we structure our API versioning strategy?",tier:"standard")
+
+  // High-stakes production decision with full decision record
+  PREMIUM::resolve_question("Should we migrate from PostgreSQL to CockroachDB?",tier:"premium")
+
+  // Manual orchestration (when custom control needed)
+  MANUAL::[
+    init_debate("2026-02-04-microservices","Should we migrate to microservices?"),
+    add_turn(thread_id,"Wind","What if we decomposed? Independent scaling..."),
+    add_turn(thread_id,"Wall","Yes, but 3 developers. Operational complexity..."),
+    add_turn(thread_id,"Door","Therefore: Modular monolith. Design boundaries now..."),
+    close_debate(thread_id,synthesis,output_format:"octave")
+  ]
+
+§13::RESOURCES
   AGENTS::agents/README.md[Wind/Wall/Door_definitions]
   CONTRACTS::docs/architecture/wall-content-contract.oct.md[blocking_semantics]
   PATTERNS::docs/examples/multi-model-debate-patterns.md[real_debates]
+  TIERS::src/debate_hall/config/tiers.yaml[tier_configurations]
   ORCHESTRATION::ho-orchestrate[HestAI_integration]
+  TEST_REPORTS::docs/test-reports/[empirical_tier_comparison]
 
 ===END===
