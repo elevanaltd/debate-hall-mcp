@@ -17,7 +17,7 @@ import json
 import os
 import tempfile
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +94,7 @@ def get_state_dir() -> Path:
     return DEFAULT_STATE_DIR
 
 
-class DebateStatus(str, Enum):
+class DebateStatus(StrEnum):
     """Status of a debate room (I3: Finite Dialectic Closure).
 
     Status transitions for auto-orchestration (ADR-0002):
@@ -114,7 +114,7 @@ class DebateStatus(str, Enum):
     FORCE_CLOSED = "force_closed"
 
 
-class AuditAction(str, Enum):
+class AuditAction(StrEnum):
     """Type of administrative action for audit trail (Issue #40)."""
 
     FORCE_CLOSE = "force_close"
@@ -147,21 +147,21 @@ class AuditEvent(BaseModel):
     )
 
 
-class DebateMode(str, Enum):
+class DebateMode(StrEnum):
     """Debate orchestration mode."""
 
     FIXED = "fixed"  # Wind->Wall->Door->Wind...
     MEDIATED = "mediated"  # Orchestrator picks next role
 
 
-class GitHubTargetType(str, Enum):
+class GitHubTargetType(StrEnum):
     """Valid GitHub target types for debate sync (Issue #15)."""
 
     DISCUSSION = "discussion"
     ISSUE = "issue"
 
 
-class InjectionType(str, Enum):
+class InjectionType(StrEnum):
     """Valid injection types for human interjection context (Issue #17)."""
 
     PATHOS = "pathos"  # Wind-related: emotion/intuition expansion
