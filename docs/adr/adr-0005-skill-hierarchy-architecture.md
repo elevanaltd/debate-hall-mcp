@@ -1,121 +1,132 @@
-# ADR-0005: Skill Hierarchy Architecture ("Holographic Monolith")
+# ADR-0005: Skill Hierarchy Architecture ("Router + Focused Skills")
 
 ## Status
 
-Accepted
+Accepted (Revised)
 
 ## Context
 
-The debate-hall skill is currently ~210 lines covering all functionality. A proposal was made to decompose it into 5 smaller skills:
+The debate-hall skill is currently ~210 lines (~9KB, ~3000 tokens) covering all functionality. This creates two problems:
+
+1. **Token waste**: Agents loading the skill get ALL content even when they only need `run_debate`
+2. **Attention dilution**: Per odyssean-anchor issue #64, larger skill payloads reduce effective attention
+
+A proposal was made to decompose into 5 smaller skills:
 1. debate-hall-index (dispatcher, ~30 lines)
 2. debate-hall-auto (~80 lines) - run_debate, resolve_question
 3. debate-hall-manual (~60 lines) - init/add_turn/get/close
 4. debate-hall-github (~30 lines) - sync/ratify_rfc
 5. debate-hall-admin (~20 lines) - force_close/tombstone
 
-Trade-offs considered:
-- Token efficiency (smaller skills loaded on demand)
-- Discovery complexity (5 skills to find vs 1)
-- Maintenance burden (5 files vs 1)
-- Agent cognitive load (partial context vs complete context)
-
-**Critical constraint**: Issue #133 - agents in run_debate cannot load skills themselves; skill content must be injected via prompts.
+Four multi-tier debates evaluated this proposal.
 
 ## Decision
 
-**Adopt the "Holographic Monolith" pattern**: Maintain a single source file with semantic section delimiters, enabling JIT (just-in-time) slicing to inject only relevant sections based on orchestrator intent.
+**Adopt the "Router + Focused Skills" pattern**: Create a small index skill that routes agents to load the appropriate focused skill based on their task.
+
+### Why This Works (Behavioral Insight)
+
+Observational evidence shows:
+- **"Read this reference file if needed"** → Agents almost never do
+- **"Load /skill-name"** → Agents reliably execute skill invocations
+
+The router skill gives agents explicit, actionable triggers: "When you need X, MUST load Y skill."
 
 ### Architecture
 
-```octave
-===SKILL_DEFINITION===
-NAME::debate_hall
-VERSION::"2.0"
-
-§COMMON  // Always loaded (~20 lines)
-§ROUTING // Orchestrator decisions (~20 lines)
-§AUTO    // Hot path (~80 lines)
-§MANUAL  // Fine control (~40 lines)
-§GITHUB  // Sync operations (~30 lines)
-§ADMIN   // Privileged operations (~20 lines)
-===END===
+```
+debate-hall (index/router) - ~30 lines, always loaded
+├── "Running automated debates" → MUST load /debate-hall-auto
+├── "Manual turn-by-turn control" → MUST load /debate-hall-manual
+├── "GitHub sync/ratification" → MUST load /debate-hall-github
+└── "Admin operations (force close, tombstone)" → MUST load /debate-hall-admin
 ```
 
-### Loader Logic
+### Skill Structure
 
-```python
-def load_skill(name: str, variant: str = "full") -> str:
-    content = read_skill_file(name)
-    if variant == "full":
-        return content
+**debate-hall** (index) - ~30 lines
+- Gravity mapping (low/medium/high → fast/standard/premium)
+- Routing table with explicit MUST load triggers
+- Core concept overview (multi-perspective decision support)
 
-    sections = parse_sections(content)
-    if variant == "auto":
-        return join([sections["COMMON"], sections["AUTO"]])
-    elif variant == "admin":
-        return join([sections["COMMON"], sections["MANUAL"], sections["ADMIN"]])
-```
+**debate-hall-auto** - ~80 lines
+- `run_debate`, `resolve_question`, `resume_debate`
+- Tier selection guidance
+- Output expectations (synthesis, rationale, validation)
+
+**debate-hall-manual** - ~60 lines
+- `init_debate`, `add_turn`, `get_debate`, `close_debate`
+- Fixed vs mediated mode rules
+- Turn ordering constraints
+
+**debate-hall-github** - ~30 lines
+- `github_sync_debate`, `ratify_rfc`
+- Repo/target_id conventions
+- ADR PR workflow
+
+**debate-hall-admin** - ~20 lines
+- `force_close_debate`, `tombstone_turn`
+- Safety/permissions notes
 
 ## Rationale
 
-Four multi-tier debates (fast, standard, premium×2) unanimously rejected the 5-skill decomposition and converged on the same insight:
+### What the Debates Got Right
 
-> "The conflict arises from treating 'Skill' and 'File' as a 1:1 mapping. Decouple Logic Source from Injection Surface."
+Four tiers unanimously agreed:
+1. **Issue #133 only affects agents INSIDE run_debate** - the orchestrating agent CAN load skills
+2. **Discovery complexity is solvable** - a router skill provides clear triggers
+3. **Token savings are real** - ~80 lines vs ~210 lines for the 80% case
 
-### Why Not 5 Skills?
+### What the Debates Over-Complicated
 
-1. **Over-engineering** - 210 lines doesn't justify 5-file coordination overhead
-2. **Discovery tax** - Agents/users must find the right skill among 5
-3. **Routing complexity** - 5-way dispatch logic exceeds token savings
-4. **Issue #133 constraint** - Agents can't load skills anyway; system must inject
+The debates proposed "Holographic Monolith" with JIT slicing - infrastructure that doesn't exist. The simpler solution uses existing skill loading mechanics.
 
-### Why Holographic Monolith?
+### Key Behavioral Insight
 
-1. **Single source of truth** - Developer maintains one file
-2. **Virtual sectioning** - Runtime context is optimized per use case
-3. **Backwards compatible** - Existing skill works until slicing implemented
-4. **Fallback safety** - Full load if parsing fails
-5. **Security benefit** - Admin functions can be excluded from agent context
-6. **~50% token reduction** in hot path (210 → ~100 lines)
+Agents don't read reference files. They DO execute skill invocations. The router pattern leverages this behavior rather than fighting it.
 
-### Key Insight from Debates
+### Alignment with odyssean-anchor #64
 
-Issue #133 ("agents cannot load skills") is a **forcing function, not a blocker**. It establishes that the **system** composes context, agents receive. This pattern:
-- Works today (prompt injection)
-- Scales to `context_files` parameter (future)
-- Enables capability-based loading without agent navigation
+This approach aligns with the skill sizing guidelines from issue #64:
+- **Index skill**: ~30 lines (~100 tokens) - micro skill
+- **Focused skills**: ~60-80 lines (~200-300 tokens) - standard skills
+- **Total if all loaded**: Still less than current monolith
 
 ## Consequences
 
 ### Positive
 
-- Token savings ~50% on hot path without file sprawl
-- Simplified maintenance (1 file vs 5)
-- Binary orchestrator decision (auto vs admin) vs complex routing
-- Security: privileged tools can be excluded from standard agents
-- Future-proof: section delimiters enable fine-grained evolution
+- **~75% token reduction** for 80% case (30 + 80 = 110 lines vs 210)
+- **Works with existing infrastructure** - no new loader logic needed
+- **Clear mental model** - router tells agent exactly what to load
+- **Security benefit** - admin tools in separate skill, not accidentally loaded
+- **Maintenance clarity** - each skill has single responsibility
 
 ### Negative
 
-- Requires implementing section delimiter parser
-- Requires orchestrator changes to pass `variant` parameter
-- Initial complexity in slicing logic (mitigated by fallback to full load)
+- 5 files to maintain instead of 1
+- Agents must make one extra skill load (router → specific skill)
+- Risk of skills drifting if shared types change
 
-### Neutral
+### Mitigations
 
-- No immediate change to existing behavior (additive feature)
-- Manifest/profile system can be added later if needed
+- Shared types defined in router skill (loaded first)
+- CI checks for skill consistency
+- Router skill versioned with focused skills
 
 ## Implementation
 
-1. Add `§SECTION::` delimiters to existing skill file
-2. Implement `SkillLoader.load(name, variant)` with section extraction
-3. Update orchestrator to pass `variant='auto'` for run_debate calls
-4. Add tests verifying section isolation (no admin in auto variant)
-5. Add fallback test (variant=null returns full content)
+1. Create `debate-hall/SKILL.md` (index/router)
+2. Create `debate-hall-auto/SKILL.md`
+3. Create `debate-hall-manual/SKILL.md`
+4. Create `debate-hall-github/SKILL.md`
+5. Create `debate-hall-admin/SKILL.md`
+6. Deprecate old monolithic skill (keep for transition period)
+7. Update documentation to reference new skill structure
 
 ## References
 
 - Debate threads: `2026-02-04-skill-hierarchy-{fast,standard,premium}`, `2026-02-05-skill-hierarchy-premium-gpt52`
-- Issue #133: Agent skill loading constraint
+- odyssean-anchor issue #64: Skills auto-loading and sizing guidelines
 - Cross-tier comparison: `docs/test-reports/2026-02-05-skill-hierarchy-cross-tier-comparison.md`
+- GitHub Issue #145: Implementation tracking
