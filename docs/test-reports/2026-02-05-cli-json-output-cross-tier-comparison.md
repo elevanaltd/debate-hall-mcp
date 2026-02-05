@@ -8,15 +8,16 @@
 
 ## Executive Summary
 
-Three debate runs evaluated CLI output format strategy, with an A/B test comparing Wall models:
+Four debate runs evaluated CLI output format strategy:
 
 | Run | Tier | Wall Model | Cost | Status | Turns | Pattern Name |
 |-----|------|------------|------|--------|-------|--------------|
-| 1 | Standard | GPT-5.2 | $0.35 | stalemate | 6 | "Responsive Data Signal" |
-| 2 | Premium (orig) | GPT-5.2 Pro | $0.55 | synthesis | 6 | "Stable Core Explicit Projection" |
-| 3 | Premium (new) | GPT-5.2 | $0.25 | synthesis | 5 | "Strict Negotiation Layer" |
+| 1 | **Fast** | GPT-5-Mini | **$0.020** | synthesis | 3 | "Deterministic Polyglot Core" |
+| 2 | Standard | GPT-5.2 | $0.35 | stalemate | 6 | "Polymorphic Fidelity" |
+| 3 | Premium (orig) | GPT-5.2 Pro | $0.55 | synthesis | 6 | "Stable Core Explicit Projection" |
+| 4 | Premium (new) | GPT-5.2 | $0.25 | synthesis | 5 | "Strict Negotiation Layer" |
 
-**Key Finding**: GPT-5.2 in premium tier achieved synthesis at **55% lower cost** than GPT-5.2 Pro while producing a more nuanced solution (explicit priority rules vs binary rejection of auto-detect).
+**Key Finding**: All four tiers converged on the same core insight: **structured data internally, resolution hierarchy for output format**. Fast tier achieved synthesis in just 3 turns at $0.02, demonstrating the lighter models can reach valid architectural conclusions.
 
 ---
 
@@ -28,18 +29,29 @@ Three debate runs evaluated CLI output format strategy, with an A/B test compari
 
 ## Tier Configurations
 
-| Setting | Standard | Premium (orig) | Premium (new) |
-|---------|----------|----------------|---------------|
-| max_turns | 12 | 16 | 16 |
-| max_refinement_loops | 4 | 5 | 5 |
-| consensus_required | false | **true** | **true** |
-| Wind Model | Claude Sonnet 4.5 | Claude Opus 4.5 | Claude Opus 4.5 |
-| **Wall Model** | GPT-5.2 | **GPT-5.2 Pro** | **GPT-5.2** |
-| Door Model | Gemini 3 Pro Preview | Gemini 3 Pro Preview | Gemini 3 Pro Preview |
+| Setting | Fast | Standard | Premium (orig) | Premium (new) |
+|---------|------|----------|----------------|---------------|
+| max_turns | 6 | 12 | 16 | 16 |
+| max_refinement_loops | 0 | 4 | 5 | 5 |
+| consensus_required | false | false | **true** | **true** |
+| Wind Model | Claude Haiku 4.5 | Claude Sonnet 4.5 | Claude Opus 4.5 | Claude Opus 4.5 |
+| **Wall Model** | GPT-5-Mini | GPT-5.2 | **GPT-5.2 Pro** | **GPT-5.2** |
+| Door Model | Gemini 3 Flash | Gemini 3 Pro Preview | Gemini 3 Pro Preview | Gemini 3 Pro Preview |
 
 ---
 
 ## Cost Analysis (OpenRouter Verified)
+
+### Fast Tier - Total: $0.020
+
+| Model | Role | Tokens (in→out) | Cost |
+|-------|------|-----------------|------|
+| Claude Haiku 4.5 | Wind | 2,352 → 931 | $0.00701 |
+| GPT-5-Mini | Wall | 3,092 → 4,315 | $0.0094 |
+| Gemini 3 Flash Preview | Door | 4,513 → 561 | $0.00394 |
+| **Total** | | | **$0.020** |
+
+---
 
 ### Premium (orig) with GPT-5.2 Pro - Total: ~$0.55
 
@@ -88,6 +100,28 @@ Three debate runs evaluated CLI output format strategy, with an A/B test compari
 ---
 
 ## Synthesis Comparison
+
+### Fast Tier: "Deterministic Polyglot Core"
+
+**Core Position**: Layered Execution Architecture - separate data production from visual presentation
+
+**Key Innovation**:
+- Core binary emits **structured data exclusively** (JSON-by-default at engine level)
+- "Shell-Aware Shim" handles UI/UX decisions
+- Resolution hierarchy: `Flag > Env Var > Config > TTY-Detection`
+
+**Unique Contributions**:
+1. **"Silent Script" Contract**: In pipe mode, emit JSON + `X-CLI-Format: json` metadata in stderr
+2. **Interactive Guardrails**: TTY → Human view + stderr hint: `(Tip: Use --json for machine-readable output)`
+3. **Architectural separation**: Core = 100% structured, Shim = presentation layer
+
+**Wall Constraints** (GPT-5-Mini provided surprisingly comprehensive analysis):
+- C1: Determinism for scripts
+- C2: Reliable detection limits (isatty fallible)
+- C3: Backward compatibility
+- C4: Discoverability
+
+---
 
 ### Premium (orig) GPT-5.2 Pro: "Stable Core Explicit Projection"
 
@@ -200,17 +234,41 @@ The GPT-5.2 synthesis is arguably **more sophisticated** because:
 
 ## Artifacts
 
+- Fast Thread: `2026-02-05-cli-json-fast`
 - Standard Thread: `2026-02-04-cli-json-standard`
 - Premium (orig) Thread: `2026-02-04-cli-json-premium`
 - Premium (new) Thread: `2026-02-05-cli-json-premium-gpt52`
 
 ---
 
+## Cross-Tier Convergence
+
+All four tiers independently arrived at the **same core architectural insight**:
+
+> "Internally, always work with structured data. Output format is a presentation concern, governed by a resolution hierarchy."
+
+**Common Agreements**:
+1. **Priority hierarchy**: Flag > Env > (CI/TTY) > Default
+2. **Structured core**: Internal data model should be typed
+3. **Stream hygiene**: stdout = data, stderr = diagnostics
+4. **Schema versioning**: JSON output should have stability contracts
+
+**Unique Contributions by Tier**:
+
+| Tier | Cost | Unique Insight |
+|------|------|----------------|
+| Fast | $0.02 | stderr hint for discoverability |
+| Standard | $0.35 | "Polymorphic Fidelity" framing |
+| Premium (Pro) | $0.55 | 3-layer architecture (Core/Dispatch/Decoration) |
+| Premium (5.2) | $0.25 | CI detection in hierarchy + debug mode |
+
+---
+
 ## Conclusions
 
-1. **GPT-5.2 is a viable replacement for GPT-5.2 Pro** in the premium Wall role for most decisions
-2. **Cost savings are substantial**: 55% reduction in total debate cost
-3. **Quality is comparable or better**: More nuanced solution with explicit priority rules
-4. **Reserve GPT-5.2 Pro for security-critical decisions** where exhaustive constraint enumeration is worth the cost
-5. **The "Strict Negotiation Layer" pattern** (Flag > Env > CI > TTY) is a good compromise for CLI output format
-6. **Total cost for full comparison**: ~$1.15 across all three runs
+1. **All four tiers converged** on the same core insight despite different models and costs
+2. **Fast tier achieved valid synthesis** in 3 turns at $0.02 - proving lighter models can reach architectural conclusions
+3. **GPT-5.2 is a viable replacement for GPT-5.2 Pro** with 55% cost savings and comparable quality
+4. **The optimal solution is a hybrid**: Premium (Pro)'s 3-layer architecture + Premium (5.2)'s CI detection + Fast's stderr hint
+5. **Resolution hierarchy**: Flag > Env > CI > TTY > Default is the consensus pattern
+6. **Total cost for full comparison**: ~$1.17 across all four runs
