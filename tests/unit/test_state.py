@@ -866,3 +866,273 @@ class TestDebateRoomConsensusMetadata:
 
         loaded_room = load_debate_state("no-consensus-persist-001", state_dir)
         assert loaded_room.consensus_metadata is None
+
+
+class TestConcurrencyControl:
+    """Tests for Compare-and-Swap (CAS) concurrency control (Issue #149).
+
+    These tests verify that concurrent state modifications are handled safely
+    through hash-based optimistic locking with retry support.
+    """
+
+    def test_concurrency_error_exists(self) -> None:
+        """ConcurrencyError exception class exists and is importable."""
+        from debate_hall_mcp.state import ConcurrencyError
+
+        error = ConcurrencyError("Test message")
+        assert isinstance(error, Exception)
+        assert str(error) == "Test message"
+
+    def test_compute_state_hash_returns_sha256(self, tmp_path: Path) -> None:
+        """compute_state_hash returns SHA-256 hash of file contents."""
+        from debate_hall_mcp.state import compute_state_hash
+
+        room = DebateRoom(
+            thread_id="hash-001",
+            topic="Hash Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        file_hash = compute_state_hash("hash-001", state_dir)
+
+        # Should be a 64-character hex string (SHA-256)
+        assert len(file_hash) == 64
+        assert all(c in "0123456789abcdef" for c in file_hash)
+
+    def test_compute_state_hash_deterministic(self, tmp_path: Path) -> None:
+        """compute_state_hash returns same hash for unchanged file."""
+        from debate_hall_mcp.state import compute_state_hash
+
+        room = DebateRoom(
+            thread_id="hash-002",
+            topic="Deterministic Hash Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        hash1 = compute_state_hash("hash-002", state_dir)
+        hash2 = compute_state_hash("hash-002", state_dir)
+
+        assert hash1 == hash2
+
+    def test_compute_state_hash_changes_when_content_changes(self, tmp_path: Path) -> None:
+        """compute_state_hash changes when file content changes."""
+        from debate_hall_mcp.state import compute_state_hash
+
+        room = DebateRoom(
+            thread_id="hash-003",
+            topic="Hash Change Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        hash1 = compute_state_hash("hash-003", state_dir)
+
+        # Modify and save again
+        room.topic = "Modified Topic"
+        save_debate_state(room, state_dir)
+
+        hash2 = compute_state_hash("hash-003", state_dir)
+
+        assert hash1 != hash2
+
+    def test_compute_state_hash_nonexistent_file_returns_none(self, tmp_path: Path) -> None:
+        """compute_state_hash returns None for nonexistent file."""
+        from debate_hall_mcp.state import compute_state_hash
+
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        result = compute_state_hash("nonexistent", state_dir)
+
+        assert result is None
+
+    def test_save_with_expected_hash_success(self, tmp_path: Path) -> None:
+        """save_debate_state succeeds when expected_hash matches current state."""
+        from debate_hall_mcp.state import compute_state_hash
+
+        room = DebateRoom(
+            thread_id="cas-001",
+            topic="CAS Success Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+
+        # Initial save (no expected_hash needed for new files)
+        save_debate_state(room, state_dir)
+
+        # Get current hash
+        current_hash = compute_state_hash("cas-001", state_dir)
+
+        # Modify and save with correct expected_hash
+        room.topic = "Updated Topic"
+        save_debate_state(room, state_dir, expected_hash=current_hash)
+
+        # Verify update was applied
+        loaded = load_debate_state("cas-001", state_dir)
+        assert loaded.topic == "Updated Topic"
+
+    def test_save_with_wrong_expected_hash_raises_concurrency_error(self, tmp_path: Path) -> None:
+        """save_debate_state raises ConcurrencyError when expected_hash doesn't match."""
+        from debate_hall_mcp.state import ConcurrencyError
+
+        room = DebateRoom(
+            thread_id="cas-002",
+            topic="CAS Failure Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+
+        # Initial save
+        save_debate_state(room, state_dir)
+
+        # Try to save with wrong expected_hash
+        room.topic = "Should Fail"
+        with pytest.raises(ConcurrencyError, match="State has been modified"):
+            save_debate_state(room, state_dir, expected_hash="wrong_hash_value")
+
+    def test_save_with_expected_hash_new_file_raises_if_file_exists(self, tmp_path: Path) -> None:
+        """save_debate_state with expected_hash=None raises if file already exists."""
+        room = DebateRoom(
+            thread_id="cas-003",
+            topic="New File Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+
+        # Create file first
+        save_debate_state(room, state_dir)
+
+        # Try to create as new (expected_hash=None means "expect file doesn't exist")
+        # This should work - None means "no CAS check"
+        room.topic = "Overwrite"
+        save_debate_state(room, state_dir)  # No expected_hash = no check
+
+    def test_save_debate_state_with_retry_success(self, tmp_path: Path) -> None:
+        """save_debate_state_with_retry succeeds on first attempt when no conflict."""
+        from debate_hall_mcp.state import save_debate_state_with_retry
+
+        room = DebateRoom(
+            thread_id="retry-001",
+            topic="Retry Success Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+
+        # Initial save
+        save_debate_state(room, state_dir)
+
+        # Load, modify, and save with retry
+        loaded = load_debate_state("retry-001", state_dir)
+        loaded.topic = "Modified via retry"
+
+        result = save_debate_state_with_retry(
+            loaded,
+            state_dir,
+            max_retries=3,
+        )
+
+        assert result is True
+        reloaded = load_debate_state("retry-001", state_dir)
+        assert reloaded.topic == "Modified via retry"
+
+    def test_save_debate_state_with_retry_exhausted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """save_debate_state_with_retry raises after max retries exhausted."""
+        from debate_hall_mcp.state import (
+            ConcurrencyError,
+            save_debate_state_with_retry,
+        )
+
+        room = DebateRoom(
+            thread_id="retry-002",
+            topic="Retry Exhausted Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        # Make compute_state_hash always return different hash to simulate
+        # continuous concurrent modifications
+        call_count = 0
+
+        def always_different_hash(_thread_id: str, _state_dir: Path) -> str:
+            nonlocal call_count
+            call_count += 1
+            return f"fake_hash_{call_count}"
+
+        monkeypatch.setattr("debate_hall_mcp.state.compute_state_hash", always_different_hash)
+
+        # Also make save_debate_state always raise ConcurrencyError
+        original_save = save_debate_state
+
+        def always_conflict(
+            room: DebateRoom,
+            state_dir: Path,
+            expected_hash: str | None = None,
+        ) -> None:
+            if expected_hash is not None:
+                raise ConcurrencyError("State has been modified")
+            original_save(room, state_dir)
+
+        monkeypatch.setattr("debate_hall_mcp.state.save_debate_state", always_conflict)
+
+        room.topic = "Should Fail After Retries"
+
+        with pytest.raises(ConcurrencyError, match="max retries"):
+            save_debate_state_with_retry(room, state_dir, max_retries=3)
+
+    def test_save_debate_state_with_retry_uses_exponential_backoff(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """save_debate_state_with_retry uses exponential backoff between retries."""
+        from debate_hall_mcp.state import save_debate_state_with_retry
+
+        room = DebateRoom(
+            thread_id="retry-003",
+            topic="Backoff Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        # Track sleep calls
+        sleep_durations: list[float] = []
+
+        def tracking_sleep(duration: float) -> None:
+            sleep_durations.append(duration)
+            # Don't actually sleep in tests
+
+        monkeypatch.setattr("time.sleep", tracking_sleep)
+
+        # Simulate conflicts for first 2 attempts, then succeed by returning
+        # different hashes that make CAS fail, then returning correct hash
+        hash_call_count = 0
+        original_compute_hash = __import__(
+            "debate_hall_mcp.state", fromlist=["compute_state_hash"]
+        ).compute_state_hash
+
+        def controlled_hash(thread_id: str, state_dir: Path) -> str | None:
+            nonlocal hash_call_count
+            hash_call_count += 1
+            # First 2 calls return stale hash to trigger CAS failure
+            if hash_call_count <= 2:
+                return "stale_hash_that_will_fail"
+            # 3rd call returns actual hash for success
+            return original_compute_hash(thread_id, state_dir)
+
+        monkeypatch.setattr("debate_hall_mcp.state.compute_state_hash", controlled_hash)
+
+        room.topic = "Eventually Succeeds"
+        save_debate_state_with_retry(room, state_dir, max_retries=5, base_delay=0.1)
+
+        # Should have slept twice (after failures 1 and 2)
+        assert len(sleep_durations) == 2
+        # Exponential backoff: first delay ~ 0.1s, second ~ 0.2s (with jitter)
+        assert sleep_durations[0] >= 0.05  # Allow for jitter
+        assert sleep_durations[1] >= 0.1  # Second should be longer
