@@ -1136,3 +1136,213 @@ class TestConcurrencyControl:
         # Exponential backoff: first delay ~ 0.1s, second ~ 0.2s (with jitter)
         assert sleep_durations[0] >= 0.05  # Allow for jitter
         assert sleep_durations[1] >= 0.1  # Second should be longer
+
+
+class TestContentHashVerification:
+    """Tests for content hash re-computation on load (Issue #105).
+
+    These tests verify that turn content hashes can be recomputed and verified
+    against stored hashes to detect content tampering.
+    """
+
+    def test_integrity_error_exists(self) -> None:
+        """IntegrityError exception class exists and is importable."""
+        from debate_hall_mcp.state import IntegrityError
+
+        error = IntegrityError("Test message")
+        assert isinstance(error, Exception)
+        assert str(error) == "Test message"
+
+    def test_verify_turn_content_hash_success(self) -> None:
+        """verify_turn_content_hash returns True for unmodified turn."""
+        from debate_hall_mcp.state import verify_turn_content_hash
+
+        turn = Turn(
+            role="Wind",
+            content="Test content",
+            timestamp=datetime.now(UTC),
+            previous_hash=None,
+        )
+
+        assert verify_turn_content_hash(turn) is True
+
+    def test_verify_turn_content_hash_detects_tampered_content(self) -> None:
+        """verify_turn_content_hash returns False when content was tampered."""
+        from debate_hall_mcp.state import verify_turn_content_hash
+
+        turn = Turn(
+            role="Wind",
+            content="Original content",
+            timestamp=datetime.now(UTC),
+            previous_hash=None,
+        )
+
+        # Tamper with content directly (bypassing hash recalculation)
+        original_hash = turn.hash
+        turn.content = "Tampered content"
+        # Note: Pydantic model doesn't auto-recalculate hash on attribute change
+
+        # Keep hash unchanged to simulate tampering
+        turn.hash = original_hash
+
+        assert verify_turn_content_hash(turn) is False
+
+    def test_verify_turn_content_hash_skips_tombstoned_turns(self) -> None:
+        """verify_turn_content_hash returns True for tombstoned turns."""
+        from debate_hall_mcp.state import verify_turn_content_hash
+
+        turn = Turn(
+            role="Wind",
+            content="Original content",
+            timestamp=datetime.now(UTC),
+            previous_hash=None,
+        )
+
+        # Simulate tombstoning: replace content but keep hash
+        original_hash = turn.hash
+        turn.content = "[REDACTED: privacy concern]"
+        turn.hash = original_hash  # Tombstone preserves original hash
+
+        # Should pass because it's a legitimate tombstone
+        assert verify_turn_content_hash(turn) is True
+
+    def test_load_debate_state_with_verify_content_detects_tampering(self, tmp_path: Path) -> None:
+        """load_debate_state raises IntegrityError when content was tampered."""
+        from debate_hall_mcp.state import IntegrityError
+
+        room = DebateRoom(
+            thread_id="tamper-001",
+            topic="Tamper Detection Test",
+            mode=DebateMode.FIXED,
+        )
+
+        turn = Turn(
+            role="Wind",
+            content="Original content",
+            timestamp=datetime.now(UTC),
+            previous_hash=None,
+        )
+        room.turns.append(turn)
+
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        # Directly modify the JSON file to simulate tampering
+        state_file = state_dir / "tamper-001.json"
+        import json
+
+        with open(state_file) as f:
+            data = json.load(f)
+
+        # Tamper with content but keep hash unchanged
+        data["turns"][0]["content"] = "Tampered content"
+
+        with open(state_file, "w") as f:
+            json.dump(data, f)
+
+        # Load with verification should detect tampering
+        with pytest.raises(IntegrityError, match="content.*tamper|hash.*mismatch"):
+            load_debate_state("tamper-001", state_dir, verify_content=True)
+
+    def test_load_debate_state_without_verify_content_ignores_tampering(
+        self, tmp_path: Path
+    ) -> None:
+        """load_debate_state without verify_content loads tampered state."""
+        room = DebateRoom(
+            thread_id="tamper-002",
+            topic="No Verify Test",
+            mode=DebateMode.FIXED,
+        )
+
+        turn = Turn(
+            role="Wind",
+            content="Original content",
+            timestamp=datetime.now(UTC),
+            previous_hash=None,
+        )
+        room.turns.append(turn)
+
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        # Directly modify the JSON file to simulate tampering
+        state_file = state_dir / "tamper-002.json"
+        import json
+
+        with open(state_file) as f:
+            data = json.load(f)
+
+        data["turns"][0]["content"] = "Tampered content"
+
+        with open(state_file, "w") as f:
+            json.dump(data, f)
+
+        # Load without verification (default) should succeed
+        loaded = load_debate_state("tamper-002", state_dir)
+        assert loaded.turns[0].content == "Tampered content"
+
+    def test_load_debate_state_with_verify_content_allows_tombstoned(self, tmp_path: Path) -> None:
+        """load_debate_state with verify_content allows tombstoned turns."""
+        room = DebateRoom(
+            thread_id="tombstone-001",
+            topic="Tombstone Verify Test",
+            mode=DebateMode.FIXED,
+        )
+
+        turn = Turn(
+            role="Wind",
+            content="Original content",
+            timestamp=datetime.now(UTC),
+            previous_hash=None,
+        )
+        original_hash = turn.hash
+        room.turns.append(turn)
+
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        # Simulate tombstoning by modifying file
+        state_file = state_dir / "tombstone-001.json"
+        import json
+
+        with open(state_file) as f:
+            data = json.load(f)
+
+        # Tombstone: content is [REDACTED:...] but hash stays same
+        data["turns"][0]["content"] = "[REDACTED: privacy concern]"
+        data["turns"][0]["hash"] = original_hash
+
+        with open(state_file, "w") as f:
+            json.dump(data, f)
+
+        # Load with verification should succeed (tombstone is legitimate)
+        loaded = load_debate_state("tombstone-001", state_dir, verify_content=True)
+        assert loaded.turns[0].content == "[REDACTED: privacy concern]"
+
+    def test_verify_all_turn_content_hashes_returns_results(self) -> None:
+        """verify_all_turn_content_hashes returns detailed verification results."""
+        from debate_hall_mcp.state import verify_all_turn_content_hashes
+
+        room = DebateRoom(
+            thread_id="verify-all-001",
+            topic="Verify All Test",
+            mode=DebateMode.FIXED,
+        )
+
+        # Add 3 turns
+        prev_hash: str | None = None
+        for i, role in enumerate(["Wind", "Wall", "Door"]):
+            turn = Turn(
+                role=role,
+                content=f"Turn {i + 1} content",
+                timestamp=datetime.now(UTC),
+                previous_hash=prev_hash,
+            )
+            room.turns.append(turn)
+            prev_hash = turn.hash
+
+        results = verify_all_turn_content_hashes(room.turns)
+
+        assert len(results) == 3
+        assert all(result["verified"] is True for result in results)
+        assert all("turn_index" in result for result in results)

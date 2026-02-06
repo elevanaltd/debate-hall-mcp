@@ -52,6 +52,32 @@ class ConcurrencyError(Exception):
         self.thread_id = thread_id
 
 
+class IntegrityError(Exception):
+    """Raised when content hash verification fails, indicating tampering (Issue #105).
+
+    This exception indicates that the stored hash does not match the recomputed
+    hash of the turn content, which suggests content was modified after the
+    turn was created.
+
+    Attributes:
+        turn_index: Index of the turn with mismatched hash
+        expected_hash: The stored hash
+        computed_hash: The hash computed from current content
+    """
+
+    def __init__(
+        self,
+        message: str,
+        turn_index: int | None = None,
+        expected_hash: str | None = None,
+        computed_hash: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.turn_index = turn_index
+        self.expected_hash = expected_hash
+        self.computed_hash = computed_hash
+
+
 # Security: Patterns that indicate path traversal or directory injection
 PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
 
@@ -467,6 +493,87 @@ def calculate_turn_hash(
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
 
+# Pattern for detecting tombstoned content (Issue #105)
+TOMBSTONE_PATTERN = "[REDACTED:"
+
+
+def verify_turn_content_hash(turn: "Turn") -> bool:
+    """Verify a turn's content hash matches its stored hash (Issue #105).
+
+    Recomputes the hash from turn data and compares with the stored hash.
+    This detects content tampering where the content was modified but the
+    hash was not updated.
+
+    Special handling for tombstoned turns: Turns that have been redacted
+    (content starts with "[REDACTED:") are considered valid because
+    tombstoning legitimately changes content while preserving the original hash.
+
+    Args:
+        turn: Turn to verify
+
+    Returns:
+        True if hash matches (or turn is tombstoned), False if mismatch
+    """
+    # Skip verification for tombstoned turns (legitimate content modification)
+    if turn.content.startswith(TOMBSTONE_PATTERN):
+        return True
+
+    # Recompute hash from content
+    computed_hash = calculate_turn_hash(turn.role, turn.content, turn.timestamp, turn.previous_hash)
+
+    return computed_hash == turn.hash
+
+
+def verify_all_turn_content_hashes(
+    turns: list["Turn"],
+) -> list[dict[str, bool | int | str]]:
+    """Verify content hashes for all turns (Issue #105).
+
+    Provides detailed verification results for each turn, useful for
+    auditing and debugging.
+
+    Args:
+        turns: List of turns to verify
+
+    Returns:
+        List of verification results with keys:
+        - turn_index: Index of the turn
+        - verified: True if hash matches (or tombstoned)
+        - is_tombstoned: True if turn is redacted
+        - computed_hash: The recomputed hash (if not tombstoned)
+        - stored_hash: The stored hash
+    """
+    results: list[dict[str, bool | int | str]] = []
+
+    for i, turn in enumerate(turns):
+        is_tombstoned = turn.content.startswith(TOMBSTONE_PATTERN)
+
+        if is_tombstoned:
+            results.append(
+                {
+                    "turn_index": i,
+                    "verified": True,
+                    "is_tombstoned": True,
+                    "stored_hash": turn.hash,
+                }
+            )
+        else:
+            computed_hash = calculate_turn_hash(
+                turn.role, turn.content, turn.timestamp, turn.previous_hash
+            )
+            results.append(
+                {
+                    "turn_index": i,
+                    "verified": computed_hash == turn.hash,
+                    "is_tombstoned": False,
+                    "computed_hash": computed_hash,
+                    "stored_hash": turn.hash,
+                }
+            )
+
+    return results
+
+
 def _validate_thread_id_for_filesystem(thread_id: str) -> None:
     """Validate thread_id is safe for filesystem operations.
 
@@ -665,7 +772,7 @@ def compute_state_hash(thread_id: str, state_dir: Path) -> str | None:
     return hashlib.sha256(content).hexdigest()
 
 
-def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
+def load_debate_state(thread_id: str, state_dir: Path, verify_content: bool = False) -> DebateRoom:
     """Load debate room state from JSON file.
 
     Concurrency Control (Issue #48):
@@ -674,13 +781,25 @@ def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     Hash Chain Verification (Issue #58):
     Verifies hash chain link integrity on load. Fails fast with clear error
     if chain is broken. Only verifies LINKS (previous_hash continuity),
-    does NOT re-compute content hashes (tombstone compatibility).
+    does NOT re-compute content hashes by default (tombstone compatibility).
+
+    Content Hash Verification (Issue #105):
+    When verify_content=True, recomputes content hashes and compares with
+    stored hashes to detect tampering. Tombstoned turns (content starts with
+    "[REDACTED:") are skipped since they legitimately have modified content.
 
     Security: Validates thread_id to prevent path traversal attacks.
+
+    Args:
+        thread_id: Thread identifier
+        state_dir: Directory for state files
+        verify_content: If True, verify content hashes (detect tampering).
+            Default False for backward compatibility.
 
     Raises:
         ValueError: If thread_id contains path-unsafe characters or hash chain broken
         FileNotFoundError: If state file doesn't exist.
+        IntegrityError: If verify_content=True and content hash mismatch detected.
     """
     # Security: Validate thread_id before using in file path
     _validate_thread_id_for_filesystem(thread_id)
@@ -700,6 +819,23 @@ def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
 
     # Verify hash chain integrity (Issue #58)
     _verify_hash_chain_links(room.turns)
+
+    # Verify content hashes if requested (Issue #105)
+    if verify_content:
+        for i, turn in enumerate(room.turns):
+            if not verify_turn_content_hash(turn):
+                # Recompute for error message
+                computed = calculate_turn_hash(
+                    turn.role, turn.content, turn.timestamp, turn.previous_hash
+                )
+                raise IntegrityError(
+                    f"Content hash mismatch at turn {i}: possible tampering detected. "
+                    f"Stored hash: {turn.hash[:16]}..., "
+                    f"Computed hash: {computed[:16]}...",
+                    turn_index=i,
+                    expected_hash=turn.hash,
+                    computed_hash=computed,
+                )
 
     return room
 
