@@ -14,6 +14,7 @@ Usage:
 """
 
 import asyncio
+import contextlib
 
 from debate_hall_mcp.providers import ProviderResponse
 
@@ -181,13 +182,16 @@ class CliProvider:
             )
         except TimeoutError:
             # Graceful termination attempt (SIGTERM)
-            process.terminate()
+            # Handle ProcessLookupError in case process already exited
+            with contextlib.suppress(ProcessLookupError):
+                process.terminate()
             try:
                 # Wait for process to exit gracefully
                 await asyncio.wait_for(process.wait(), timeout=graceful_timeout)
             except TimeoutError:
                 # Force kill if graceful shutdown fails (SIGKILL)
-                process.kill()
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
                 await process.wait()
             raise CliProviderError(
                 f"CLI {self.cli_name} timed out after {self.timeout} seconds"
@@ -195,7 +199,8 @@ class CliProvider:
         finally:
             # Ensure process is cleaned up on any exit path
             if process.returncode is None:
-                process.kill()
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
                 await process.wait()
 
         if process.returncode != 0:

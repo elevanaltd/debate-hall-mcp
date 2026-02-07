@@ -455,3 +455,107 @@ class TestCliProviderZombieCleanup:
 
             # Process should be killed in finally block
             mock_process.kill.assert_called()
+
+
+class TestCliProviderProcessLookupError:
+    """Test CliProvider handles ProcessLookupError when process already dead.
+
+    Verifies graceful handling when process exits before terminate/kill calls:
+    - ProcessLookupError on terminate() is caught
+    - ProcessLookupError on kill() is caught
+    - No exception propagates to caller
+    """
+
+    @pytest.mark.asyncio
+    async def test_terminate_handles_process_already_dead(self) -> None:
+        """terminate() should handle ProcessLookupError if process already exited."""
+        from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
+
+        provider = CliProvider(cli_name="claude", timeout=0.01)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_process = MagicMock()
+            mock_process.communicate = AsyncMock(side_effect=TimeoutError())
+            # Process already dead when terminate is called
+            mock_process.terminate = MagicMock(side_effect=ProcessLookupError())
+            mock_process.kill = MagicMock()
+            mock_process.wait = AsyncMock(return_value=-15)
+            mock_process.returncode = -15
+            mock_exec.return_value = mock_process
+
+            # Should still raise CliProviderError for timeout, not ProcessLookupError
+            with pytest.raises(CliProviderError, match="timed out"):
+                await provider.complete(
+                    system_prompt="System",
+                    user_prompt="User",
+                )
+
+            # terminate() was called (and raised ProcessLookupError, but caught)
+            mock_process.terminate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_kill_handles_process_already_dead(self) -> None:
+        """kill() should handle ProcessLookupError if process already exited."""
+        from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
+
+        provider = CliProvider(cli_name="claude", timeout=0.01)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_process = MagicMock()
+            mock_process.communicate = AsyncMock(side_effect=TimeoutError())
+            mock_process.terminate = MagicMock()
+            # Process already dead when kill is called
+            mock_process.kill = MagicMock(side_effect=ProcessLookupError())
+            # Graceful wait times out, then kill is attempted
+            wait_call_count = 0
+
+            async def wait_side_effect() -> int:
+                nonlocal wait_call_count
+                wait_call_count += 1
+                if wait_call_count == 1:
+                    raise TimeoutError()
+                mock_process.returncode = -9
+                return -9
+
+            mock_process.wait = AsyncMock(side_effect=wait_side_effect)
+            mock_process.returncode = None
+            mock_exec.return_value = mock_process
+
+            # Should still raise CliProviderError for timeout, not ProcessLookupError
+            with pytest.raises(CliProviderError, match="timed out"):
+                await provider.complete(
+                    system_prompt="System",
+                    user_prompt="User",
+                )
+
+            # Both terminate and kill were attempted
+            mock_process.terminate.assert_called_once()
+            mock_process.kill.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_finally_kill_handles_process_already_dead(self) -> None:
+        """finally block kill() should handle ProcessLookupError gracefully."""
+        from debate_hall_mcp.providers.cli import CliProvider
+
+        provider = CliProvider(cli_name="claude", timeout=0.01)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_process = MagicMock()
+            # Unexpected error triggers finally block cleanup
+            mock_process.communicate = AsyncMock(side_effect=RuntimeError("Unexpected"))
+            mock_process.terminate = MagicMock()
+            # Process died between error and finally block
+            mock_process.kill = MagicMock(side_effect=ProcessLookupError())
+            mock_process.wait = AsyncMock()
+            mock_process.returncode = None
+            mock_exec.return_value = mock_process
+
+            # Should propagate RuntimeError, not ProcessLookupError
+            with pytest.raises(RuntimeError, match="Unexpected"):
+                await provider.complete(
+                    system_prompt="System",
+                    user_prompt="User",
+                )
+
+            # kill() was attempted in finally block
+            mock_process.kill.assert_called()

@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import fasteners  # type: ignore[import-untyped]
-from filelock import FileLock
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -592,26 +591,6 @@ def _validate_thread_id_for_filesystem(thread_id: str) -> None:
             raise ValueError(f"Invalid thread_id '{thread_id}': contains path-unsafe characters")
 
 
-def _get_file_lock(lock_file: Path) -> FileLock:
-    """Get a cross-platform file lock (Issue #48 - Concurrency Control).
-
-    Uses filelock library for cross-platform file locking.
-    Works on POSIX (Linux, macOS) and Windows.
-
-    Args:
-        lock_file: Path to the lock file (typically {thread_id}.lock)
-
-    Returns:
-        FileLock instance that can be used as context manager
-
-    Note:
-        filelock uses exclusive locks only. For read/write lock separation
-        use _get_read_write_lock instead (Issue #106).
-    """
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-    return FileLock(str(lock_file))
-
-
 def _get_read_write_lock(lock_file: Path) -> fasteners.InterProcessReaderWriterLock:
     """Get a cross-platform reader/writer file lock (Issue #106 - Concurrency).
 
@@ -796,6 +775,10 @@ def compute_state_hash(thread_id: str, state_dir: Path) -> str | None:
     Used by save_debate_state_with_retry to detect concurrent modifications.
     Returns None if the file doesn't exist (indicating a new debate).
 
+    Concurrency Control (Issue #106):
+    Uses shared/read file lock consistent with load_debate_state/save_debate_state.
+    All locking operations use fasteners InterProcessReaderWriterLock.
+
     Args:
         thread_id: Thread identifier
         state_dir: Directory containing state files
@@ -814,9 +797,13 @@ def compute_state_hash(thread_id: str, state_dir: Path) -> str | None:
     if not state_file.exists():
         return None
 
-    # Use file lock for consistent reads
-    with _get_file_lock(lock_file):
+    # Use read lock for consistent reads (Issue #106 - unified locking with fasteners)
+    rw_lock = _get_read_write_lock(lock_file)
+    rw_lock.acquire_read_lock()
+    try:
         content = state_file.read_bytes()
+    finally:
+        rw_lock.release_read_lock()
 
     return hashlib.sha256(content).hexdigest()
 
