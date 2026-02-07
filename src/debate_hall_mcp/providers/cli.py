@@ -171,18 +171,32 @@ class CliProvider:
             stderr=asyncio.subprocess.PIPE,
         )
 
+        # Timeout for graceful shutdown after SIGTERM
+        graceful_timeout = 5
+
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
                 timeout=self.timeout,
             )
         except TimeoutError:
-            # Kill the hanging process and clean up
-            process.kill()
-            await process.wait()
+            # Graceful termination attempt (SIGTERM)
+            process.terminate()
+            try:
+                # Wait for process to exit gracefully
+                await asyncio.wait_for(process.wait(), timeout=graceful_timeout)
+            except TimeoutError:
+                # Force kill if graceful shutdown fails (SIGKILL)
+                process.kill()
+                await process.wait()
             raise CliProviderError(
                 f"CLI {self.cli_name} timed out after {self.timeout} seconds"
             ) from None
+        finally:
+            # Ensure process is cleaned up on any exit path
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
 
         if process.returncode != 0:
             error_msg = stderr.decode("utf-8", errors="replace").strip()

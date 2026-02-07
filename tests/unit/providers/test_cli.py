@@ -218,8 +218,12 @@ class TestCliProviderTimeout:
         assert DEFAULT_TIMEOUT_SECONDS == 120
 
     @pytest.mark.asyncio
-    async def test_timeout_raises_error_and_kills_process(self) -> None:
-        """complete() should raise CliProviderError on timeout and kill process."""
+    async def test_timeout_raises_error_and_terminates_process(self) -> None:
+        """complete() should raise CliProviderError on timeout and terminate process.
+
+        With graceful shutdown (Issue #150), terminate() is called first,
+        then wait() allows process to exit gracefully.
+        """
         from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
 
         provider = CliProvider(cli_name="claude", timeout=0.01)  # Very short timeout
@@ -228,8 +232,11 @@ class TestCliProviderTimeout:
             mock_process = MagicMock()
             # Simulate a hanging process - use TimeoutError (builtin)
             mock_process.communicate = AsyncMock(side_effect=TimeoutError("Process timed out"))
+            mock_process.terminate = MagicMock()
             mock_process.kill = MagicMock()
-            mock_process.wait = AsyncMock()
+            # Graceful shutdown succeeds (sets returncode)
+            mock_process.wait = AsyncMock(return_value=0)
+            mock_process.returncode = 0
             mock_exec.return_value = mock_process
 
             with pytest.raises(CliProviderError, match="timed out"):
@@ -238,8 +245,10 @@ class TestCliProviderTimeout:
                     user_prompt="User",
                 )
 
-            # Ensure process was killed
-            mock_process.kill.assert_called_once()
+            # Ensure process was terminated gracefully
+            mock_process.terminate.assert_called_once()
+            # kill() should not be called when graceful shutdown succeeds
+            mock_process.kill.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_custom_timeout_is_used(self) -> None:
@@ -290,3 +299,159 @@ class TestCliProviderEmptyResponse:
                     system_prompt="System",
                     user_prompt="User",
                 )
+
+
+class TestCliProviderZombieCleanup:
+    """Test CliProvider zombie process prevention (Issue #150).
+
+    Verifies graceful subprocess cleanup on timeout:
+    1. terminate() called first for graceful shutdown
+    2. wait() with timeout after terminate()
+    3. kill() only if graceful shutdown fails
+    4. finally block ensures cleanup on all paths
+    """
+
+    @pytest.mark.asyncio
+    async def test_timeout_attempts_graceful_terminate_first(self) -> None:
+        """On timeout, terminate() should be called before kill()."""
+        from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
+
+        provider = CliProvider(cli_name="claude", timeout=0.01)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_process = MagicMock()
+            # Simulate timeout on communicate
+            mock_process.communicate = AsyncMock(side_effect=TimeoutError())
+            mock_process.terminate = MagicMock()
+            mock_process.kill = MagicMock()
+            mock_process.wait = AsyncMock()
+            mock_process.returncode = None  # Process still running
+            mock_exec.return_value = mock_process
+
+            with pytest.raises(CliProviderError, match="timed out"):
+                await provider.complete(
+                    system_prompt="System",
+                    user_prompt="User",
+                )
+
+            # terminate() should be called first
+            mock_process.terminate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_timeout_waits_for_graceful_shutdown(self) -> None:
+        """After terminate(), should wait with timeout for graceful shutdown."""
+        from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
+
+        provider = CliProvider(cli_name="claude", timeout=0.01)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_process = MagicMock()
+            mock_process.communicate = AsyncMock(side_effect=TimeoutError())
+            mock_process.terminate = MagicMock()
+            mock_process.kill = MagicMock()
+            # Graceful shutdown succeeds
+            mock_process.wait = AsyncMock(return_value=0)
+            mock_process.returncode = 0
+            mock_exec.return_value = mock_process
+
+            with pytest.raises(CliProviderError, match="timed out"):
+                await provider.complete(
+                    system_prompt="System",
+                    user_prompt="User",
+                )
+
+            # wait() should be called after terminate()
+            mock_process.wait.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_timeout_force_kills_if_graceful_fails(self) -> None:
+        """If graceful terminate() + wait() times out, kill() should be called."""
+        from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
+
+        provider = CliProvider(cli_name="claude", timeout=0.01)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_process = MagicMock()
+            mock_process.communicate = AsyncMock(side_effect=TimeoutError())
+            mock_process.terminate = MagicMock()
+            mock_process.kill = MagicMock()
+            # First wait times out (graceful shutdown fails)
+            # Second wait succeeds (after kill) and sets returncode
+            wait_call_count = 0
+
+            async def wait_side_effect() -> int:
+                nonlocal wait_call_count
+                wait_call_count += 1
+                if wait_call_count == 1:
+                    raise TimeoutError()
+                # Simulate returncode being set after kill
+                mock_process.returncode = -9
+                return -9  # killed
+
+            mock_process.wait = AsyncMock(side_effect=wait_side_effect)
+            mock_process.returncode = None
+            mock_exec.return_value = mock_process
+
+            with pytest.raises(CliProviderError, match="timed out"):
+                await provider.complete(
+                    system_prompt="System",
+                    user_prompt="User",
+                )
+
+            # kill() should be called after graceful shutdown fails
+            mock_process.terminate.assert_called_once()
+            # kill() called once in timeout handler (finally block skips since returncode is set)
+            mock_process.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_skips_kill_when_successful(self) -> None:
+        """If terminate() + wait() succeeds, kill() should not be called."""
+        from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
+
+        provider = CliProvider(cli_name="claude", timeout=0.01)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_process = MagicMock()
+            mock_process.communicate = AsyncMock(side_effect=TimeoutError())
+            mock_process.terminate = MagicMock()
+            mock_process.kill = MagicMock()
+            # Graceful shutdown succeeds immediately
+            mock_process.wait = AsyncMock(return_value=0)
+            mock_process.returncode = 0  # Set after wait
+            mock_exec.return_value = mock_process
+
+            with pytest.raises(CliProviderError, match="timed out"):
+                await provider.complete(
+                    system_prompt="System",
+                    user_prompt="User",
+                )
+
+            # terminate() called, but not kill()
+            mock_process.terminate.assert_called_once()
+            mock_process.kill.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_finally_block_cleans_up_zombie_process(self) -> None:
+        """Finally block should clean up process if still running after exception."""
+        from debate_hall_mcp.providers.cli import CliProvider
+
+        provider = CliProvider(cli_name="claude", timeout=0.01)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_process = MagicMock()
+            # Simulate some unexpected error during communicate
+            mock_process.communicate = AsyncMock(side_effect=RuntimeError("Unexpected"))
+            mock_process.terminate = MagicMock()
+            mock_process.kill = MagicMock()
+            mock_process.wait = AsyncMock()
+            mock_process.returncode = None  # Process still running
+            mock_exec.return_value = mock_process
+
+            with pytest.raises(RuntimeError, match="Unexpected"):
+                await provider.complete(
+                    system_prompt="System",
+                    user_prompt="User",
+                )
+
+            # Process should be killed in finally block
+            mock_process.kill.assert_called()
