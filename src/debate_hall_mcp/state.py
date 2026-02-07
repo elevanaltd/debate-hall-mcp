@@ -23,7 +23,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from filelock import FileLock
+import fasteners  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -591,24 +591,46 @@ def _validate_thread_id_for_filesystem(thread_id: str) -> None:
             raise ValueError(f"Invalid thread_id '{thread_id}': contains path-unsafe characters")
 
 
-def _get_file_lock(lock_file: Path) -> FileLock:
-    """Get a cross-platform file lock (Issue #48 - Concurrency Control).
+def _get_read_write_lock(lock_file: Path) -> fasteners.InterProcessReaderWriterLock:
+    """Get a cross-platform reader/writer file lock (Issue #106 - Concurrency).
 
-    Uses filelock library for cross-platform file locking.
-    Works on POSIX (Linux, macOS) and Windows.
+    Uses fasteners library for cross-platform reader/writer file locking.
+    Allows multiple concurrent readers while writers get exclusive access.
+
+    Key benefits over exclusive-only locks:
+    - Multiple concurrent reads don't block each other
+    - Improves throughput in multi-instance/multi-worker deployments
+    - Writers still get exclusive access for data integrity
 
     Args:
         lock_file: Path to the lock file (typically {thread_id}.lock)
 
     Returns:
-        FileLock instance that can be used as context manager
+        InterProcessReaderWriterLock instance with acquire_read_lock/acquire_write_lock
+
+    Usage:
+        lock = _get_read_write_lock(lock_path)
+        # For reads (shared access):
+        lock.acquire_read_lock()
+        try:
+            data = file.read()
+        finally:
+            lock.release_read_lock()
+
+        # For writes (exclusive access):
+        lock.acquire_write_lock()
+        try:
+            file.write(data)
+        finally:
+            lock.release_write_lock()
 
     Note:
-        filelock uses exclusive locks only. For our use case this is fine
-        since reads are fast and contention is expected to be low.
+        - Locks are advisory (don't prevent other processes from ignoring them)
+        - Locks are not reentrant (acquiring same lock twice = deadlock)
+        - Locks are not upgradeable (can't go from read to write without deadlock)
     """
     lock_file.parent.mkdir(parents=True, exist_ok=True)
-    return FileLock(str(lock_file))
+    return fasteners.InterProcessReaderWriterLock(str(lock_file))
 
 
 def save_debate_state(room: DebateRoom, state_dir: Path, expected_hash: str | None = None) -> None:
@@ -622,11 +644,12 @@ def save_debate_state(room: DebateRoom, state_dir: Path, expected_hash: str | No
     When expected_hash is provided, verifies the current file hash matches
     before writing. This prevents lost updates from concurrent modifications.
 
-    Concurrency Control (Issue #48):
-    Uses file-based locking to prevent race conditions during concurrent access.
+    Concurrency Control (Issue #48, #106):
+    Uses exclusive/write file lock to prevent race conditions during writes.
+    Writers block all other readers and writers until operation completes.
 
     Atomic Write Pattern (Issue #39 - Crash Recovery):
-    1. Acquire exclusive file lock
+    1. Acquire exclusive/write file lock
     2. (CAS) Verify expected_hash matches current file hash
     3. Write to temporary file in the same directory
     4. Call fsync() to ensure data is flushed to disk
@@ -655,8 +678,11 @@ def save_debate_state(room: DebateRoom, state_dir: Path, expected_hash: str | No
     state_file = state_dir / f"{room.thread_id}.json"
     lock_file = state_dir / f"{room.thread_id}.lock"
 
-    # Acquire exclusive lock for write operation (cross-platform via filelock)
-    with _get_file_lock(lock_file):
+    # Acquire exclusive/write lock for write operation (Issue #106 - Read/Write Lock)
+    # Writers get exclusive access, blocking all other readers and writers
+    rw_lock = _get_read_write_lock(lock_file)
+    rw_lock.acquire_write_lock()
+    try:
         # CAS verification: check expected_hash matches current state
         if expected_hash is not None:
             if state_file.exists():
@@ -698,6 +724,8 @@ def save_debate_state(room: DebateRoom, state_dir: Path, expected_hash: str | No
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)  # May not exist if mkstemp failed
             raise
+    finally:
+        rw_lock.release_write_lock()
 
 
 def _verify_hash_chain_links(turns: list[Turn]) -> None:
@@ -747,6 +775,10 @@ def compute_state_hash(thread_id: str, state_dir: Path) -> str | None:
     Used by save_debate_state_with_retry to detect concurrent modifications.
     Returns None if the file doesn't exist (indicating a new debate).
 
+    Concurrency Control (Issue #106):
+    Uses shared/read file lock consistent with load_debate_state/save_debate_state.
+    All locking operations use fasteners InterProcessReaderWriterLock.
+
     Args:
         thread_id: Thread identifier
         state_dir: Directory containing state files
@@ -765,9 +797,13 @@ def compute_state_hash(thread_id: str, state_dir: Path) -> str | None:
     if not state_file.exists():
         return None
 
-    # Use file lock for consistent reads
-    with _get_file_lock(lock_file):
+    # Use read lock for consistent reads (Issue #106 - unified locking with fasteners)
+    rw_lock = _get_read_write_lock(lock_file)
+    rw_lock.acquire_read_lock()
+    try:
         content = state_file.read_bytes()
+    finally:
+        rw_lock.release_read_lock()
 
     return hashlib.sha256(content).hexdigest()
 
@@ -775,8 +811,9 @@ def compute_state_hash(thread_id: str, state_dir: Path) -> str | None:
 def load_debate_state(thread_id: str, state_dir: Path, verify_content: bool = False) -> DebateRoom:
     """Load debate room state from JSON file.
 
-    Concurrency Control (Issue #48):
-    Uses shared file lock to allow concurrent reads but block during writes.
+    Concurrency Control (Issue #48, #106):
+    Uses shared/read file lock to allow concurrent reads while blocking writers.
+    Multiple readers can access state simultaneously without blocking each other.
 
     Hash Chain Verification (Issue #58):
     Verifies hash chain link integrity on load. Fails fast with clear error
@@ -810,10 +847,15 @@ def load_debate_state(thread_id: str, state_dir: Path, verify_content: bool = Fa
     if not state_file.exists():
         raise FileNotFoundError(f"No state file found for thread {thread_id}")
 
-    # Acquire lock for read operation (cross-platform via filelock)
-    # Note: filelock only supports exclusive locks, but reads are fast so this is acceptable
-    with _get_file_lock(lock_file), open(state_file) as f:
-        data = json.load(f)
+    # Acquire shared/read lock for read operation (Issue #106 - Read/Write Lock)
+    # Allows multiple concurrent readers while blocking writers
+    rw_lock = _get_read_write_lock(lock_file)
+    rw_lock.acquire_read_lock()
+    try:
+        with open(state_file) as f:
+            data = json.load(f)
+    finally:
+        rw_lock.release_read_lock()
 
     room = DebateRoom.model_validate(data)
 

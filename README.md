@@ -287,22 +287,26 @@ Three cognitive voices in tension:
 
 ## Production Deployment Considerations
 
-While debate-hall-mcp implements production-minded patterns (validation, bounded operation, atomic persistence), there are considerations for larger-scale production deployments:
+While debate-hall-mcp implements production-minded patterns (validation, bounded operation, atomic persistence), there are considerations for larger-scale production deployments.
+
+**For comprehensive deployment guidance, see [Production Deployment Guide](docs/production-deployment.md).**
 
 ### Current Strengths
-- ✅ **Deterministic behavior**: Rule-based validation with no LLM dependency
-- ✅ **Resource limits**: Hard turn/round limits prevent runaway sessions
-- ✅ **Atomic persistence**: File writes use atomic replace with fsync
-- ✅ **GitHub integration**: Rate-limit handling and feature toggles
 
-### Known Limitations for Large-Scale Production
+- **Deterministic behavior**: Rule-based validation with no LLM dependency
+- **Resource limits**: Hard turn/round limits prevent runaway sessions
+- **Atomic persistence**: File writes use atomic replace with fsync
+- **Concurrency control**: File locking with Compare-and-Swap (CAS) for race prevention
+- **Content verification**: SHA-256 hash chain with optional tamper detection
+- **GitHub integration**: Rate-limit handling and feature toggles
 
-| Area | Current Behavior | Recommendation |
-|------|------------------|----------------|
-| **State Storage** | Defaults to file-based (`debates/` directory) | Configure `DEBATE_HALL_STATE_DIR` to dedicated location outside repo. For multi-instance: use shared filesystem or database backend ([#106](https://github.com/elevanaltd/debate-hall-mcp/issues/106)) |
-| **Concurrency** | Exclusive file locks (readers block readers) | Acceptable for single-instance. For multi-worker: see read/write lock enhancement ([#106](https://github.com/elevanaltd/debate-hall-mcp/issues/106)) |
-| **Hash Verification** | Link continuity only (not content re-computation) | Enhancement planned for stronger integrity ([#105](https://github.com/elevanaltd/debate-hall-mcp/issues/105)) |
-| **Secrets Management** | `.env` auto-load (dev-oriented) | Use explicit environment variables or secret management system in production |
+### Quick Configuration
+
+| Setting | Environment Variable | Recommended Value |
+|---------|---------------------|-------------------|
+| State directory | `DEBATE_HALL_STATE_DIR` | `/var/lib/debate-hall/` |
+| OpenRouter API | `OPENROUTER_API_KEY` | Use secret manager |
+| GitHub token | `GITHUB_TOKEN` | Use secret manager |
 
 ### Production Checklist
 
@@ -313,9 +317,7 @@ Before deploying at scale:
 - [ ] Use explicit secret injection (avoid `.env` in production)
 - [ ] Plan for state backup/retention
 - [ ] Monitor file lock contention if using multiple workers
-- [ ] Consider database backend for >10 concurrent instances
-
-See [Issue #108](https://github.com/elevanaltd/debate-hall-mcp/issues/108) for comprehensive production deployment guide (work in progress).
+- [ ] Consider database backend for >10 concurrent instances ([#106](https://github.com/elevanaltd/debate-hall-mcp/issues/106))
 
 ### Recommended Use Cases
 
@@ -327,7 +329,6 @@ See [Issue #108](https://github.com/elevanaltd/debate-hall-mcp/issues/108) for c
 
 **Requires additional work for:**
 - High-concurrency multi-instance production environments
-- Strict security compliance requiring full content verification
 - Large-scale orchestration with 10+ concurrent debates
 
 ## Contributing
