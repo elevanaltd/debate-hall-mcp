@@ -15,7 +15,9 @@ import contextlib
 import hashlib
 import json
 import os
+import random
 import tempfile
+import time
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -23,6 +25,58 @@ from typing import Any
 
 from filelock import FileLock
 from pydantic import BaseModel, Field, field_validator
+
+
+class ConcurrencyError(Exception):
+    """Raised when a Compare-and-Swap (CAS) operation fails due to concurrent modification.
+
+    This exception indicates that the state was modified by another process
+    between read and write operations, requiring a retry with fresh state.
+
+    Attributes:
+        expected_hash: The hash that was expected (from the prior read)
+        actual_hash: The hash that was found (indicating concurrent modification)
+        thread_id: The thread_id of the debate that had the conflict
+    """
+
+    def __init__(
+        self,
+        message: str,
+        expected_hash: str | None = None,
+        actual_hash: str | None = None,
+        thread_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.expected_hash = expected_hash
+        self.actual_hash = actual_hash
+        self.thread_id = thread_id
+
+
+class IntegrityError(Exception):
+    """Raised when content hash verification fails, indicating tampering (Issue #105).
+
+    This exception indicates that the stored hash does not match the recomputed
+    hash of the turn content, which suggests content was modified after the
+    turn was created.
+
+    Attributes:
+        turn_index: Index of the turn with mismatched hash
+        expected_hash: The stored hash
+        computed_hash: The hash computed from current content
+    """
+
+    def __init__(
+        self,
+        message: str,
+        turn_index: int | None = None,
+        expected_hash: str | None = None,
+        computed_hash: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.turn_index = turn_index
+        self.expected_hash = expected_hash
+        self.computed_hash = computed_hash
+
 
 # Security: Patterns that indicate path traversal or directory injection
 PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
@@ -439,6 +493,87 @@ def calculate_turn_hash(
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
 
+# Pattern for detecting tombstoned content (Issue #105)
+TOMBSTONE_PATTERN = "[REDACTED:"
+
+
+def verify_turn_content_hash(turn: "Turn") -> bool:
+    """Verify a turn's content hash matches its stored hash (Issue #105).
+
+    Recomputes the hash from turn data and compares with the stored hash.
+    This detects content tampering where the content was modified but the
+    hash was not updated.
+
+    Special handling for tombstoned turns: Turns that have been redacted
+    (content starts with "[REDACTED:") are considered valid because
+    tombstoning legitimately changes content while preserving the original hash.
+
+    Args:
+        turn: Turn to verify
+
+    Returns:
+        True if hash matches (or turn is tombstoned), False if mismatch
+    """
+    # Skip verification for tombstoned turns (legitimate content modification)
+    if turn.content.startswith(TOMBSTONE_PATTERN):
+        return True
+
+    # Recompute hash from content
+    computed_hash = calculate_turn_hash(turn.role, turn.content, turn.timestamp, turn.previous_hash)
+
+    return computed_hash == turn.hash
+
+
+def verify_all_turn_content_hashes(
+    turns: list["Turn"],
+) -> list[dict[str, bool | int | str]]:
+    """Verify content hashes for all turns (Issue #105).
+
+    Provides detailed verification results for each turn, useful for
+    auditing and debugging.
+
+    Args:
+        turns: List of turns to verify
+
+    Returns:
+        List of verification results with keys:
+        - turn_index: Index of the turn
+        - verified: True if hash matches (or tombstoned)
+        - is_tombstoned: True if turn is redacted
+        - computed_hash: The recomputed hash (if not tombstoned)
+        - stored_hash: The stored hash
+    """
+    results: list[dict[str, bool | int | str]] = []
+
+    for i, turn in enumerate(turns):
+        is_tombstoned = turn.content.startswith(TOMBSTONE_PATTERN)
+
+        if is_tombstoned:
+            results.append(
+                {
+                    "turn_index": i,
+                    "verified": True,
+                    "is_tombstoned": True,
+                    "stored_hash": turn.hash,
+                }
+            )
+        else:
+            computed_hash = calculate_turn_hash(
+                turn.role, turn.content, turn.timestamp, turn.previous_hash
+            )
+            results.append(
+                {
+                    "turn_index": i,
+                    "verified": computed_hash == turn.hash,
+                    "is_tombstoned": False,
+                    "computed_hash": computed_hash,
+                    "stored_hash": turn.hash,
+                }
+            )
+
+    return results
+
+
 def _validate_thread_id_for_filesystem(thread_id: str) -> None:
     """Validate thread_id is safe for filesystem operations.
 
@@ -476,29 +611,41 @@ def _get_file_lock(lock_file: Path) -> FileLock:
     return FileLock(str(lock_file))
 
 
-def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
+def save_debate_state(room: DebateRoom, state_dir: Path, expected_hash: str | None = None) -> None:
     """Save debate room state to JSON file using atomic write pattern.
 
     File location: {state_dir}/{thread_id}.json
 
     Format: Pydantic model JSON with hash chain preserved.
 
+    Compare-and-Swap (CAS) Support (Issue #149):
+    When expected_hash is provided, verifies the current file hash matches
+    before writing. This prevents lost updates from concurrent modifications.
+
     Concurrency Control (Issue #48):
     Uses file-based locking to prevent race conditions during concurrent access.
 
     Atomic Write Pattern (Issue #39 - Crash Recovery):
     1. Acquire exclusive file lock
-    2. Write to temporary file in the same directory
-    3. Call fsync() to ensure data is flushed to disk
-    4. Atomically rename temp file to final location
-    5. Release lock and clean up temp file on any failure
+    2. (CAS) Verify expected_hash matches current file hash
+    3. Write to temporary file in the same directory
+    4. Call fsync() to ensure data is flushed to disk
+    5. Atomically rename temp file to final location
+    6. Release lock and clean up temp file on any failure
 
     This prevents data corruption from interrupted writes and concurrent access.
 
     Security: Validates thread_id to prevent path traversal attacks.
 
+    Args:
+        room: DebateRoom to save
+        state_dir: Directory for state files
+        expected_hash: Optional hash for CAS verification. If provided and
+            doesn't match current file hash, raises ConcurrencyError.
+
     Raises:
         ValueError: If thread_id contains path-unsafe characters
+        ConcurrencyError: If expected_hash provided and doesn't match current state
         OSError: If atomic rename fails (original file preserved)
     """
     # Security: Validate thread_id before using in file path
@@ -510,6 +657,30 @@ def save_debate_state(room: DebateRoom, state_dir: Path) -> None:
 
     # Acquire exclusive lock for write operation (cross-platform via filelock)
     with _get_file_lock(lock_file):
+        # CAS verification: check expected_hash matches current state
+        if expected_hash is not None:
+            if state_file.exists():
+                current_content = state_file.read_bytes()
+                actual_hash = hashlib.sha256(current_content).hexdigest()
+                if actual_hash != expected_hash:
+                    raise ConcurrencyError(
+                        f"State has been modified by another process. "
+                        f"Expected hash: {expected_hash[:16]}..., "
+                        f"Actual hash: {actual_hash[:16]}...",
+                        expected_hash=expected_hash,
+                        actual_hash=actual_hash,
+                        thread_id=room.thread_id,
+                    )
+            else:
+                # File doesn't exist but we expected a specific hash
+                raise ConcurrencyError(
+                    f"State file does not exist but expected hash was provided. "
+                    f"Expected hash: {expected_hash[:16]}...",
+                    expected_hash=expected_hash,
+                    actual_hash=None,
+                    thread_id=room.thread_id,
+                )
+
         # Create temp file in same directory (required for atomic rename on same filesystem)
         fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
         try:
@@ -570,7 +741,38 @@ def _verify_hash_chain_links(turns: list[Turn]) -> None:
             )
 
 
-def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
+def compute_state_hash(thread_id: str, state_dir: Path) -> str | None:
+    """Compute SHA-256 hash of the state file for CAS operations (Issue #149).
+
+    Used by save_debate_state_with_retry to detect concurrent modifications.
+    Returns None if the file doesn't exist (indicating a new debate).
+
+    Args:
+        thread_id: Thread identifier
+        state_dir: Directory containing state files
+
+    Returns:
+        SHA-256 hash of file contents, or None if file doesn't exist
+
+    Raises:
+        ValueError: If thread_id contains path-unsafe characters
+    """
+    _validate_thread_id_for_filesystem(thread_id)
+
+    state_file = state_dir / f"{thread_id}.json"
+    lock_file = state_dir / f"{thread_id}.lock"
+
+    if not state_file.exists():
+        return None
+
+    # Use file lock for consistent reads
+    with _get_file_lock(lock_file):
+        content = state_file.read_bytes()
+
+    return hashlib.sha256(content).hexdigest()
+
+
+def load_debate_state(thread_id: str, state_dir: Path, verify_content: bool = False) -> DebateRoom:
     """Load debate room state from JSON file.
 
     Concurrency Control (Issue #48):
@@ -579,13 +781,25 @@ def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     Hash Chain Verification (Issue #58):
     Verifies hash chain link integrity on load. Fails fast with clear error
     if chain is broken. Only verifies LINKS (previous_hash continuity),
-    does NOT re-compute content hashes (tombstone compatibility).
+    does NOT re-compute content hashes by default (tombstone compatibility).
+
+    Content Hash Verification (Issue #105):
+    When verify_content=True, recomputes content hashes and compares with
+    stored hashes to detect tampering. Tombstoned turns (content starts with
+    "[REDACTED:") are skipped since they legitimately have modified content.
 
     Security: Validates thread_id to prevent path traversal attacks.
+
+    Args:
+        thread_id: Thread identifier
+        state_dir: Directory for state files
+        verify_content: If True, verify content hashes (detect tampering).
+            Default False for backward compatibility.
 
     Raises:
         ValueError: If thread_id contains path-unsafe characters or hash chain broken
         FileNotFoundError: If state file doesn't exist.
+        IntegrityError: If verify_content=True and content hash mismatch detected.
     """
     # Security: Validate thread_id before using in file path
     _validate_thread_id_for_filesystem(thread_id)
@@ -606,4 +820,86 @@ def load_debate_state(thread_id: str, state_dir: Path) -> DebateRoom:
     # Verify hash chain integrity (Issue #58)
     _verify_hash_chain_links(room.turns)
 
+    # Verify content hashes if requested (Issue #105)
+    if verify_content:
+        for i, turn in enumerate(room.turns):
+            if not verify_turn_content_hash(turn):
+                # Recompute for error message
+                computed = calculate_turn_hash(
+                    turn.role, turn.content, turn.timestamp, turn.previous_hash
+                )
+                raise IntegrityError(
+                    f"Content hash mismatch at turn {i}: possible tampering detected. "
+                    f"Stored hash: {turn.hash[:16]}..., "
+                    f"Computed hash: {computed[:16]}...",
+                    turn_index=i,
+                    expected_hash=turn.hash,
+                    computed_hash=computed,
+                )
+
     return room
+
+
+def save_debate_state_with_retry(
+    room: DebateRoom,
+    state_dir: Path,
+    max_retries: int = 3,
+    base_delay: float = 0.1,
+) -> bool:
+    """Save debate state with automatic retry on concurrency conflicts (Issue #149).
+
+    Uses Compare-and-Swap (CAS) with exponential backoff retry to safely
+    handle concurrent modifications. This is the recommended function for
+    callers that read-modify-write state.
+
+    Workflow:
+    1. Compute current state hash
+    2. Attempt save with expected_hash
+    3. On ConcurrencyError, reload state, re-apply changes, retry
+    4. Use exponential backoff between retries
+
+    Note: This function handles the CAS retry loop. Callers should ensure
+    their modifications can be re-applied to fresh state on retry.
+
+    Args:
+        room: DebateRoom to save (must have valid thread_id)
+        state_dir: Directory for state files
+        max_retries: Maximum number of retry attempts (default: 3)
+        base_delay: Base delay in seconds for exponential backoff (default: 0.1)
+
+    Returns:
+        True if save succeeded
+
+    Raises:
+        ConcurrencyError: If max retries exhausted without successful save
+        ValueError: If thread_id contains path-unsafe characters
+        OSError: If atomic rename fails
+    """
+    last_error: ConcurrencyError | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            # Get current state hash for CAS
+            current_hash = compute_state_hash(room.thread_id, state_dir)
+
+            # Attempt save with CAS
+            save_debate_state(room, state_dir, expected_hash=current_hash)
+            return True
+
+        except ConcurrencyError as e:
+            last_error = e
+
+            if attempt < max_retries:
+                # Exponential backoff with jitter
+                delay = base_delay * (2**attempt) * (0.5 + random.random())
+                time.sleep(delay)
+            # Continue to next attempt
+
+    # All retries exhausted
+    raise ConcurrencyError(
+        f"Failed to save state after {max_retries + 1} attempts (max retries exhausted). "
+        f"Last error: {last_error}",
+        expected_hash=last_error.expected_hash if last_error else None,
+        actual_hash=last_error.actual_hash if last_error else None,
+        thread_id=room.thread_id,
+    )
