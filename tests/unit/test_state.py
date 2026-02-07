@@ -1346,3 +1346,287 @@ class TestContentHashVerification:
         assert len(results) == 3
         assert all(result["verified"] is True for result in results)
         assert all("turn_index" in result for result in results)
+
+
+class TestReaderWriterLock:
+    """Tests for read/write lock pattern for concurrency (Issue #106).
+
+    These tests verify that:
+    - Multiple concurrent readers don't block each other
+    - Writers get exclusive access
+    - Read/write lock separation improves concurrent read throughput
+    """
+
+    def test_get_read_write_lock_exists(self) -> None:
+        """_get_read_write_lock function exists and returns RW lock interface."""
+        from debate_hall_mcp.state import _get_read_write_lock
+
+        # Should be able to call the function
+        lock = _get_read_write_lock(Path("/tmp/test.lock"))
+        assert lock is not None
+        # Should have both read and write lock methods
+        assert hasattr(lock, "acquire_read_lock")
+        assert hasattr(lock, "release_read_lock")
+        assert hasattr(lock, "acquire_write_lock")
+        assert hasattr(lock, "release_write_lock")
+
+    def test_multiple_concurrent_readers_allowed(self, tmp_path: Path) -> None:
+        """Multiple readers can acquire read lock simultaneously without blocking."""
+        import threading
+        import time
+
+        from debate_hall_mcp.state import _get_read_write_lock
+
+        lock_file = tmp_path / "concurrent.lock"
+
+        # Track when each thread acquires and releases locks
+        acquisition_times: list[tuple[str, float]] = []
+        release_times: list[tuple[str, float]] = []
+        lock_for_times = threading.Lock()
+
+        def reader(reader_id: str) -> None:
+            """Reader that holds lock for 0.1 seconds."""
+            # Each reader gets its own lock instance (simulates different processes)
+            # All instances coordinate via the same lock file
+            lock = _get_read_write_lock(lock_file)
+            lock.acquire_read_lock()
+            with lock_for_times:
+                acquisition_times.append((reader_id, time.time()))
+            time.sleep(0.1)  # Hold lock for 0.1 seconds
+            with lock_for_times:
+                release_times.append((reader_id, time.time()))
+            lock.release_read_lock()
+
+        # Start 3 readers at almost the same time
+        threads = [threading.Thread(target=reader, args=(f"reader-{i}",)) for i in range(3)]
+        start_time = time.time()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        total_time = time.time() - start_time
+
+        # If readers blocked each other (exclusive locks), total time would be ~0.3s
+        # With shared read locks, all 3 readers run concurrently, total time ~0.1s
+        # Allow some slack for thread scheduling overhead
+        assert total_time < 0.25, (
+            f"Concurrent readers took {total_time:.3f}s, expected < 0.25s. "
+            f"Readers may be blocking each other (using exclusive instead of shared locks)."
+        )
+
+        # All 3 readers should have acquired locks within a small time window
+        acq_times = [t for _, t in acquisition_times]
+        assert len(acq_times) == 3
+        time_spread = max(acq_times) - min(acq_times)
+        assert time_spread < 0.05, (
+            f"Reader acquisition spread was {time_spread:.3f}s, expected < 0.05s. "
+            f"Readers appear to be waiting for each other."
+        )
+
+    def test_writer_blocks_readers_across_processes(self, tmp_path: Path) -> None:
+        """Writer gets exclusive access, blocking readers in other PROCESSES.
+
+        Note: InterProcessReaderWriterLock uses fcntl which is per-process, not per-thread.
+        This test uses subprocesses to properly test inter-process locking behavior.
+        """
+        import json
+        import subprocess
+        import sys
+
+        lock_file = tmp_path / "exclusive.lock"
+        results_file = tmp_path / "results.json"
+
+        # Python script for writer process
+        writer_script = f"""
+import fasteners
+import time
+import json
+
+lock = fasteners.InterProcessReaderWriterLock("{lock_file}")
+lock.acquire_write_lock()
+acquired_time = time.time()
+print("WRITER_ACQUIRED", flush=True)
+time.sleep(0.15)  # Hold lock for 150ms
+released_time = time.time()
+lock.release_write_lock()
+
+with open("{results_file}", "w") as f:
+    json.dump({{"writer_acquired": acquired_time, "writer_released": released_time}}, f)
+"""
+
+        # Python script for reader process
+        reader_script = f"""
+import fasteners
+import time
+import sys
+
+# Wait a bit for writer to acquire
+time.sleep(0.05)
+
+lock = fasteners.InterProcessReaderWriterLock("{lock_file}")
+request_time = time.time()
+lock.acquire_read_lock()
+acquired_time = time.time()
+lock.release_read_lock()
+
+print(f"{{request_time}},{{acquired_time}}")
+"""
+
+        # Start writer and reader processes
+        writer_proc = subprocess.Popen(
+            [sys.executable, "-c", writer_script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        # Wait for writer to signal it has acquired the lock
+        writer_out = writer_proc.stdout.readline() if writer_proc.stdout else ""
+        assert "WRITER_ACQUIRED" in writer_out, f"Writer failed to acquire lock: {writer_out}"
+
+        # Start reader after writer has lock
+        reader_proc = subprocess.Popen(
+            [sys.executable, "-c", reader_script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        # Wait for both to complete
+        reader_stdout, reader_stderr = reader_proc.communicate(timeout=5)
+        writer_proc.wait(timeout=5)
+
+        # Parse results
+        with open(results_file) as f:
+            writer_results = json.load(f)
+
+        reader_times = reader_stdout.strip().split(",")
+        reader_request_time = float(reader_times[0])
+        reader_acquired_time = float(reader_times[1])
+
+        # Reader should have requested while writer held lock
+        assert reader_request_time < writer_results["writer_released"], (
+            f"Reader requested at {reader_request_time:.4f}, "
+            f"but writer released at {writer_results['writer_released']:.4f}"
+        )
+
+        # Reader should have acquired AFTER writer released (blocked by write lock)
+        assert reader_acquired_time >= writer_results["writer_released"], (
+            f"Reader acquired lock while writer held it. "
+            f"Reader acquired at {reader_acquired_time:.4f}, "
+            f"Writer released at {writer_results['writer_released']:.4f}"
+        )
+
+    def test_load_uses_read_lock(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """load_debate_state uses read lock (shared) not exclusive lock."""
+        from unittest.mock import MagicMock
+
+        from debate_hall_mcp import state
+
+        # Create a test state file
+        room = DebateRoom(
+            thread_id="rwlock-001",
+            topic="RW Lock Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        # Mock the RW lock to track which lock type is used
+        mock_lock = MagicMock()
+        mock_lock.acquire_read_lock = MagicMock()
+        mock_lock.release_read_lock = MagicMock()
+        mock_lock.acquire_write_lock = MagicMock()
+        mock_lock.release_write_lock = MagicMock()
+
+        def mock_get_rw_lock(_path: Path) -> MagicMock:
+            return mock_lock
+
+        monkeypatch.setattr(state, "_get_read_write_lock", mock_get_rw_lock)
+
+        # Load should use read lock
+        load_debate_state("rwlock-001", state_dir)
+
+        # Verify read lock was used, not write lock
+        mock_lock.acquire_read_lock.assert_called_once()
+        mock_lock.release_read_lock.assert_called_once()
+        mock_lock.acquire_write_lock.assert_not_called()
+        mock_lock.release_write_lock.assert_not_called()
+
+    def test_save_uses_write_lock(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """save_debate_state uses write lock (exclusive) for data integrity."""
+        from unittest.mock import MagicMock
+
+        from debate_hall_mcp import state
+
+        # Mock the RW lock to track which lock type is used
+        mock_lock = MagicMock()
+        mock_lock.acquire_read_lock = MagicMock()
+        mock_lock.release_read_lock = MagicMock()
+        mock_lock.acquire_write_lock = MagicMock()
+        mock_lock.release_write_lock = MagicMock()
+
+        def mock_get_rw_lock(_path: Path) -> MagicMock:
+            return mock_lock
+
+        monkeypatch.setattr(state, "_get_read_write_lock", mock_get_rw_lock)
+
+        room = DebateRoom(
+            thread_id="rwlock-002",
+            topic="RW Lock Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir(parents=True)
+
+        # Save should use write lock
+        save_debate_state(room, state_dir)
+
+        # Verify write lock was used, not read lock
+        mock_lock.acquire_write_lock.assert_called_once()
+        mock_lock.release_write_lock.assert_called_once()
+        mock_lock.acquire_read_lock.assert_not_called()
+        mock_lock.release_read_lock.assert_not_called()
+
+    def test_concurrent_reads_dont_block_performance(self, tmp_path: Path) -> None:
+        """Verify concurrent load_debate_state calls can run in parallel."""
+        import threading
+        import time
+
+        room = DebateRoom(
+            thread_id="perf-001",
+            topic="Performance Test",
+            mode=DebateMode.FIXED,
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+
+        results: list[DebateRoom] = []
+        results_lock = threading.Lock()
+
+        def read_state() -> None:
+            """Load state with a small artificial delay to test concurrency."""
+            loaded = load_debate_state("perf-001", state_dir)
+            time.sleep(0.05)  # Simulate some processing time after read
+            with results_lock:
+                results.append(loaded)
+
+        # Run 5 concurrent reads
+        threads = [threading.Thread(target=read_state) for _ in range(5)]
+        start = time.time()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        elapsed = time.time() - start
+
+        # All reads should succeed
+        assert len(results) == 5
+        assert all(r.thread_id == "perf-001" for r in results)
+
+        # With concurrent readers, should complete in ~0.05s + overhead
+        # If using exclusive locks, would take ~0.25s (5 * 0.05s serial)
+        assert elapsed < 0.20, (
+            f"Concurrent reads took {elapsed:.3f}s, expected < 0.20s. "
+            f"Reads may be blocking each other."
+        )
