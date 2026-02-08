@@ -400,16 +400,24 @@ class TestRaciIntegration:
     """Integration tests for RACI mode with run_debate tool."""
 
     @pytest.mark.anyio
-    async def test_run_debate_with_raci_mode(self, temp_state_dir: Path) -> None:
+    async def test_run_debate_with_raci_mode(
+        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
         """run_debate should support mode='raci' parameter."""
         from debate_hall_mcp.tools.orchestrate import run_debate
 
         mock_provider = AsyncMock()
         mock_provider.complete.return_value = create_mock_provider_response("Response")
 
-        with patch(
-            "debate_hall_mcp.tools.orchestrate.create_provider",
-            return_value=mock_provider,
+        with (
+            patch(
+                "debate_hall_mcp.tools.orchestrate.load_tier_config",
+                return_value=raci_tier_config,
+            ),
+            patch(
+                "debate_hall_mcp.tools.orchestrate.create_provider",
+                return_value=mock_provider,
+            ),
         ):
             result = await run_debate(
                 topic="RACI integration test",
@@ -422,16 +430,24 @@ class TestRaciIntegration:
         assert result["status"] == "synthesis"
 
     @pytest.mark.anyio
-    async def test_run_debate_raci_initializes_with_raci_mode(self, temp_state_dir: Path) -> None:
+    async def test_run_debate_raci_initializes_with_raci_mode(
+        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    ) -> None:
         """run_debate with mode='raci' should initialize debate in RACI mode."""
         from debate_hall_mcp.tools.orchestrate import run_debate
 
         mock_provider = AsyncMock()
         mock_provider.complete.return_value = create_mock_provider_response("Response")
 
-        with patch(
-            "debate_hall_mcp.tools.orchestrate.create_provider",
-            return_value=mock_provider,
+        with (
+            patch(
+                "debate_hall_mcp.tools.orchestrate.load_tier_config",
+                return_value=raci_tier_config,
+            ),
+            patch(
+                "debate_hall_mcp.tools.orchestrate.create_provider",
+                return_value=mock_provider,
+            ),
         ):
             result = await run_debate(
                 topic="RACI mode init test",
