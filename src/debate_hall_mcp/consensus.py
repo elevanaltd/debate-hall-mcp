@@ -34,7 +34,8 @@ class ConsensusResult(BaseModel):
 
 # Patterns for matching approval/rejection keywords
 # Using word boundaries to avoid false matches in prose
-APPROVE_PATTERN = re.compile(r"\b(APPROVE|APPROVED|APPROVAL)\b", re.IGNORECASE)
+# YIELD is added for RACI mode (Issue #139) - counts as implicit approval
+APPROVE_PATTERN = re.compile(r"\b(APPROVE|APPROVED|APPROVAL|YIELD)\b", re.IGNORECASE)
 REJECT_PATTERN = re.compile(r"\b(REJECT|REJECTED|REJECTION)\b", re.IGNORECASE)
 
 

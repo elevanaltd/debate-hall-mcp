@@ -206,6 +206,7 @@ class DebateMode(StrEnum):
 
     FIXED = "fixed"  # Wind->Wall->Door->Wind...
     MEDIATED = "mediated"  # Orchestrator picks next role
+    RACI = "raci"  # Lightweight RACI mode: Wind(R)->Wall(C)->Door(A), single round
 
 
 class GitHubTargetType(StrEnum):
