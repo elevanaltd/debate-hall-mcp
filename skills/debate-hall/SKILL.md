@@ -16,6 +16,14 @@ META:
   PATTERN::WIND[PATHOS]⇌WALL[ETHOS]→DOOR[LOGOS]
   VALUE::"Multi-perspective decisions through structured dialectic"
 
+  TERMINOLOGY_CLARIFICATION::[
+    POSITIONS::"Wind/Wall/Door are debate POSITIONS (structural turn order)",
+    COGNITIONS::"PATHOS/ETHOS/LOGOS are COGNITION modes (thinking styles, mapped to positions)",
+    ROLES::"Agent roles (ideator, critical-engineer, etc.) are EXPERTISE identities configured in tiers.yaml"
+  ]
+
+  NOTE::"Position determines WHO speaks, Cognition determines HOW they think, Role determines WHAT expertise they bring"
+
 §2::ROUTING[MUST_load_appropriate_skill]
   AUTO_DEBATES::[
     TRIGGERS::["run debate","resolve question","automated debate","tier selection"],
