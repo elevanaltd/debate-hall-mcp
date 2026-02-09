@@ -50,7 +50,7 @@ META:
 
 §2::WORKFLOW
   SYNC_FIRST::github_sync_debate→posts_turns_as_comments
-  CLOSE_DEBATE::close_debate(synthesis)→debate_is_closed
+  PREREQUISITE::debate_must_be_closed[use_/debate-hall-manual_or_/debate-hall-auto_to_close]
   RATIFY::ratify_rfc→creates_ADR_PR_from_synthesis
 
 ===END===
