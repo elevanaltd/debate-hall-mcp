@@ -5,6 +5,7 @@ This guide covers deploying debate-hall-mcp in production environments, includin
 ## Table of Contents
 
 - [State Storage Configuration](#state-storage-configuration)
+- [Tier Configuration](#tier-configuration)
 - [Concurrency Model](#concurrency-model)
 - [Security Considerations](#security-considerations)
 - [Secrets Management](#secrets-management)
@@ -45,6 +46,49 @@ sudo mkdir -p /var/lib/debate-hall
 sudo chown $SERVICE_USER:$SERVICE_GROUP /var/lib/debate-hall
 sudo chmod 700 /var/lib/debate-hall
 ```
+
+---
+
+## Tier Configuration
+
+Tier configuration controls which AI models and agent identities participate in debates.
+
+**Configuration file:** `tiers.yaml` (see `tiers.yaml.example` for templates)
+
+### Understanding the `role` Field
+
+The `role` field in tier configuration specifies the **agent identity** (not the debate position):
+
+```yaml
+standard:
+  wind:                          # <-- POSITION: structural debate turn
+    provider: openrouter
+    model: anthropic/claude-sonnet-4
+    role: wind-agent             # <-- ROLE: agent expertise identity
+  wall:
+    provider: openrouter
+    model: anthropic/claude-sonnet-4
+    role: wall-agent
+  door:
+    provider: openrouter
+    model: anthropic/claude-sonnet-4
+    role: door-agent
+```
+
+**Three-layer identity model:**
+
+| Concept | Example | What It Determines |
+|---------|---------|-------------------|
+| Position | `wind`, `wall`, `door` | Turn order in debate |
+| Cognition | PATHOS, ETHOS, LOGOS | Thinking mode (mapped to position) |
+| Role | `wind-agent`, `ideator` | Expertise and behavioral contracts |
+
+**Specialist roles** bring domain expertise beyond basic cognition:
+- `ideator` (PATHOS) - innovation focus
+- `critical-engineer` (ETHOS) - production readiness
+- `synthesizer` (LOGOS) - breakthrough integration
+
+See [agents/README.md](../agents/README.md) for the complete three-layer identity model explanation.
 
 ---
 

@@ -163,8 +163,9 @@ ITEMS::[
 
 §5::TIER_3_ARCHITECTURE_EVOLUTION
 
-STATUS::STRATEGIC
+STATUS::COMPLETED
 RATIONALE::MAJOR_ARCHITECTURAL_IMPROVEMENTS_REQUIRING_DESIGN
+COMPLETED_DATE::"2026-02-09"
 
 ITEMS::[
   {
@@ -175,7 +176,10 @@ ITEMS::[
     issue::145,
     rationale::"48-76% token overhead reduction, modular skill architecture",
     effort::"1-2 weeks",
-    status::"PENDING"
+    status::"COMPLETED",
+    commit::"3113a07",
+    pr::154,
+    resolution::"Decomposed 336-line monolithic skill into router (49 lines) + 4 focused skills. Token savings 59-74%."
   },
   {
     id::"3.2",
@@ -185,7 +189,8 @@ ITEMS::[
     issue::136,
     rationale::"Three-layer architecture refinement already partially complete",
     effort::"2-3 weeks",
-    status::"PENDING"
+    status::"COMPLETED",
+    resolution::"Already complete from Sprint 3-4. DecisionRecord schema, resolve_question tool, BM25 search all implemented."
   },
   {
     id::"3.3",
@@ -195,7 +200,9 @@ ITEMS::[
     issue::146,
     rationale::"Clarifies Wind/Wall/Door vs PATHOS/ETHOS/LOGOS confusion",
     effort::"2-3 days",
-    status::"PENDING"
+    status::"COMPLETED",
+    commit::"aa64f83",
+    resolution::"Added three-layer identity model docs to agents/README.md, skills/debate-hall/SKILL.md, tiers.yaml.example, docs/production-deployment.md."
   }
 ]
 
@@ -330,10 +337,22 @@ SPRINT_3_4::VALUE_DELIVERY[
   TESTS_TOTAL::1013
 ]
 
-SPRINT_5_PLUS::ARCHITECTURE[
-  ITEMS::[3.1, 3.2, 3.3, 4.1, 4.2, 4.3],
-  GOAL::"Router + Skills, Cognitive Notary, Observability",
-  DURATION::"2-4 weeks"
+SPRINT_5_TIER_3::ARCHITECTURE[
+  ITEMS::[3.1, 3.2, 3.3],
+  GOAL::"Router + Skills, Cognitive Notary, Identity Docs",
+  DURATION::"1 day",
+  STATUS::COMPLETED,
+  COMPLETED_DATE::"2026-02-09",
+  COMMITS::["3113a07", "aa64f83"],
+  PR::154,
+  TESTS_TOTAL::1013
+]
+
+SPRINT_5_TIER_4::OBSERVABILITY[
+  ITEMS::[4.1, 4.2, 4.3],
+  GOAL::"Audit log enrichment, Token counting, Context files",
+  DURATION::"1-2 weeks",
+  STATUS::PENDING
 ]
 
 §9::SUCCESS_METRICS
@@ -362,7 +381,8 @@ ENTRIES::[
   {date::"2026-02-06", action::"Created", author::"holistic-orchestrator", note::"Initial roadmap from synthesis session"},
   {date::"2026-02-06", action::"Sprint 1 Complete", author::"implementation-lead", note::"Completed Tier 0 (0.1, 0.2, 0.3). Issues #100, #105, #149 closed. 19 new tests, 916 total."},
   {date::"2026-02-07", action::"Sprint 2 Complete", author::"implementation-lead", note::"Completed Tier 1 (1.1, 1.2, 1.3). Issues #106, #108, #150 closed. 11 new tests, 927 total."},
-  {date::"2026-02-08", action::"Sprint 3-4 Complete", author::"holistic-orchestrator", note::"Completed Tier 2 (2.1, 2.2, 2.3). Context Compiler, RACI Mode, BM25 Search. Issues #138, #139, #144 closed. 83 new tests, 1013 total."}
+  {date::"2026-02-08", action::"Sprint 3-4 Complete", author::"holistic-orchestrator", note::"Completed Tier 2 (2.1, 2.2, 2.3). Context Compiler, RACI Mode, BM25 Search. Issues #138, #139, #144 closed. 83 new tests, 1013 total."},
+  {date::"2026-02-09", action::"Sprint 5 Tier 3 Complete", author::"holistic-orchestrator", note::"Completed Tier 3 (3.1, 3.2, 3.3). Router + Focused Skills (PR #154), Identity Docs, Cognitive Notary closed. Issues #145 (PR), #146, #136 addressed. 1013 tests maintained."}
 ]
 
 ===END===

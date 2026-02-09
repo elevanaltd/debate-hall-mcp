@@ -12,6 +12,32 @@
 #   cli        - External CLIs (requires claude/codex/gemini installed)
 #
 # For OpenRouter models: https://openrouter.ai/models
+#
+# =============================================================================
+# TERMINOLOGY: Position vs Cognition vs Role
+# =============================================================================
+#
+# This configuration file uses three distinct identity concepts:
+#
+#   POSITION (wind/wall/door keys):
+#     The structural debate position - determines turn order.
+#     Wind explores, Wall validates, Door synthesizes.
+#
+#   COGNITION (PATHOS/ETHOS/LOGOS):
+#     The thinking mode - mapped to positions but conceptually distinct.
+#     PATHOS=divergent (Wind), ETHOS=convergent (Wall), LOGOS=integrative (Door).
+#
+#   ROLE (the `role` field):
+#     The agent's expertise identity - provides domain specialization.
+#     Examples: wind-agent, wall-agent, door-agent (basic)
+#               ideator, critical-engineer, synthesizer (specialist)
+#
+# The `role` field specifies WHICH agent identity speaks for each position.
+# Basic roles (wind-agent, wall-agent, door-agent) use generic cognition.
+# Specialist roles (ideator, edge-optimizer, critical-engineer, etc.) bring
+# domain expertise on top of their cognition mode.
+#
+# See agents/README.md for the full three-layer identity model explanation.
 
 # =============================================================================
 # STANDARD TIERS (OpenRouter) - Ready to use with API key

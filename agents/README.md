@@ -2,6 +2,62 @@
 
 Canonical agent definitions for structured debate using the Wind/Wall/Door methodology.
 
+## Understanding the Three-Layer Identity Model
+
+Debates involve three distinct identity concepts that should not be confused:
+
+### 1. Position (Structural Role in Debate)
+
+**What it is:** The structural turn order in a debate sequence.
+
+| Position | Function | Sequence |
+|----------|----------|----------|
+| **Wind** | Explores possibilities, expands solution space | 1st |
+| **Wall** | Validates against constraints, grounds proposals | 2nd |
+| **Door** | Synthesizes a third-way resolution from tension | 3rd |
+
+Positions are **fixed structural elements** of the Wind/Wall/Door dialectic. Every debate follows: Wind -> Wall -> Door (repeated until synthesis).
+
+### 2. Cognition (Thinking Mode)
+
+**What it is:** The cognitive style or reasoning approach.
+
+| Cognition | Mode | Mapped Position |
+|-----------|------|-----------------|
+| **PATHOS** | Divergent thinking - intuition, possibility, emotion | Wind |
+| **ETHOS** | Convergent thinking - evidence, standards, constraints | Wall |
+| **LOGOS** | Integrative thinking - synthesis, logic, resolution | Door |
+
+Cognition modes are **mapped to positions** but conceptually distinct. PATHOS agents think divergently (suited for Wind position), ETHOS agents think convergently (suited for Wall position), LOGOS agents think integratively (suited for Door position).
+
+### 3. Agent Role (Expertise Identity)
+
+**What it is:** The operational identity with domain expertise and behavioral contracts.
+
+| Role | Cognition | Position | Expertise |
+|------|-----------|----------|-----------|
+| `ideator` | PATHOS | Wind | Innovation, minimal elegant solutions |
+| `edge-optimizer` | PATHOS | Wind | Hidden vectors, attack surfaces |
+| `validator` | ETHOS | Wall | Cold truth, uncompromising validation |
+| `critical-engineer` | ETHOS | Wall | Production readiness, system impact |
+| `synthesizer` | LOGOS | Door | Breakthrough transcendence (1+1=3) |
+
+Agent roles are **configured in tiers.yaml** and provide domain expertise beyond basic cognition. The `role` field in tier configuration specifies which agent identity speaks for each position.
+
+### How They Connect
+
+```
+Position (Wind)  <-- speaks in -->  Cognition (PATHOS)  <-- embodied by -->  Role (ideator)
+    |                                    |                                      |
+ Structural                          Thinking                              Expertise
+ turn order                          style                                 identity
+```
+
+**Example:** In a security-focused debate:
+- **Wind position** uses **PATHOS cognition** embodied by **edge-optimizer role**
+- **Wall position** uses **ETHOS cognition** embodied by **critical-engineer role**
+- **Door position** uses **LOGOS cognition** embodied by **synthesizer role**
+
 ## Agent Configuration Tiers
 
 Evidence from replication studies shows specialist agents search **different solution spaces** than basic agents. Choose your tier based on debate complexity:
