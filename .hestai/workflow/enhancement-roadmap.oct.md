@@ -116,8 +116,9 @@ ITEMS::[
 
 §4::TIER_2_HIGH_VALUE_VALIDATED_FEATURES
 
-STATUS::Q1_FOCUS
+STATUS::COMPLETED
 RATIONALE::EMPIRICALLY_VALIDATED_WITH_TOKEN_SAVINGS_METRICS
+COMPLETED_DATE::"2026-02-08"
 
 ITEMS::[
   {
@@ -129,7 +130,9 @@ ITEMS::[
     rationale::"98% token savings, 1 week effort, export to .hestai/context/decisions/",
     effort::"1 week",
     token_savings::"98%",
-    status::"PENDING"
+    status::"COMPLETED",
+    commit::"c12f8b1",
+    resolution::"Added context_compiler.py with OCTAVE export, export_decision parameter in close_debate, unique filename format with short_id suffix. 21 new tests."
   },
   {
     id::"2.2",
@@ -140,7 +143,9 @@ ITEMS::[
     rationale::"550 tokens vs 90k (99.4% reduction), fast-path for low-gravity decisions",
     effort::"2-3 weeks",
     token_savings::"99.4%",
-    status::"PENDING"
+    status::"COMPLETED",
+    commit::"261a09e",
+    resolution::"Added DebateMode.RACI with enforced limits (max_turns=3, max_rounds=1), RACI prompts, Wall YIELD option, run_raci() orchestration, mode-aware resume(). 29 new tests."
   },
   {
     id::"2.3",
@@ -150,7 +155,9 @@ ITEMS::[
     issue::144,
     rationale::"Enables decision discovery - field-weighted OCTAVE search",
     effort::"1-2 weeks",
-    status::"PENDING"
+    status::"COMPLETED",
+    commit::"859c772",
+    resolution::"Added BM25 search engine with field weighting (TOPIC 10.0, SYNTHESIS 5.0), lazy indexing, search_decisions MCP tool, find_precedent() agent interface. 33 new tests."
   }
 ]
 
@@ -315,7 +322,12 @@ SPRINT_2::FOUNDATION[
 SPRINT_3_4::VALUE_DELIVERY[
   ITEMS::[2.1, 2.2, 2.3],
   GOAL::"Context Compiler, RACI Mode, Decision Search",
-  DURATION::"2-3 weeks"
+  DURATION::"2-3 weeks",
+  STATUS::COMPLETED,
+  COMPLETED_DATE::"2026-02-08",
+  COMMITS::["c12f8b1", "261a09e", "859c772"],
+  TESTS_ADDED::83,
+  TESTS_TOTAL::1013
 ]
 
 SPRINT_5_PLUS::ARCHITECTURE[
@@ -349,7 +361,8 @@ TIER_2::[
 ENTRIES::[
   {date::"2026-02-06", action::"Created", author::"holistic-orchestrator", note::"Initial roadmap from synthesis session"},
   {date::"2026-02-06", action::"Sprint 1 Complete", author::"implementation-lead", note::"Completed Tier 0 (0.1, 0.2, 0.3). Issues #100, #105, #149 closed. 19 new tests, 916 total."},
-  {date::"2026-02-07", action::"Sprint 2 Complete", author::"implementation-lead", note::"Completed Tier 1 (1.1, 1.2, 1.3). Issues #106, #108, #150 closed. 11 new tests, 927 total."}
+  {date::"2026-02-07", action::"Sprint 2 Complete", author::"implementation-lead", note::"Completed Tier 1 (1.1, 1.2, 1.3). Issues #106, #108, #150 closed. 11 new tests, 927 total."},
+  {date::"2026-02-08", action::"Sprint 3-4 Complete", author::"holistic-orchestrator", note::"Completed Tier 2 (2.1, 2.2, 2.3). Context Compiler, RACI Mode, BM25 Search. Issues #138, #139, #144 closed. 83 new tests, 1013 total."}
 ]
 
 ===END===

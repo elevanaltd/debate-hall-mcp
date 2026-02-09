@@ -46,6 +46,7 @@ from debate_hall_mcp.tools.orchestrate import (
 )
 from debate_hall_mcp.tools.pick import debate_pick
 from debate_hall_mcp.tools.ratify import ratify_rfc as ratify_rfc_impl
+from debate_hall_mcp.tools.search import search_decisions as search_decisions_impl
 from debate_hall_mcp.tools.turn import debate_turn
 
 
@@ -63,11 +64,12 @@ SERVER_VERSION = PACKAGE_VERSION
 def create_server() -> FastMCP:
     """Create debate-hall MCP server.
 
-    Tools (14):
+    Tools (15):
         init_debate, add_turn, get_debate, close_debate,
         pick_next_speaker, force_close_debate, tombstone_turn,
         github_sync_debate, ratify_rfc, human_interject, run_debate,
-        resume_debate, extract_decision_record, resolve_question
+        resume_debate, extract_decision_record, resolve_question,
+        search_decisions
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -416,6 +418,42 @@ def create_server() -> FastMCP:
             topic=topic,
             tier=tier,
             thread_id=thread_id,
+        )
+
+    @server.tool()
+    def search_decisions(
+        query: str,
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> dict[str, Any]:
+        """Search for past decisions matching a query.
+
+        Uses field-weighted BM25 to find relevant decisions from the
+        decisions directory. Returns ranked results with relevance scores.
+
+        Field weights (ADR-0004):
+        - SEARCH_ANCHORS: 15.0 (pre-computed Q&A)
+        - TOPIC: 10.0 (what it is)
+        - TAGS: 8.0 (classification)
+        - SYNTHESIS: 5.0 (the decision)
+        - RATIONALE: 2.0 (wind/wall perspectives)
+
+        Args:
+            query: Search query string
+            limit: Maximum number of results (default 10)
+            min_score: Minimum score threshold 0-1 (default 0.0)
+
+        Returns:
+            Dictionary with:
+            - query: The search query
+            - count: Number of results
+            - results: List of matching decisions with thread_id, topic,
+              synthesis, score, decided_at, file_path
+        """
+        return search_decisions_impl(
+            query=query,
+            limit=limit,
+            min_score=min_score,
         )
 
     return server

@@ -94,6 +94,7 @@ async def run_debate(
     state_dir: Path | None = None,
     compression_tier: Literal["none", "basic", "aggressive", "ultra"] | None = None,
     primer_tier: Literal["none", "literacy", "standard", "advanced"] | None = None,
+    mode: Literal["standard", "raci"] = "standard",
 ) -> dict[str, Any]:
     """Run an automated Wind/Wall/Door debate.
 
@@ -112,6 +113,9 @@ async def run_debate(
         state_dir: Directory for state files (defaults to ./debates)
         compression_tier: Override compression tier (None = use tier default)
         primer_tier: Override primer tier (None = use tier default)
+        mode: Debate mode - "standard" for full debate, "raci" for lightweight
+            RACI Dialogue Mode (Issue #139). RACI mode completes in exactly
+            3 turns with no consensus loop.
 
     Returns:
         Dictionary with debate result:
@@ -144,8 +148,11 @@ async def run_debate(
     # Create orchestrator
     orchestrator = DebateOrchestrator(tier_config, state_dir)
 
-    # Run debate
-    result = await orchestrator.run(topic=topic, thread_id=thread_id)
+    # Run debate - use RACI mode if specified (Issue #139)
+    if mode == "raci":
+        result = await orchestrator.run_raci(topic=topic, thread_id=thread_id)
+    else:
+        result = await orchestrator.run(topic=topic, thread_id=thread_id)
 
     # Return as dictionary
     return {

@@ -16,11 +16,20 @@ Issue #29: OCTAVE auto-generate on close
 - Generates compressed OCTAVE transcript representation
 
 Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
+
+Issue #138: Context Compiler integration
+- export_decision parameter: Export DecisionRecord to context directory
+- Exports to .hestai/context/decisions/{date}-{topic-slug}.oct.md
 """
 
 from pathlib import Path
 from typing import Any, Literal
 
+from debate_hall_mcp.context_compiler import (
+    export_decision_to_context,
+    get_context_dir,
+)
+from debate_hall_mcp.decision import extract_decision_record
 from debate_hall_mcp.engine import DebateEngine, TerminationReason
 from debate_hall_mcp.octave_formatter import format_debate_as_octave, seal_debate_transcript
 from debate_hall_mcp.state import get_state_dir, load_debate_state, save_debate_state
@@ -36,6 +45,8 @@ def debate_close(
     output_format: OutputFormat | None = None,
     status: str | None = None,
     seal: bool = False,
+    export_decision: bool = False,
+    context_dir: Path | None = None,
 ) -> dict[str, Any] | str:
     """Close debate with final synthesis.
 
@@ -55,6 +66,10 @@ def debate_close(
         seal: If True, add cryptographic seal to OCTAVE output (v1.0.0 feature).
             The seal enables tamper detection - any modification to the transcript
             will invalidate the seal. Only applies to 'octave' and 'both' formats.
+        export_decision: If True, export DecisionRecord to context directory
+            (Issue #138). Creates .hestai/context/decisions/{date}-{topic}.oct.md
+        context_dir: Directory for context exports. Defaults to project-relative
+            .hestai/context or DEBATE_HALL_CONTEXT_DIR env var.
 
     Returns:
         Depends on output_format:
@@ -118,6 +133,18 @@ def debate_close(
     # Include validation warnings if any (WARN level, non-strict mode)
     if validation_result is not None and validation_result.violations:
         json_result["validation_warnings"] = validation_result.violations
+
+    # Export decision to context if requested (Issue #138: Context Compiler)
+    if export_decision:
+        # Extract decision record from closed debate
+        decision_record = extract_decision_record(room)
+
+        # Use provided context_dir or auto-detect
+        effective_context_dir = context_dir if context_dir is not None else get_context_dir()
+
+        # Export to context directory
+        export_path = export_decision_to_context(decision_record, effective_context_dir)
+        json_result["export_path"] = str(export_path)
 
     # Return based on effective_format (Issue #26: respects octave_mode default)
     if effective_format == "json":
