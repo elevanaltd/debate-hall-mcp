@@ -72,11 +72,33 @@ META:
     USE_FOR::[production_decisions,high_stakes]
   ]
 
+§2.1::AGENT_ROLES
+  // Restored from monolith §5
+
+  TIER_1_BASIC::[
+    AGENTS::[wind-agent,wall-agent,door-agent],
+    BEHAVIOR::[explores_obvious_paths,balanced_judgment,balanced_integration],
+    MAPPED_TO::fast_tier
+  ]
+  TIER_2_SPECIALIST::[
+    PATHOS::[ideator[minimal_elegant],edge-optimizer[hidden_vectors]],
+    ETHOS::[validator[cold_truth],critical-engineer[production_readiness]],
+    LOGOS::[synthesizer[breakthrough_1+1=3],technical-architect[system_design]],
+    MAPPED_TO::standard_and_premium_tiers
+  ]
+  MAPPING::specialists→cognition_role[PATHOS→Wind,ETHOS→Wall,LOGOS→Door]
+
 §3::EXAMPLES
 
   QUICK::run_debate("Redis vs Memcached for sessions?",tier:"fast")
   STANDARD::run_debate("API versioning strategy?",tier:"standard")
   PREMIUM::resolve_question("Migrate PostgreSQL to CockroachDB?",tier:"premium")
+
+  GRAVITY_HINTS::[
+    fast::[naming_conventions,ui_tweaks,tooling_choices],
+    standard::[api_design,module_boundaries,testing_strategy],
+    premium::[security_architecture,data_model,external_contracts]
+  ]
 
 §4::BEST_PRACTICES
   TIER_SELECTION::"Match tier to decision gravity"

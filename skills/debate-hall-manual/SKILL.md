@@ -74,4 +74,37 @@ META:
   add_turn(thread_id,"Door","Therefore: REST for public API, GraphQL for internal dashboard...")
   close_debate(thread_id,synthesis,output_format:"octave")
 
+§5::PARALLEL_AGENTS
+  // Restored from monolith §4.1, §7.4, §11
+
+  DEFINITIONS::[
+    PARALLEL_THINKING::"Generate candidate turns concurrently off-server (multiple models/processes)",
+    SEQUENTIAL_COMMIT::"Persist turns in strict order via add_turn (one committed head at a time)"
+  ]
+
+  HARD_RULES::[
+    DOOR_NEVER_SYNTHESIZES_BEFORE_WIND_AND_WALL_COMMITTED,
+    WALL_REALITY_TESTS_CONCRETE_WIND_OUTPUT,
+    ONE_COMMIT_PER_THREAD_AT_A_TIME[avoid_lost_updates],
+    RETRY_ON_STALE_STATE::get_debate→regenerate→add_turn
+  ]
+
+  BARRIER_PROTOCOL::[
+    ROUND::Rk[
+      STEP_1::snapshot=get_debate(thread_id),
+      STEP_2::spawn_parallel_drafts[Wind_draft,Wall_draft],
+      STEP_3::serial_commit::add_turn(Wind)→add_turn(Wall),
+      STEP_4::Door_reads_latest=get_debate(thread_id)→synthesize→add_turn(Door),
+      STEP_5::repeat_or_close
+    ]
+  ]
+
+  BEST_PRACTICES::[
+    DEFAULT::parallel_draft_sequential_commit,
+    DOOR_BARRIER::"Door must read latest state after Wind+Wall commits",
+    WALL_FRAMEWORK_MODE::"If drafting early, write constraints then apply post-Wind"
+  ]
+
+  DEPLOYMENT::REQUIRE::DEBATE_HALL_STATE_DIR_set_to_shared_location[avoid_split_brain]
+
 ===END===

@@ -54,4 +54,10 @@ META:
   MEDIUM[40-60]::standard[design,moderate_impact]
   HIGH[>60]::premium[production,irreversible]
 
+§4::RESOURCES
+  AGENTS::agents/README.md
+  TIERS::src/debate_hall/config/tiers.yaml
+  PATTERNS::docs/examples/multi-model-debate-patterns.md
+  ADR::docs/adr/adr-0005-skill-hierarchy-architecture.md
+
 ===END===
