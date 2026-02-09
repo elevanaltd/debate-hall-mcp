@@ -9,7 +9,8 @@ This module implements:
 Resolution order for tier configuration:
 1. DEBATE_HALL_TIERS_FILE environment variable
 2. ./tiers.yaml (project-local, for team/repo configs)
-3. ~/.debate-hall/tiers.yaml (user-global)
+3. Package-root tiers.yaml (co-located with the debate-hall-mcp installation)
+4. ~/.debate-hall/tiers.yaml (user-global)
 
 No hardcoded defaults - configuration must exist in a tiers.yaml file.
 """
@@ -157,6 +158,10 @@ class TierConfig(BaseModel):
 # Environment variable for tier configuration file
 TIERS_FILE_ENV_VAR = "DEBATE_HALL_TIERS_FILE"
 
+# Package root directory (where debate-hall-mcp is installed from)
+# Navigate from src/debate_hall_mcp/config.py -> project root
+_PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 class TierConfigNotFoundError(Exception):
     """Raised when no tier configuration file is found."""
@@ -209,7 +214,8 @@ def _get_tiers_file_path() -> Path | None:
     Resolution order:
     1. DEBATE_HALL_TIERS_FILE environment variable
     2. ./tiers.yaml (project-local)
-    3. ~/.debate-hall/tiers.yaml (user-global)
+    3. Package-root tiers.yaml (co-located with installed debate-hall-mcp)
+    4. ~/.debate-hall/tiers.yaml (user-global)
 
     Returns:
         Path to config file, or None if no file exists
@@ -226,7 +232,12 @@ def _get_tiers_file_path() -> Path | None:
     if project_config.exists():
         return project_config.resolve()
 
-    # Priority 3: User-global config
+    # Priority 3: Package-root config (where debate-hall-mcp is installed from)
+    package_config = _PACKAGE_ROOT / "tiers.yaml"
+    if package_config.exists():
+        return package_config
+
+    # Priority 4: User-global config
     home = Path(os.environ.get("HOME", "~")).expanduser()
     home_config = home / ".debate-hall" / "tiers.yaml"
     if home_config.exists():
@@ -241,7 +252,8 @@ def load_tier_config(tier_name: str) -> TierConfig:
     Resolution order:
     1. DEBATE_HALL_TIERS_FILE environment variable
     2. ./tiers.yaml (project-local)
-    3. ~/.debate-hall/tiers.yaml (user-global)
+    3. Package-root tiers.yaml (co-located with debate-hall-mcp)
+    4. ~/.debate-hall/tiers.yaml (user-global)
 
     Args:
         tier_name: Name of the tier to load (e.g., "standard", "premium")
@@ -259,6 +271,7 @@ def load_tier_config(tier_name: str) -> TierConfig:
         raise TierConfigNotFoundError(
             "No tier configuration found. Create tiers.yaml in:\n"
             "  - ./tiers.yaml (project-local)\n"
+            f"  - {_PACKAGE_ROOT}/tiers.yaml (package-root)\n"
             "  - ~/.debate-hall/tiers.yaml (user-global)\n"
             "  - Or set DEBATE_HALL_TIERS_FILE environment variable\n\n"
             "See https://github.com/elevanaltd/debate-hall-mcp#configuration for examples."

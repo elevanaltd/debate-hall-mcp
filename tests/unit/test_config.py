@@ -275,6 +275,7 @@ class TestTierConfigLoader:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """load_tier_config reads from ~/.debate-hall/tiers.yaml if no env var."""
+        import debate_hall_mcp.config as config_module
         from debate_hall_mcp.config import load_tier_config
 
         # Create mock home directory with config
@@ -305,6 +306,8 @@ class TestTierConfigLoader:
         monkeypatch.setenv("HOME", str(mock_home))
         # Change to temp dir so ./tiers.yaml isn't found
         monkeypatch.chdir(tmp_path)
+        # Mock package root to a directory without tiers.yaml
+        monkeypatch.setattr(config_module, "_PACKAGE_ROOT", tmp_path / "no_package")
 
         config = load_tier_config("premium")
         assert config.wall.provider == "openrouter"
@@ -314,12 +317,15 @@ class TestTierConfigLoader:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """load_tier_config raises TierConfigNotFoundError if no config files exist."""
+        import debate_hall_mcp.config as config_module
         from debate_hall_mcp.config import TierConfigNotFoundError, load_tier_config
 
         # Point to non-existent locations
         monkeypatch.delenv("DEBATE_HALL_TIERS_FILE", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path / "nonexistent"))
         monkeypatch.chdir(tmp_path / "also_nonexistent" if False else tmp_path)
+        # Mock package root to a directory without tiers.yaml
+        monkeypatch.setattr(config_module, "_PACKAGE_ROOT", tmp_path / "no_package")
 
         # Create empty tmp_path with no tiers.yaml
         with pytest.raises(TierConfigNotFoundError, match="No tier configuration found"):
@@ -468,6 +474,151 @@ class TestTierConfigLoader:
         config = load_tier_config("standard")
         assert config.wind.provider == "openrouter"
         assert config.wind.model == "anthropic/claude-sonnet-4"
+
+    def test_load_tier_config_from_package_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_tier_config reads from package-root tiers.yaml when cwd has none."""
+        import debate_hall_mcp.config as config_module
+        from debate_hall_mcp.config import load_tier_config
+
+        # Create a mock package root with tiers.yaml
+        mock_package_root = tmp_path / "package_root"
+        mock_package_root.mkdir()
+        config_file = mock_package_root / "tiers.yaml"
+        config_file.write_text(dedent("""
+            standard:
+              wind:
+                provider: openrouter
+                model: package-root-model
+              wall:
+                provider: openrouter
+                model: package-root-model
+              door:
+                provider: openrouter
+                model: package-root-model
+              settings:
+                max_turns: 42
+        """))
+
+        # No env var, no project-local, no home config
+        monkeypatch.delenv("DEBATE_HALL_TIERS_FILE", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "nonexistent"))
+        monkeypatch.chdir(tmp_path)  # cwd has no tiers.yaml
+        monkeypatch.setattr(config_module, "_PACKAGE_ROOT", mock_package_root)
+
+        config = load_tier_config("standard")
+        assert config.wind.model == "package-root-model"
+        assert config.settings.max_turns == 42
+
+    def test_load_tier_config_project_local_priority_over_package_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Project-local ./tiers.yaml takes priority over package-root tiers.yaml."""
+        import debate_hall_mcp.config as config_module
+        from debate_hall_mcp.config import load_tier_config
+
+        # Create project-local config
+        project_config = tmp_path / "tiers.yaml"
+        project_config.write_text(dedent("""
+            standard:
+              wind:
+                provider: openrouter
+                model: project-model
+              wall:
+                provider: openrouter
+                model: project-model
+              door:
+                provider: openrouter
+                model: project-model
+              settings:
+                max_turns: 100
+        """))
+
+        # Create package-root config with different values
+        mock_package_root = tmp_path / "package_root"
+        mock_package_root.mkdir()
+        package_config = mock_package_root / "tiers.yaml"
+        package_config.write_text(dedent("""
+            standard:
+              wind:
+                provider: openrouter
+                model: package-model
+              wall:
+                provider: openrouter
+                model: package-model
+              door:
+                provider: openrouter
+                model: package-model
+              settings:
+                max_turns: 1
+        """))
+
+        monkeypatch.delenv("DEBATE_HALL_TIERS_FILE", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "nonexistent"))
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(config_module, "_PACKAGE_ROOT", mock_package_root)
+
+        config = load_tier_config("standard")
+        # Should use project-local (max_turns=100), not package-root (max_turns=1)
+        assert config.settings.max_turns == 100
+        assert config.wind.model == "project-model"
+
+    def test_load_tier_config_package_root_priority_over_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Package-root tiers.yaml takes priority over ~/.debate-hall/tiers.yaml."""
+        import debate_hall_mcp.config as config_module
+        from debate_hall_mcp.config import load_tier_config
+
+        # Create package-root config
+        mock_package_root = tmp_path / "package_root"
+        mock_package_root.mkdir()
+        package_config = mock_package_root / "tiers.yaml"
+        package_config.write_text(dedent("""
+            standard:
+              wind:
+                provider: openrouter
+                model: package-model
+              wall:
+                provider: openrouter
+                model: package-model
+              door:
+                provider: openrouter
+                model: package-model
+              settings:
+                max_turns: 77
+        """))
+
+        # Create home dir config
+        mock_home = tmp_path / "home"
+        mock_debate_hall = mock_home / ".debate-hall"
+        mock_debate_hall.mkdir(parents=True)
+        home_config = mock_debate_hall / "tiers.yaml"
+        home_config.write_text(dedent("""
+            standard:
+              wind:
+                provider: cli
+                cli: claude
+              wall:
+                provider: cli
+                cli: codex
+              door:
+                provider: cli
+                cli: gemini
+              settings:
+                max_turns: 5
+        """))
+
+        monkeypatch.delenv("DEBATE_HALL_TIERS_FILE", raising=False)
+        monkeypatch.setenv("HOME", str(mock_home))
+        monkeypatch.chdir(tmp_path)  # no project-local tiers.yaml
+        monkeypatch.setattr(config_module, "_PACKAGE_ROOT", mock_package_root)
+
+        config = load_tier_config("standard")
+        # Should use package-root (max_turns=77), not home (max_turns=5)
+        assert config.settings.max_turns == 77
+        assert config.wind.model == "package-model"
 
     def test_load_tier_config_project_local_priority_over_home(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
