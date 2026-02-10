@@ -812,6 +812,59 @@ class TestBuildTurnAddedPayload:
         assert loaded_payload["tokens_in"] == 1500
         assert loaded_payload["tokens_out"] == 800
 
+    def test_extra_kwargs_cannot_override_forensic_fields(self) -> None:
+        """Extra kwargs must NOT override forensic fields (CE advisory).
+
+        Forensic fields (content_hash, content_length, excerpt, role) are
+        computed server-side. A malicious or buggy caller passing colliding
+        keys in **extra must not be able to override them.
+        """
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wind",
+            model="claude-opus-4-5",
+            content="Authentic content",
+            content_hash="real_hash_abc123",
+            tokens_in=100,
+            tokens_out=50,
+            # Attempt to override forensic fields via extra kwargs
+            content_length=999999,
+            excerpt="INJECTED EXCERPT",
+            content_hash_fake="should_be_ignored",  # non-colliding, fine
+        )
+
+        # Forensic fields must reflect server-computed values, not caller overrides
+        assert payload["content_length"] == len("Authentic content")
+        assert payload["excerpt"] == "Authentic content"
+        assert payload["content_hash"] == "real_hash_abc123"
+        assert payload["role"] == "Wind"
+        assert payload["tokens_in"] == 100
+        assert payload["tokens_out"] == 50
+        # Non-colliding extra key is still present
+        assert payload["content_hash_fake"] == "should_be_ignored"
+
+    def test_extra_kwargs_cannot_override_token_counts(self) -> None:
+        """Extra kwargs must NOT override token counts when provided.
+
+        Token counts are server-computed and must not be overridable.
+        """
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wall",
+            model="gpt-4o",
+            content="Test content",
+            content_hash="hash_xyz",
+            tokens_in=200,
+            tokens_out=100,
+            # Attempt to override token counts via extra
+            tokens_in_override=9999,  # non-colliding, fine
+        )
+
+        assert payload["tokens_in"] == 200
+        assert payload["tokens_out"] == 100
+
     def test_backward_compatibility_old_payload_still_loads(self, tmp_path: Path) -> None:
         """Old-style turn_added events (without enrichment) still load correctly.
 

@@ -359,6 +359,56 @@ class TestDebateGetWithMetadata:
         assert turn_entry["model"] is None
         assert turn_entry["cognition"] is None
 
+    def test_include_metadata_false_still_returns_cognition_and_token_output(
+        self, tmp_path: Path
+    ) -> None:
+        """cognition and token_output are always included for VTP observability (#135).
+
+        Regression test: include_metadata=False must still return cognition and
+        token_output but NOT agent_role and model. This ensures the VTP
+        injection pipeline always has access to token-counting data.
+        """
+        debate_init(
+            thread_id="2025-01-01-test-vtp-metadata",
+            topic="VTP observability test",
+            mode="fixed",
+            octave_preamble=False,
+            state_dir=tmp_path,
+        )
+        debate_turn(
+            thread_id="2025-01-01-test-vtp-metadata",
+            role="Wind",
+            content="Wind observability content",
+            agent_role="ideator",
+            model="claude-opus-4-5-20251101",
+            cognition="PATHOS",
+            token_output=500,
+            state_dir=tmp_path,
+        )
+
+        result = debate_get(
+            thread_id="2025-01-01-test-vtp-metadata",
+            include_transcript=True,
+            include_metadata=False,
+            state_dir=tmp_path,
+        )
+
+        assert len(result["transcript"]) == 1
+        turn_entry = result["transcript"][0]
+
+        # VTP fields always present (regardless of include_metadata)
+        assert turn_entry["cognition"] == "PATHOS"
+        assert turn_entry["token_output"] == 500
+
+        # Identity metadata gated by include_metadata=False
+        assert "agent_role" not in turn_entry
+        assert "model" not in turn_entry
+
+        # Standard fields always present
+        assert turn_entry["role"] == "Wind"
+        assert turn_entry["content"] == "Wind observability content"
+        assert "timestamp" in turn_entry
+
 
 class TestDebateGetContextTurns:
     """Tests for context_turns parameter."""

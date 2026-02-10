@@ -121,22 +121,27 @@ def build_turn_added_payload(
     Returns:
         Dictionary suitable for use as append_event payload
     """
+    # 1. Build base payload with identity fields
     payload: dict[str, Any] = {
         "role": role,
         "model": model,
-        "content_length": len(content),
-        "excerpt": content[:TURN_EXCERPT_MAX_LENGTH],
-        "content_hash": content_hash,
     }
 
+    # 2. Merge extra fields first (e.g., mode="raci")
+    payload.update(extra)
+
+    # 3. Set forensic fields AFTER extra merge to prevent override.
+    # These are computed server-side and must never be caller-controlled.
+    payload["content_length"] = len(content)
+    payload["excerpt"] = content[:TURN_EXCERPT_MAX_LENGTH]
+    payload["content_hash"] = content_hash
+
     # Include token counts when available (gracefully handle None)
+    # Set after extra merge to prevent override of server-computed values.
     if tokens_in is not None:
         payload["tokens_in"] = tokens_in
     if tokens_out is not None:
         payload["tokens_out"] = tokens_out
-
-    # Merge any extra fields (e.g., mode="raci")
-    payload.update(extra)
 
     return payload
 

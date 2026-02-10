@@ -61,6 +61,7 @@ standard:
     max_turns: 12
     max_refinement_loops: 3
     provider_timeout: 300
+    show_token_counts: true  # Show token counts per turn in VTP transcript (default: true, opt-out with false)
     fallback:
       enabled: true
       provider: openrouter
@@ -88,6 +89,7 @@ fast:
     max_turns: 6
     max_refinement_loops: 1
     provider_timeout: 60
+    show_token_counts: true  # Show token counts per turn in VTP transcript (default: true, opt-out with false)
     fallback:
       enabled: false
 
@@ -109,6 +111,7 @@ premium:
     max_turns: 16
     max_refinement_loops: 5
     provider_timeout: 600
+    show_token_counts: true  # Show token counts per turn in VTP transcript (default: true, opt-out with false)
     fallback:
       enabled: true
       provider: openrouter
