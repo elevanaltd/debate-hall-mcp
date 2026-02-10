@@ -38,7 +38,7 @@ from ulid import ULID
 
 from debate_hall_mcp.config import RoleConfig, TierConfig
 from debate_hall_mcp.consensus import parse_consensus_response
-from debate_hall_mcp.events import EventType, append_event
+from debate_hall_mcp.events import EventType, append_event, build_turn_added_payload
 from debate_hall_mcp.prompts import (
     format_door_user_prompt,
     format_raci_door_user_prompt,
@@ -106,6 +106,7 @@ class DebateOrchestrator:
         tier_config: TierConfig,
         state_dir: Path,
         provider_factory: ProviderFactory | None = None,
+        context_block: str | None = None,
     ) -> None:
         """Initialize orchestrator with tier configuration.
 
@@ -115,10 +116,14 @@ class DebateOrchestrator:
             provider_factory: Optional factory for creating providers.
                 Enables dependency injection for testing (VirtualProvider).
                 Defaults to create_provider for backward compatibility.
+            context_block: Optional pre-formatted codebase context block (Issue #133).
+                When provided, this is injected BEFORE <DEBATE_STATE> in every
+                agent prompt, enabling codebase-aware debates.
         """
         self.tier_config = tier_config
         self.state_dir = state_dir
         self._provider_factory = provider_factory or create_provider
+        self._context_block = context_block
 
     def _get_provider_timeout(self) -> int:
         """Get provider timeout in seconds (M1: CE Review mitigation).
@@ -205,10 +210,21 @@ class DebateOrchestrator:
 
         if debate_state.get("transcript"):
             lines.append("\nTRANSCRIPT::")
+            show_tokens = self.tier_config.settings.show_token_counts
             for turn in debate_state["transcript"]:
                 role = turn.get("role", "Unknown")
+                cognition = turn.get("cognition")
                 content = turn.get("content", "")
-                lines.append(f"  [{role}]:: {content}")
+                token_output = turn.get("token_output")
+
+                # Build role label: [Role/COGNITION] or [Role]
+                role_label = f"[{role}/{cognition}]" if cognition else f"[{role}]"
+
+                # Append token count if available, non-zero, and enabled
+                if show_tokens and token_output:
+                    lines.append(f"  {role_label} ({token_output} tokens):: {content}")
+                else:
+                    lines.append(f"  {role_label}:: {content}")
 
         lines.append("</DEBATE_STATE>")
         return "\n".join(lines)
@@ -351,8 +367,8 @@ Respond with your refined synthesis using the OCTAVE response format."""
         # Format state as structured block
         state_block = self._format_debate_state(debate_state)
 
-        # VTP: Build enhanced prompt with primers, compression directive, and state
-        # Order: primers -> compression directive -> state block -> user prompt
+        # VTP: Build enhanced prompt with primers, compression directive, context, and state
+        # Order: primers -> compression directive -> context block -> state block -> user prompt
         primer_content = self._get_primer_content()
         compression_directive = self._get_compression_directive()
 
@@ -363,6 +379,8 @@ Respond with your refined synthesis using the OCTAVE response format."""
             enhanced_prompt += (
                 f"<COMPRESSION_DIRECTIVE>\n{compression_directive}\n</COMPRESSION_DIRECTIVE>\n\n"
             )
+        if self._context_block:
+            enhanced_prompt += f"{self._context_block}\n\n"
         enhanced_prompt += f"{state_block}\n\n{user_prompt}"
 
         # Call provider with timeout (M1: CE Review mitigation)
@@ -375,7 +393,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
         )
 
         # Record the debate turn
-        debate_turn(
+        turn_result = debate_turn(
             thread_id=thread_id,
             role=role,
             content=response.content,
@@ -386,14 +404,18 @@ Respond with your refined synthesis using the OCTAVE response format."""
             state_dir=self.state_dir,
         )
 
-        # M3: Emit TURN_ADDED event (redact content_preview)
+        # Emit enriched TURN_ADDED event with content metadata (Issue #147)
         append_event(
             thread_id=thread_id,
             event_type=EventType.TURN_ADDED,
-            payload={
-                "role": role,
-                "model": response.model,
-            },
+            payload=build_turn_added_payload(
+                role=role,
+                model=response.model,
+                content=response.content,
+                content_hash=turn_result["turn_hash"],
+                tokens_in=response.token_input,
+                tokens_out=response.token_output,
+            ),
             state_dir=self.state_dir,
         )
 
@@ -1205,7 +1227,11 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
         # VTP: Build enhanced prompt (no primers for RACI - lightweight mode)
         # RACI skips primer injection for token efficiency
-        enhanced_prompt = f"{state_block}\n\n{user_prompt}"
+        # But context_block IS injected for RACI if provided (Issue #133)
+        enhanced_prompt = ""
+        if self._context_block:
+            enhanced_prompt += f"{self._context_block}\n\n"
+        enhanced_prompt += f"{state_block}\n\n{user_prompt}"
 
         # Call provider with timeout
         response: ProviderResponse = await asyncio.wait_for(
@@ -1217,7 +1243,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
         )
 
         # Record the debate turn
-        debate_turn(
+        turn_result = debate_turn(
             thread_id=thread_id,
             role=role,
             content=response.content,
@@ -1228,15 +1254,19 @@ Respond with your refined synthesis using the OCTAVE response format."""
             state_dir=self.state_dir,
         )
 
-        # Emit TURN_ADDED event
+        # Emit enriched TURN_ADDED event with content metadata (Issue #147)
         append_event(
             thread_id=thread_id,
             event_type=EventType.TURN_ADDED,
-            payload={
-                "role": role,
-                "model": response.model,
-                "mode": "raci",
-            },
+            payload=build_turn_added_payload(
+                role=role,
+                model=response.model,
+                content=response.content,
+                content_hash=turn_result["turn_hash"],
+                tokens_in=response.token_input,
+                tokens_out=response.token_output,
+                mode="raci",
+            ),
             state_dir=self.state_dir,
         )
 

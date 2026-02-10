@@ -57,7 +57,9 @@ def debate_get(
     Args:
         thread_id: Thread identifier
         include_transcript: If True, include turn history
-        include_metadata: If True, include agent_role/model/cognition for each turn
+        include_metadata: If True, include agent_role and model for each turn.
+            Note: cognition and token_output are always included in transcript
+            entries for VTP observability (#135), regardless of this flag.
         context_turns: Limit transcript to N recent turns (None = all)
         state_dir: Directory for state files (defaults to ./debates)
 
@@ -66,6 +68,9 @@ def debate_get(
         - thread_id, topic, mode, status, turn_count, max_turns, max_rounds, next_role
         - synthesis (if present)
         - transcript (if include_transcript=True)
+          Each transcript entry always contains: role, cognition, token_output,
+          content, timestamp.
+          When include_metadata=True, also contains: agent_role, model.
 
     Raises:
         FileNotFoundError: If thread doesn't exist
@@ -126,14 +131,17 @@ def debate_get(
             )
 
         # Add actual turns
+        # token_output and cognition are always included for VTP observability (#135).
+        # Identity metadata (agent_role, model) remains gated by include_metadata.
         transcript.extend(
             {
                 "role": turn.role,
+                "cognition": turn.cognition,
+                "token_output": turn.token_output,
                 **(
                     {
                         "agent_role": turn.agent_role,
                         "model": turn.model,
-                        "cognition": turn.cognition,
                     }
                     if include_metadata
                     else {}

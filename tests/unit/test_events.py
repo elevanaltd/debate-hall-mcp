@@ -5,9 +5,11 @@ Tests cover (ADR-0002 Foundation):
 - DebateEvent model with ULID, timestamp, payload
 - Event validation
 - Event persistence (append/load) with JSONL storage
+- Enriched turn_added payloads (Issue #147)
 """
 
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -282,9 +284,12 @@ class TestEventPersistence:
 
         state_dir = tmp_path / "events"
 
-        # Create 3 events
+        # Create 3 events with small delays to ensure distinct ULID timestamps
+        # across Python versions (ULID monotonicity not guaranteed within same ms)
         event1 = append_event("filter-001", EventType.DEBATE_STARTED, {}, state_dir)
+        time.sleep(0.002)
         event2 = append_event("filter-001", EventType.TURN_ADDED, {}, state_dir)
+        time.sleep(0.002)
         event3 = append_event("filter-001", EventType.TURN_ADDED, {}, state_dir)
 
         # Load events after first event
@@ -582,3 +587,313 @@ class TestEventCorruptionRecovery:
             # Lock context manager should be used
             mock_lock.__enter__.assert_called()
             mock_lock.__exit__.assert_called()
+
+
+class TestBuildTurnAddedPayload:
+    """Test enriched turn_added payload construction (Issue #147).
+
+    Verifies that build_turn_added_payload produces correct metadata
+    for audit log enrichment including content_length, excerpt,
+    content_hash, and optional token counts.
+    """
+
+    def test_payload_contains_required_fields(self) -> None:
+        """Enriched payload must contain content_length, excerpt, content_hash."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wind",
+            model="claude-opus-4-5",
+            content="This is a test turn content",
+            content_hash="abc123def456",
+        )
+
+        assert payload["role"] == "Wind"
+        assert payload["model"] == "claude-opus-4-5"
+        assert payload["content_length"] == len("This is a test turn content")
+        assert payload["excerpt"] == "This is a test turn content"
+        assert payload["content_hash"] == "abc123def456"
+
+    def test_excerpt_truncated_to_200_chars(self) -> None:
+        """Excerpt is properly truncated to 200 characters."""
+        from debate_hall_mcp.events import TURN_EXCERPT_MAX_LENGTH, build_turn_added_payload
+
+        long_content = "A" * 500
+        payload = build_turn_added_payload(
+            role="Wall",
+            model="gpt-4o",
+            content=long_content,
+            content_hash="hash123",
+        )
+
+        assert TURN_EXCERPT_MAX_LENGTH == 200
+        assert len(payload["excerpt"]) == 200
+        assert payload["excerpt"] == "A" * 200
+        assert payload["content_length"] == 500
+
+    def test_excerpt_short_content_not_padded(self) -> None:
+        """Short content is kept as-is (not padded to 200)."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        short_content = "Brief turn"
+        payload = build_turn_added_payload(
+            role="Door",
+            model="gemini-2.0",
+            content=short_content,
+            content_hash="hash456",
+        )
+
+        assert payload["excerpt"] == "Brief turn"
+        assert payload["content_length"] == len("Brief turn")
+
+    def test_tokens_in_included_when_available(self) -> None:
+        """tokens_in is included in payload when provided."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wind",
+            model="claude-opus-4-5",
+            content="Test content",
+            content_hash="hash789",
+            tokens_in=1500,
+        )
+
+        assert payload["tokens_in"] == 1500
+
+    def test_tokens_out_included_when_available(self) -> None:
+        """tokens_out is included in payload when provided."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wall",
+            model="gpt-4o",
+            content="Test content",
+            content_hash="hash101",
+            tokens_out=800,
+        )
+
+        assert payload["tokens_out"] == 800
+
+    def test_tokens_both_included_when_available(self) -> None:
+        """Both tokens_in and tokens_out are included when provided."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Door",
+            model="gemini-2.0",
+            content="Test content",
+            content_hash="hash202",
+            tokens_in=2000,
+            tokens_out=1000,
+        )
+
+        assert payload["tokens_in"] == 2000
+        assert payload["tokens_out"] == 1000
+
+    def test_tokens_in_gracefully_handles_none(self) -> None:
+        """tokens_in is omitted from payload when None."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wind",
+            model="claude-opus-4-5",
+            content="Test content",
+            content_hash="hash303",
+            tokens_in=None,
+        )
+
+        assert "tokens_in" not in payload
+
+    def test_tokens_out_gracefully_handles_none(self) -> None:
+        """tokens_out is omitted from payload when None."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wall",
+            model="gpt-4o",
+            content="Test content",
+            content_hash="hash404",
+            tokens_out=None,
+        )
+
+        assert "tokens_out" not in payload
+
+    def test_tokens_both_none_omitted(self) -> None:
+        """Both token fields omitted when None (default behavior)."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Door",
+            model="gemini-2.0",
+            content="Test content",
+            content_hash="hash505",
+        )
+
+        assert "tokens_in" not in payload
+        assert "tokens_out" not in payload
+
+    def test_extra_kwargs_merged_into_payload(self) -> None:
+        """Extra keyword arguments (e.g., mode) are merged into payload."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wind",
+            model="claude-opus-4-5",
+            content="Test content",
+            content_hash="hash606",
+            mode="raci",
+        )
+
+        assert payload["mode"] == "raci"
+        # Standard fields still present
+        assert payload["role"] == "Wind"
+        assert payload["content_hash"] == "hash606"
+
+    def test_model_none_is_preserved(self) -> None:
+        """Model can be None (preserved in payload)."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wind",
+            model=None,
+            content="Test content",
+            content_hash="hash707",
+        )
+
+        assert payload["model"] is None
+
+    def test_empty_content_produces_zero_length(self) -> None:
+        """Empty content produces content_length=0 and empty excerpt."""
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Door",
+            model="test-model",
+            content="",
+            content_hash="hash808",
+        )
+
+        assert payload["content_length"] == 0
+        assert payload["excerpt"] == ""
+
+    def test_payload_persists_through_append_load_cycle(self, tmp_path: Path) -> None:
+        """Enriched payload survives append/load cycle via JSONL."""
+        from debate_hall_mcp.events import (
+            EventType,
+            append_event,
+            build_turn_added_payload,
+            load_events,
+        )
+
+        state_dir = tmp_path / "events"
+        content = "A" * 300
+
+        payload = build_turn_added_payload(
+            role="Wind",
+            model="claude-opus-4-5",
+            content=content,
+            content_hash="persist-hash-123",
+            tokens_in=1500,
+            tokens_out=800,
+        )
+
+        append_event(
+            thread_id="enrich-persist-001",
+            event_type=EventType.TURN_ADDED,
+            payload=payload,
+            state_dir=state_dir,
+        )
+
+        events = load_events("enrich-persist-001", state_dir)
+        assert len(events) == 1
+        loaded_payload = events[0].payload
+
+        assert loaded_payload["role"] == "Wind"
+        assert loaded_payload["model"] == "claude-opus-4-5"
+        assert loaded_payload["content_length"] == 300
+        assert loaded_payload["excerpt"] == "A" * 200  # Truncated
+        assert loaded_payload["content_hash"] == "persist-hash-123"
+        assert loaded_payload["tokens_in"] == 1500
+        assert loaded_payload["tokens_out"] == 800
+
+    def test_extra_kwargs_cannot_override_forensic_fields(self) -> None:
+        """Extra kwargs must NOT override forensic fields (CE advisory).
+
+        Forensic fields (content_hash, content_length, excerpt, role) are
+        computed server-side. A malicious or buggy caller passing colliding
+        keys in **extra must not be able to override them.
+        """
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wind",
+            model="claude-opus-4-5",
+            content="Authentic content",
+            content_hash="real_hash_abc123",
+            tokens_in=100,
+            tokens_out=50,
+            # Attempt to override forensic fields via extra kwargs
+            content_length=999999,
+            excerpt="INJECTED EXCERPT",
+            content_hash_fake="should_be_ignored",  # non-colliding, fine
+        )
+
+        # Forensic fields must reflect server-computed values, not caller overrides
+        assert payload["content_length"] == len("Authentic content")
+        assert payload["excerpt"] == "Authentic content"
+        assert payload["content_hash"] == "real_hash_abc123"
+        assert payload["role"] == "Wind"
+        assert payload["tokens_in"] == 100
+        assert payload["tokens_out"] == 50
+        # Non-colliding extra key is still present
+        assert payload["content_hash_fake"] == "should_be_ignored"
+
+    def test_extra_kwargs_cannot_override_token_counts(self) -> None:
+        """Extra kwargs must NOT override token counts when provided.
+
+        Token counts are server-computed and must not be overridable.
+        """
+        from debate_hall_mcp.events import build_turn_added_payload
+
+        payload = build_turn_added_payload(
+            role="Wall",
+            model="gpt-4o",
+            content="Test content",
+            content_hash="hash_xyz",
+            tokens_in=200,
+            tokens_out=100,
+            # Attempt to override token counts via extra
+            tokens_in_override=9999,  # non-colliding, fine
+        )
+
+        assert payload["tokens_in"] == 200
+        assert payload["tokens_out"] == 100
+
+    def test_backward_compatibility_old_payload_still_loads(self, tmp_path: Path) -> None:
+        """Old-style turn_added events (without enrichment) still load correctly.
+
+        Ensures backward compatibility: existing event consumers that read
+        events without the new fields don't break.
+        """
+        from debate_hall_mcp.events import EventType, append_event, load_events
+
+        state_dir = tmp_path / "events"
+
+        # Simulate old-style payload (pre-Issue #147)
+        old_payload = {"role": "Wind", "model": "claude-opus-4-5"}
+        append_event(
+            thread_id="compat-001",
+            event_type=EventType.TURN_ADDED,
+            payload=old_payload,
+            state_dir=state_dir,
+        )
+
+        events = load_events("compat-001", state_dir)
+        assert len(events) == 1
+        loaded = events[0]
+        assert loaded.payload["role"] == "Wind"
+        assert loaded.payload["model"] == "claude-opus-4-5"
+        # New fields absent but event still loads fine
+        assert "content_length" not in loaded.payload
+        assert "excerpt" not in loaded.payload
+        assert "content_hash" not in loaded.payload
