@@ -9,6 +9,7 @@ Tests cover (ADR-0002 Foundation):
 """
 
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -283,9 +284,12 @@ class TestEventPersistence:
 
         state_dir = tmp_path / "events"
 
-        # Create 3 events
+        # Create 3 events with small delays to ensure distinct ULID timestamps
+        # across Python versions (ULID monotonicity not guaranteed within same ms)
         event1 = append_event("filter-001", EventType.DEBATE_STARTED, {}, state_dir)
+        time.sleep(0.002)
         event2 = append_event("filter-001", EventType.TURN_ADDED, {}, state_dir)
+        time.sleep(0.002)
         event3 = append_event("filter-001", EventType.TURN_ADDED, {}, state_dir)
 
         # Load events after first event
