@@ -135,6 +135,10 @@ class TierSettings(BaseModel):
         default="aggressive",
         description="How aggressively agents should compress output",
     )
+    show_token_counts: bool = Field(
+        default=True,
+        description="Show token counts per turn in VTP transcript injection (observability, opt-out)",
+    )
 
 
 class TierConfig(BaseModel):

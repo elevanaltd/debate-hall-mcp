@@ -210,10 +210,21 @@ class DebateOrchestrator:
 
         if debate_state.get("transcript"):
             lines.append("\nTRANSCRIPT::")
+            show_tokens = self.tier_config.settings.show_token_counts
             for turn in debate_state["transcript"]:
                 role = turn.get("role", "Unknown")
+                cognition = turn.get("cognition")
                 content = turn.get("content", "")
-                lines.append(f"  [{role}]:: {content}")
+                token_output = turn.get("token_output")
+
+                # Build role label: [Role/COGNITION] or [Role]
+                role_label = f"[{role}/{cognition}]" if cognition else f"[{role}]"
+
+                # Append token count if available, non-zero, and enabled
+                if show_tokens and token_output:
+                    lines.append(f"  {role_label} ({token_output} tokens):: {content}")
+                else:
+                    lines.append(f"  {role_label}:: {content}")
 
         lines.append("</DEBATE_STATE>")
         return "\n".join(lines)

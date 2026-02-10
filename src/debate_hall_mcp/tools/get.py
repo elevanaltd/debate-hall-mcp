@@ -126,14 +126,17 @@ def debate_get(
             )
 
         # Add actual turns
+        # token_output and cognition are always included for VTP observability (#135).
+        # Identity metadata (agent_role, model) remains gated by include_metadata.
         transcript.extend(
             {
                 "role": turn.role,
+                "cognition": turn.cognition,
+                "token_output": turn.token_output,
                 **(
                     {
                         "agent_role": turn.agent_role,
                         "model": turn.model,
-                        "cognition": turn.cognition,
                     }
                     if include_metadata
                     else {}
