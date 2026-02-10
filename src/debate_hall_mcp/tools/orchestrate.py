@@ -15,8 +15,12 @@ Phase 4 Additions:
 
 Issue #132 Additions:
 - Optional compression_tier and primer_tier overrides for per-debate customization
+
+Issue #133 Additions:
+- Optional context_files parameter for codebase-aware debates
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
@@ -29,6 +33,8 @@ from debate_hall_mcp.state import (
     get_state_dir,
     load_debate_state,
 )
+
+logger = logging.getLogger(__name__)
 
 # M4: Maximum topic length (reasonable limit for debate topics)
 MAX_TOPIC_LENGTH = 1000
@@ -47,6 +53,102 @@ def _validate_topic(topic: str) -> None:
         raise ValueError("Topic cannot be empty")
     if len(topic) > MAX_TOPIC_LENGTH:
         raise ValueError(f"Topic exceeds maximum length of {MAX_TOPIC_LENGTH} characters")
+
+
+# Default max characters per context file (to prevent prompt explosion)
+MAX_CHARS_PER_FILE = 10000
+
+
+def _validate_context_file_path(file_path: str) -> Path:
+    """Validate a context file path for security (Issue #133).
+
+    Security checks:
+    - No path traversal sequences (..)
+    - Must be an absolute path
+    - Must resolve to a real location (no symlink escape)
+
+    Args:
+        file_path: The file path to validate
+
+    Returns:
+        Resolved Path object
+
+    Raises:
+        ValueError: If path contains traversal sequences or is not absolute
+    """
+    # Reject path traversal sequences
+    if ".." in file_path:
+        raise ValueError(
+            f"Invalid context_file path '{file_path}': path traversal (..) not allowed"
+        )
+
+    path = Path(file_path)
+
+    # Must be absolute
+    if not path.is_absolute():
+        raise ValueError(f"Invalid context_file path '{file_path}': must be an absolute path")
+
+    return path.resolve()
+
+
+def _read_context_files(
+    context_files: list[str],
+    max_chars_per_file: int = MAX_CHARS_PER_FILE,
+) -> str:
+    """Read and format context files for injection into debate prompts (Issue #133).
+
+    Validates each file path for security, reads contents, and formats them
+    as a <CODEBASE_CONTEXT> block. Missing files emit a warning but do not
+    cause failure (graceful degradation).
+
+    Args:
+        context_files: List of absolute file paths to read
+        max_chars_per_file: Maximum characters per file (default 10000).
+            Files exceeding this limit are truncated with a notice.
+
+    Returns:
+        Formatted string with CODEBASE_CONTEXT tags, or empty string if no
+        files could be read.
+    """
+    if not context_files:
+        return ""
+
+    file_blocks: list[str] = []
+
+    for file_path in context_files:
+        try:
+            validated_path = _validate_context_file_path(file_path)
+
+            if not validated_path.is_file():
+                logger.warning("context_files: skipping missing file: %s", file_path)
+                continue
+
+            content = validated_path.read_text(encoding="utf-8", errors="replace")
+
+            # Truncate if exceeding max chars
+            truncated = False
+            if len(content) > max_chars_per_file:
+                content = content[:max_chars_per_file]
+                truncated = True
+
+            block = f'<FILE path="{file_path}">\n{content}'
+            if truncated:
+                block += f"\n... [TRUNCATED at {max_chars_per_file} chars]"
+            block += "\n</FILE>"
+
+            file_blocks.append(block)
+
+        except ValueError as e:
+            logger.warning("context_files: skipping invalid path: %s", e)
+            continue
+        except OSError as e:
+            logger.warning("context_files: error reading file %s: %s", file_path, e)
+            continue
+
+    if not file_blocks:
+        return ""
+
+    return "<CODEBASE_CONTEXT>\n" + "\n\n".join(file_blocks) + "\n</CODEBASE_CONTEXT>"
 
 
 def _apply_tier_overrides(
@@ -95,6 +197,7 @@ async def run_debate(
     compression_tier: Literal["none", "basic", "aggressive", "ultra"] | None = None,
     primer_tier: Literal["none", "literacy", "standard", "advanced"] | None = None,
     mode: Literal["standard", "raci"] = "standard",
+    context_files: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run an automated Wind/Wall/Door debate.
 
@@ -102,9 +205,10 @@ async def run_debate(
     1. Validates inputs (M4: CE Review)
     2. Loads tier configuration
     3. Applies optional overrides (Issue #132)
-    4. Creates an orchestrator
-    5. Runs the debate loop (Wind -> Wall -> Door)
-    6. Returns the result
+    4. Reads context files if provided (Issue #133)
+    5. Creates an orchestrator
+    6. Runs the debate loop (Wind -> Wall -> Door)
+    7. Returns the result
 
     Args:
         topic: The debate topic to explore (1-1000 chars, non-empty)
@@ -116,6 +220,10 @@ async def run_debate(
         mode: Debate mode - "standard" for full debate, "raci" for lightweight
             RACI Dialogue Mode (Issue #139). RACI mode completes in exactly
             3 turns with no consensus loop.
+        context_files: Optional list of absolute file paths to inject as codebase
+            context into debate prompts (Issue #133). Files are read and injected
+            as a <CODEBASE_CONTEXT> block before <DEBATE_STATE>. Missing files
+            are skipped with a warning. Each file is truncated at 10000 chars.
 
     Returns:
         Dictionary with debate result:
@@ -141,12 +249,17 @@ async def run_debate(
     # Apply optional overrides (Issue #132)
     tier_config = _apply_tier_overrides(tier_config, compression_tier, primer_tier)
 
+    # Read context files if provided (Issue #133)
+    context_block = ""
+    if context_files:
+        context_block = _read_context_files(context_files)
+
     # Get state directory
     if state_dir is None:
         state_dir = get_state_dir()
 
-    # Create orchestrator
-    orchestrator = DebateOrchestrator(tier_config, state_dir)
+    # Create orchestrator with context block
+    orchestrator = DebateOrchestrator(tier_config, state_dir, context_block=context_block or None)
 
     # Run debate - use RACI mode if specified (Issue #139)
     if mode == "raci":

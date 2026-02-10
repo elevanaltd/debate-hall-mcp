@@ -106,6 +106,7 @@ class DebateOrchestrator:
         tier_config: TierConfig,
         state_dir: Path,
         provider_factory: ProviderFactory | None = None,
+        context_block: str | None = None,
     ) -> None:
         """Initialize orchestrator with tier configuration.
 
@@ -115,10 +116,14 @@ class DebateOrchestrator:
             provider_factory: Optional factory for creating providers.
                 Enables dependency injection for testing (VirtualProvider).
                 Defaults to create_provider for backward compatibility.
+            context_block: Optional pre-formatted codebase context block (Issue #133).
+                When provided, this is injected BEFORE <DEBATE_STATE> in every
+                agent prompt, enabling codebase-aware debates.
         """
         self.tier_config = tier_config
         self.state_dir = state_dir
         self._provider_factory = provider_factory or create_provider
+        self._context_block = context_block
 
     def _get_provider_timeout(self) -> int:
         """Get provider timeout in seconds (M1: CE Review mitigation).
@@ -351,8 +356,8 @@ Respond with your refined synthesis using the OCTAVE response format."""
         # Format state as structured block
         state_block = self._format_debate_state(debate_state)
 
-        # VTP: Build enhanced prompt with primers, compression directive, and state
-        # Order: primers -> compression directive -> state block -> user prompt
+        # VTP: Build enhanced prompt with primers, compression directive, context, and state
+        # Order: primers -> compression directive -> context block -> state block -> user prompt
         primer_content = self._get_primer_content()
         compression_directive = self._get_compression_directive()
 
@@ -363,6 +368,8 @@ Respond with your refined synthesis using the OCTAVE response format."""
             enhanced_prompt += (
                 f"<COMPRESSION_DIRECTIVE>\n{compression_directive}\n</COMPRESSION_DIRECTIVE>\n\n"
             )
+        if self._context_block:
+            enhanced_prompt += f"{self._context_block}\n\n"
         enhanced_prompt += f"{state_block}\n\n{user_prompt}"
 
         # Call provider with timeout (M1: CE Review mitigation)
@@ -1209,7 +1216,11 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
         # VTP: Build enhanced prompt (no primers for RACI - lightweight mode)
         # RACI skips primer injection for token efficiency
-        enhanced_prompt = f"{state_block}\n\n{user_prompt}"
+        # But context_block IS injected for RACI if provided (Issue #133)
+        enhanced_prompt = ""
+        if self._context_block:
+            enhanced_prompt += f"{self._context_block}\n\n"
+        enhanced_prompt += f"{state_block}\n\n{user_prompt}"
 
         # Call provider with timeout
         response: ProviderResponse = await asyncio.wait_for(

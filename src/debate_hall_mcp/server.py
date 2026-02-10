@@ -301,6 +301,7 @@ def create_server() -> FastMCP:
         thread_id: str | None = None,
         compression_tier: Literal["none", "basic", "aggressive", "ultra"] | None = None,
         primer_tier: Literal["none", "literacy", "standard", "advanced"] | None = None,
+        context_files: list[str] | None = None,
     ) -> dict[str, Any]:
         """Auto-orchestrate a Wind/Wall/Door debate (ADR-0002).
 
@@ -315,6 +316,8 @@ def create_server() -> FastMCP:
             thread_id: Optional custom thread ID (auto-generated if not provided)
             compression_tier: Override compression tier (None = use tier default)
             primer_tier: Override primer tier (None = use tier default)
+            context_files: Optional list of absolute file paths to inject as
+                codebase context. Agents will see file contents in their prompts.
 
         Returns:
             Dictionary with thread_id, topic, status, turn_count, and synthesis
@@ -325,6 +328,7 @@ def create_server() -> FastMCP:
             thread_id=thread_id,
             compression_tier=compression_tier,
             primer_tier=primer_tier,
+            context_files=context_files,
         )
 
     @server.tool()
