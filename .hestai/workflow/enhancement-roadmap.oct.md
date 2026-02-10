@@ -208,8 +208,9 @@ ITEMS::[
 
 §6::TIER_4_OBSERVABILITY_AND_DX
 
-STATUS::QUALITY_OF_LIFE
+STATUS::COMPLETED
 RATIONALE::DEVELOPER_EXPERIENCE_IMPROVEMENTS
+COMPLETED_DATE::"2026-02-10"
 
 ITEMS::[
   {
@@ -220,7 +221,9 @@ ITEMS::[
     issue::147,
     rationale::"Full turn content for cost/quality analysis pipelines",
     effort::"1-2 days",
-    status::"PENDING"
+    status::"COMPLETED",
+    commit::"17ef7e9",
+    resolution::"Added build_turn_added_payload() with content_length, excerpt (200 chars), content_hash, tokens_in/tokens_out. Updated orchestrator and tools/turn.py emission sites. 15 new tests. CRS(PASS)+CE(WARN-advisory)."
   },
   {
     id::"4.2",
@@ -230,7 +233,9 @@ ITEMS::[
     issue::135,
     rationale::"Visibility into debate costs via VTP injection",
     effort::"1 day",
-    status::"PENDING"
+    status::"COMPLETED",
+    commit::"b73d8d4",
+    resolution::"Added show_token_counts to TierSettings, [Role/COGNITION] (N tokens) format in _format_debate_state, cognition+token_output always in debate_get transcript. 16 new tests. CRS(PASS)+CE(WARN-advisory)."
   },
   {
     id::"4.3",
@@ -240,7 +245,9 @@ ITEMS::[
     issue::133,
     rationale::"Codebase-aware debates with CODEBASE_CONTEXT block",
     effort::"2-3 days",
-    status::"PENDING"
+    status::"COMPLETED",
+    commit::"1dff535+f542b82",
+    resolution::"Added context_files param to run_debate with <CODEBASE_CONTEXT> injection. Security hardened: root_dir restriction, symlink prevention, bounded reads, aggregate limits (20 files/100K chars), XML escaping. 62 new tests. CRS+CE review triggered hardening commit."
   }
 ]
 
@@ -351,8 +358,13 @@ SPRINT_5_TIER_3::ARCHITECTURE[
 SPRINT_5_TIER_4::OBSERVABILITY[
   ITEMS::[4.1, 4.2, 4.3],
   GOAL::"Audit log enrichment, Token counting, Context files",
-  DURATION::"1-2 weeks",
-  STATUS::PENDING
+  DURATION::"1 day",
+  STATUS::COMPLETED,
+  COMPLETED_DATE::"2026-02-10",
+  COMMITS::["6f84f4d", "17ef7e9", "1dff535", "b73d8d4", "f542b82"],
+  TESTS_ADDED::93,
+  TESTS_TOTAL::1093,
+  SECURITY_FIX::"filelock >=3.20.3 (TOCTOU CVE)"
 ]
 
 §9::SUCCESS_METRICS
@@ -382,7 +394,8 @@ ENTRIES::[
   {date::"2026-02-06", action::"Sprint 1 Complete", author::"implementation-lead", note::"Completed Tier 0 (0.1, 0.2, 0.3). Issues #100, #105, #149 closed. 19 new tests, 916 total."},
   {date::"2026-02-07", action::"Sprint 2 Complete", author::"implementation-lead", note::"Completed Tier 1 (1.1, 1.2, 1.3). Issues #106, #108, #150 closed. 11 new tests, 927 total."},
   {date::"2026-02-08", action::"Sprint 3-4 Complete", author::"holistic-orchestrator", note::"Completed Tier 2 (2.1, 2.2, 2.3). Context Compiler, RACI Mode, BM25 Search. Issues #138, #139, #144 closed. 83 new tests, 1013 total."},
-  {date::"2026-02-09", action::"Sprint 5 Tier 3 Complete", author::"holistic-orchestrator", note::"Completed Tier 3 (3.1, 3.2, 3.3). Router + Focused Skills (PR #154), Identity Docs, Cognitive Notary closed. Issues #145 (PR), #146, #136 addressed. 1013 tests maintained."}
+  {date::"2026-02-09", action::"Sprint 5 Tier 3 Complete", author::"holistic-orchestrator", note::"Completed Tier 3 (3.1, 3.2, 3.3). Router + Focused Skills (PR #154), Identity Docs, Cognitive Notary closed. Issues #145 (PR), #146, #136 addressed. 1013 tests maintained."},
+  {date::"2026-02-10", action::"Sprint 5 Tier 4 Complete", author::"holistic-orchestrator", note::"Completed Tier 4 (4.1, 4.2, 4.3). Audit log enrichment (#147), context_files with security hardening (#133), token counting (#135). filelock CVE fix. Issues #133, #135, #147 closed. 93 new tests (80 feature + 13 security hardening), 1093 total. CRS(Gemini)+CE(Codex) reviewed all changes."}
 ]
 
 ===END===
