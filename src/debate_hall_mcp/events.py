@@ -90,6 +90,57 @@ class DebateEvent(BaseModel):
         return v
 
 
+# Maximum excerpt length for turn_added event payloads (Issue #147)
+TURN_EXCERPT_MAX_LENGTH = 200
+
+
+def build_turn_added_payload(
+    role: str,
+    model: str | None,
+    content: str,
+    content_hash: str,
+    tokens_in: int | None = None,
+    tokens_out: int | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build enriched payload for TURN_ADDED events (Issue #147).
+
+    Enriches the audit log with turn content metadata without storing
+    full content (for size reasons). The content_hash links the event
+    to the full turn in the state file for forensic correlation.
+
+    Args:
+        role: Agent role (Wind, Wall, Door)
+        model: AI model identifier (may be None)
+        content: Full turn content (used to compute excerpt and length)
+        content_hash: SHA-256 hash of the turn (from Turn model)
+        tokens_in: Optional input token count
+        tokens_out: Optional output token count
+        **extra: Additional payload fields (e.g., mode for RACI)
+
+    Returns:
+        Dictionary suitable for use as append_event payload
+    """
+    payload: dict[str, Any] = {
+        "role": role,
+        "model": model,
+        "content_length": len(content),
+        "excerpt": content[:TURN_EXCERPT_MAX_LENGTH],
+        "content_hash": content_hash,
+    }
+
+    # Include token counts when available (gracefully handle None)
+    if tokens_in is not None:
+        payload["tokens_in"] = tokens_in
+    if tokens_out is not None:
+        payload["tokens_out"] = tokens_out
+
+    # Merge any extra fields (e.g., mode="raci")
+    payload.update(extra)
+
+    return payload
+
+
 def generate_event_id() -> str:
     """Generate a new ULID for an event.
 

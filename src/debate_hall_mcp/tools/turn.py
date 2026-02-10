@@ -50,6 +50,7 @@ def debate_turn(
         - turn_count: Total turns after this one
         - role: Role that just spoke
         - status: Current debate status
+        - turn_hash: SHA-256 hash of the turn (Issue #147: for event correlation)
         - cognition_warnings: List of validation warnings (if any)
 
     Raises:
@@ -127,11 +128,13 @@ def debate_turn(
     save_debate_state(room, state_dir)
 
     # Build response with optional warnings
+    # Include turn_hash for event correlation (Issue #147)
     response: dict[str, Any] = {
         "thread_id": room.thread_id,
         "turn_count": len(room.turns),
         "role": role,
         "status": room.status.value,
+        "turn_hash": room.turns[-1].hash,
     }
 
     # Include validation warnings if any (WARN or non-strict BLOCK)

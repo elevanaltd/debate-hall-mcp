@@ -325,3 +325,28 @@ def test_debate_turn_validation_skips_none_cognition(tmp_path: Path) -> None:
             cognition=None,
             state_dir=tmp_path,
         )
+
+
+def test_debate_turn_returns_turn_hash(tmp_path: Path) -> None:
+    """Test that debate_turn returns turn_hash for event correlation (Issue #147)."""
+    debate_init(
+        thread_id="2025-01-01-test-thread-hash",
+        topic="Turn hash test",
+        state_dir=tmp_path,
+    )
+
+    result = debate_turn(
+        thread_id="2025-01-01-test-thread-hash",
+        role="Wind",
+        content="POSITION::Test hash return",
+        state_dir=tmp_path,
+    )
+
+    # turn_hash must be present and non-empty
+    assert "turn_hash" in result
+    assert isinstance(result["turn_hash"], str)
+    assert len(result["turn_hash"]) == 64  # SHA-256 hex digest
+
+    # turn_hash must match what's stored in state
+    room = load_debate_state("2025-01-01-test-thread-hash", tmp_path)
+    assert result["turn_hash"] == room.turns[0].hash

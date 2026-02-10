@@ -38,7 +38,7 @@ from ulid import ULID
 
 from debate_hall_mcp.config import RoleConfig, TierConfig
 from debate_hall_mcp.consensus import parse_consensus_response
-from debate_hall_mcp.events import EventType, append_event
+from debate_hall_mcp.events import EventType, append_event, build_turn_added_payload
 from debate_hall_mcp.prompts import (
     format_door_user_prompt,
     format_raci_door_user_prompt,
@@ -375,7 +375,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
         )
 
         # Record the debate turn
-        debate_turn(
+        turn_result = debate_turn(
             thread_id=thread_id,
             role=role,
             content=response.content,
@@ -386,14 +386,18 @@ Respond with your refined synthesis using the OCTAVE response format."""
             state_dir=self.state_dir,
         )
 
-        # M3: Emit TURN_ADDED event (redact content_preview)
+        # Emit enriched TURN_ADDED event with content metadata (Issue #147)
         append_event(
             thread_id=thread_id,
             event_type=EventType.TURN_ADDED,
-            payload={
-                "role": role,
-                "model": response.model,
-            },
+            payload=build_turn_added_payload(
+                role=role,
+                model=response.model,
+                content=response.content,
+                content_hash=turn_result["turn_hash"],
+                tokens_in=response.token_input,
+                tokens_out=response.token_output,
+            ),
             state_dir=self.state_dir,
         )
 
@@ -1217,7 +1221,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
         )
 
         # Record the debate turn
-        debate_turn(
+        turn_result = debate_turn(
             thread_id=thread_id,
             role=role,
             content=response.content,
@@ -1228,15 +1232,19 @@ Respond with your refined synthesis using the OCTAVE response format."""
             state_dir=self.state_dir,
         )
 
-        # Emit TURN_ADDED event
+        # Emit enriched TURN_ADDED event with content metadata (Issue #147)
         append_event(
             thread_id=thread_id,
             event_type=EventType.TURN_ADDED,
-            payload={
-                "role": role,
-                "model": response.model,
-                "mode": "raci",
-            },
+            payload=build_turn_added_payload(
+                role=role,
+                model=response.model,
+                content=response.content,
+                content_hash=turn_result["turn_hash"],
+                tokens_in=response.token_input,
+                tokens_out=response.token_output,
+                mode="raci",
+            ),
             state_dir=self.state_dir,
         )
 
