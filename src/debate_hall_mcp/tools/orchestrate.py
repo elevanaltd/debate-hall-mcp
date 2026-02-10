@@ -18,6 +18,12 @@ Issue #132 Additions:
 
 Issue #133 Additions:
 - Optional context_files parameter for codebase-aware debates
+
+Issue #133 Security Hardening (CRS+CE review):
+- Root directory restriction to prevent arbitrary file read
+- Bounded memory read (stream-read only needed chars)
+- Aggregate limits (MAX_CONTEXT_FILES, MAX_TOTAL_CONTEXT_CHARS)
+- XML attribute escaping in FILE path tags
 """
 
 import logging
@@ -58,23 +64,48 @@ def _validate_topic(topic: str) -> None:
 # Default max characters per context file (to prevent prompt explosion)
 MAX_CHARS_PER_FILE = 10000
 
+# Aggregate limits for context files (Issue #133 security hardening)
+MAX_CONTEXT_FILES = 20
+MAX_TOTAL_CONTEXT_CHARS = 100_000
 
-def _validate_context_file_path(file_path: str) -> Path:
+
+def _escape_xml_attr(value: str) -> str:
+    """Escape a string for safe use in an XML attribute value.
+
+    Replaces &, ", <, > with their XML entity equivalents.
+
+    Args:
+        value: The raw string to escape
+
+    Returns:
+        XML-safe string suitable for attribute values
+    """
+    return (
+        value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    )
+
+
+def _validate_context_file_path(file_path: str, root_dir: Path | None = None) -> Path:
     """Validate a context file path for security (Issue #133).
 
     Security checks:
     - No path traversal sequences (..)
     - Must be an absolute path
     - Must resolve to a real location (no symlink escape)
+    - If root_dir is provided, resolved path must be contained within it
 
     Args:
         file_path: The file path to validate
+        root_dir: Optional root directory to restrict file access scope.
+            If provided, the resolved path must be relative to this directory.
+            Symlinks that resolve outside the root are rejected.
 
     Returns:
         Resolved Path object
 
     Raises:
-        ValueError: If path contains traversal sequences or is not absolute
+        ValueError: If path contains traversal sequences, is not absolute,
+            or resolves outside the allowed root directory
     """
     # Reject path traversal sequences
     if ".." in file_path:
@@ -88,50 +119,97 @@ def _validate_context_file_path(file_path: str) -> Path:
     if not path.is_absolute():
         raise ValueError(f"Invalid context_file path '{file_path}': must be an absolute path")
 
-    return path.resolve()
+    # Resolve to handle symlinks - this follows symlinks to their real target
+    resolved = path.resolve()
+
+    # Root directory containment check
+    if root_dir is not None:
+        resolved_root = root_dir.resolve()
+        if not resolved.is_relative_to(resolved_root):
+            raise ValueError(
+                f"Invalid context_file path '{file_path}': "
+                f"resolves outside allowed root '{root_dir}'"
+            )
+
+    return resolved
 
 
 def _read_context_files(
     context_files: list[str],
     max_chars_per_file: int = MAX_CHARS_PER_FILE,
+    root_dir: Path | None = None,
 ) -> str:
     """Read and format context files for injection into debate prompts (Issue #133).
 
-    Validates each file path for security, reads contents, and formats them
-    as a <CODEBASE_CONTEXT> block. Missing files emit a warning but do not
-    cause failure (graceful degradation).
+    Validates each file path for security, reads contents with bounded I/O,
+    and formats them as a <CODEBASE_CONTEXT> block. Missing files emit a
+    warning but do not cause failure (graceful degradation).
+
+    Security hardening (CRS+CE review):
+    - Root directory restriction via root_dir parameter
+    - Bounded memory read: only reads max_chars_per_file + 1 bytes per file
+    - Aggregate file count limit: MAX_CONTEXT_FILES (20)
+    - Aggregate content size limit: MAX_TOTAL_CONTEXT_CHARS (100,000)
+    - XML attribute escaping for file paths
 
     Args:
         context_files: List of absolute file paths to read
         max_chars_per_file: Maximum characters per file (default 10000).
             Files exceeding this limit are truncated with a notice.
+        root_dir: Optional root directory to restrict file access scope.
+            If provided, only files within this directory are allowed.
 
     Returns:
         Formatted string with CODEBASE_CONTEXT tags, or empty string if no
         files could be read.
+
+    Raises:
+        ValueError: If len(context_files) exceeds MAX_CONTEXT_FILES.
     """
     if not context_files:
         return ""
 
+    # Aggregate limit: reject if too many files requested
+    if len(context_files) > MAX_CONTEXT_FILES:
+        raise ValueError(
+            f"context_files count ({len(context_files)}) exceeds maximum " f"of {MAX_CONTEXT_FILES}"
+        )
+
     file_blocks: list[str] = []
+    total_chars_read = 0
 
     for file_path in context_files:
+        # Check aggregate content limit before reading next file
+        if total_chars_read >= MAX_TOTAL_CONTEXT_CHARS:
+            logger.warning(
+                "context_files: stopping - aggregate content limit reached " "(%d >= %d chars)",
+                total_chars_read,
+                MAX_TOTAL_CONTEXT_CHARS,
+            )
+            break
+
         try:
-            validated_path = _validate_context_file_path(file_path)
+            validated_path = _validate_context_file_path(file_path, root_dir=root_dir)
 
             if not validated_path.is_file():
                 logger.warning("context_files: skipping missing file: %s", file_path)
                 continue
 
-            content = validated_path.read_text(encoding="utf-8", errors="replace")
+            # Bounded memory read: only read max_chars_per_file + 1 to detect
+            # truncation without loading the entire file into memory
+            with open(validated_path, encoding="utf-8", errors="replace") as f:
+                content = f.read(max_chars_per_file + 1)
 
-            # Truncate if exceeding max chars
             truncated = False
             if len(content) > max_chars_per_file:
                 content = content[:max_chars_per_file]
                 truncated = True
 
-            block = f'<FILE path="{file_path}">\n{content}'
+            total_chars_read += len(content)
+
+            # XML attribute escaping for file path (prevent syntax breakage)
+            escaped_path = _escape_xml_attr(file_path)
+            block = f'<FILE path="{escaped_path}">\n{content}'
             if truncated:
                 block += f"\n... [TRUNCATED at {max_chars_per_file} chars]"
             block += "\n</FILE>"
@@ -341,6 +419,10 @@ async def resume_debate(
     tier_config = _apply_tier_overrides(tier_config, compression_tier, primer_tier)
 
     # Create orchestrator
+    # NOTE: context_files are NOT persisted across resume. The original
+    # context_block from run_debate is lost when a debate is paused and
+    # later resumed. A proper fix would require adding context_files to
+    # DebateRoom state, which is a larger design change (Issue #133).
     orchestrator = DebateOrchestrator(tier_config, state_dir)
 
     # Resume debate

@@ -3,8 +3,12 @@
 Tests cover:
 - File injection into debate prompts (CODEBASE_CONTEXT block)
 - Path validation (security - no path traversal, must be absolute)
+- Root directory restriction (no arbitrary file read)
+- Symlink escape prevention
 - Graceful handling of missing files (warns, doesn't crash)
-- Max chars per file truncation
+- Max chars per file truncation (bounded memory read)
+- Aggregate limits (MAX_CONTEXT_FILES, MAX_TOTAL_CONTEXT_CHARS)
+- XML attribute escaping in FILE path tag
 - Empty context_files list (no-op)
 - Integration: context appears in agent prompts during debate
 """
@@ -18,6 +22,8 @@ from debate_hall_mcp.config import RoleConfig, TierConfig, TierSettings
 from debate_hall_mcp.orchestrator import DebateOrchestrator, DebateResult
 from debate_hall_mcp.tools.orchestrate import (
     MAX_CHARS_PER_FILE,
+    MAX_CONTEXT_FILES,
+    MAX_TOTAL_CONTEXT_CHARS,
     _read_context_files,
     _validate_context_file_path,
     run_debate,
@@ -67,6 +73,264 @@ class TestValidateContextFilePath:
         result = _validate_context_file_path(str(test_file))
         assert isinstance(result, Path)
         assert result.is_absolute()
+
+
+# =============================================================================
+# Root Directory Restriction Tests (Fix #1 - Security Hardening)
+# =============================================================================
+
+
+class TestRootDirectoryRestriction:
+    """Tests for root_dir parameter restricting file access scope."""
+
+    def test_rejects_path_outside_root_dir(self, tmp_path: Path) -> None:
+        """Paths outside the root directory must be rejected."""
+        root = tmp_path / "project"
+        root.mkdir()
+        outside_file = tmp_path / "secret.txt"
+        outside_file.write_text("secret data")
+
+        with pytest.raises(ValueError, match="outside allowed root"):
+            _validate_context_file_path(str(outside_file), root_dir=root)
+
+    def test_accepts_path_inside_root_dir(self, tmp_path: Path) -> None:
+        """Paths inside the root directory should be accepted."""
+        root = tmp_path / "project"
+        root.mkdir()
+        inside_file = root / "src" / "main.py"
+        inside_file.parent.mkdir(parents=True, exist_ok=True)
+        inside_file.write_text("# main")
+
+        result = _validate_context_file_path(str(inside_file), root_dir=root)
+        assert result == inside_file.resolve()
+
+    def test_accepts_path_at_root_dir(self, tmp_path: Path) -> None:
+        """Files directly in the root directory should be accepted."""
+        root = tmp_path / "project"
+        root.mkdir()
+        file_at_root = root / "README.md"
+        file_at_root.write_text("# readme")
+
+        result = _validate_context_file_path(str(file_at_root), root_dir=root)
+        assert result == file_at_root.resolve()
+
+    def test_rejects_symlink_escaping_root(self, tmp_path: Path) -> None:
+        """Symlinks that resolve outside root must be rejected."""
+        root = tmp_path / "project"
+        root.mkdir()
+        outside_file = tmp_path / "secret.txt"
+        outside_file.write_text("secret data")
+
+        # Create symlink inside root pointing outside
+        symlink = root / "escape.txt"
+        symlink.symlink_to(outside_file)
+
+        with pytest.raises(ValueError, match="outside allowed root"):
+            _validate_context_file_path(str(symlink), root_dir=root)
+
+    def test_accepts_symlink_within_root(self, tmp_path: Path) -> None:
+        """Symlinks that resolve within root should be accepted."""
+        root = tmp_path / "project"
+        root.mkdir()
+        real_file = root / "real.py"
+        real_file.write_text("# real")
+        symlink = root / "link.py"
+        symlink.symlink_to(real_file)
+
+        result = _validate_context_file_path(str(symlink), root_dir=root)
+        assert result == real_file.resolve()
+
+    def test_root_dir_none_allows_any_absolute_path(self, tmp_path: Path) -> None:
+        """When root_dir is None, any valid absolute path should be accepted."""
+        test_file = tmp_path / "anywhere.py"
+        test_file.write_text("# anywhere")
+
+        result = _validate_context_file_path(str(test_file), root_dir=None)
+        assert result == test_file.resolve()
+
+    def test_root_dir_defaults_to_none(self, tmp_path: Path) -> None:
+        """Default root_dir should be None (backward compatible)."""
+        test_file = tmp_path / "test.py"
+        test_file.write_text("# test")
+
+        # Should work without root_dir parameter (backward compat)
+        result = _validate_context_file_path(str(test_file))
+        assert result == test_file.resolve()
+
+    def test_read_context_files_uses_root_dir(self, tmp_path: Path) -> None:
+        """_read_context_files should pass root_dir to path validation."""
+        root = tmp_path / "project"
+        root.mkdir()
+        outside_file = tmp_path / "outside.py"
+        outside_file.write_text("# outside")
+
+        # File exists but is outside root - should be skipped
+        result = _read_context_files([str(outside_file)], root_dir=root)
+        assert result == ""
+
+    def test_read_context_files_root_dir_allows_valid(self, tmp_path: Path) -> None:
+        """_read_context_files with root_dir should allow files inside root."""
+        root = tmp_path / "project"
+        root.mkdir()
+        inside_file = root / "module.py"
+        inside_file.write_text("# inside module")
+
+        result = _read_context_files([str(inside_file)], root_dir=root)
+        assert "<CODEBASE_CONTEXT>" in result
+        assert "# inside module" in result
+
+
+# =============================================================================
+# Aggregate Limits Tests (Fix #3 - Security Hardening)
+# =============================================================================
+
+
+class TestAggregateLimits:
+    """Tests for MAX_CONTEXT_FILES and MAX_TOTAL_CONTEXT_CHARS limits."""
+
+    def test_max_context_files_constant_value(self) -> None:
+        """MAX_CONTEXT_FILES should be 20."""
+        assert MAX_CONTEXT_FILES == 20
+
+    def test_max_total_context_chars_constant_value(self) -> None:
+        """MAX_TOTAL_CONTEXT_CHARS should be 100000."""
+        assert MAX_TOTAL_CONTEXT_CHARS == 100_000
+
+    def test_rejects_too_many_files(self, tmp_path: Path) -> None:
+        """More than MAX_CONTEXT_FILES should raise ValueError."""
+        files = []
+        for i in range(MAX_CONTEXT_FILES + 1):
+            f = tmp_path / f"file_{i}.py"
+            f.write_text(f"# file {i}")
+            files.append(str(f))
+
+        with pytest.raises(ValueError, match="exceeds maximum"):
+            _read_context_files(files)
+
+    def test_accepts_exactly_max_files(self, tmp_path: Path) -> None:
+        """Exactly MAX_CONTEXT_FILES should be accepted."""
+        files = []
+        for i in range(MAX_CONTEXT_FILES):
+            f = tmp_path / f"file_{i}.py"
+            f.write_text(f"# file {i}")
+            files.append(str(f))
+
+        result = _read_context_files(files)
+        assert "<CODEBASE_CONTEXT>" in result
+        assert result.count("<FILE") == MAX_CONTEXT_FILES
+
+    def test_aggregate_chars_limit_stops_reading(self, tmp_path: Path) -> None:
+        """Reading should stop when aggregate content exceeds MAX_TOTAL_CONTEXT_CHARS."""
+        # Create files that together exceed the aggregate limit
+        chars_per_file = MAX_TOTAL_CONTEXT_CHARS // 2 + 1000
+        files = []
+        for i in range(3):
+            f = tmp_path / f"big_{i}.py"
+            f.write_text("x" * chars_per_file)
+            files.append(str(f))
+
+        result = _read_context_files(files, max_chars_per_file=chars_per_file)
+
+        # Should not include all 3 files because aggregate would exceed limit
+        file_count = result.count("<FILE")
+        assert (
+            file_count < 3
+        ), f"Expected fewer than 3 files due to aggregate limit, got {file_count}"
+        assert "AGGREGATE_LIMIT" in result or file_count < 3
+
+
+# =============================================================================
+# XML Attribute Escaping Tests (Fix #4 - Security Hardening)
+# =============================================================================
+
+
+class TestXmlAttributeEscaping:
+    """Tests for proper escaping of file paths in XML attributes."""
+
+    def test_path_with_quotes_is_escaped(self, tmp_path: Path) -> None:
+        """Paths containing double quotes must be escaped in XML attributes."""
+        # Create a directory with quotes in its name
+        quoted_dir = tmp_path / 'has"quote'
+        try:
+            quoted_dir.mkdir()
+            quoted_file = quoted_dir / "test.py"
+            quoted_file.write_text("# test")
+
+            result = _read_context_files([str(quoted_file)])
+
+            # The raw quote should NOT appear unescaped in the path attribute
+            assert '="' + str(quoted_file) + '"' not in result or "&quot;" in result
+            assert "&quot;" in result
+        except OSError:
+            pytest.skip("Filesystem does not support quotes in filenames")
+
+    def test_path_with_ampersand_is_escaped(self, tmp_path: Path) -> None:
+        """Paths containing & must be escaped in XML attributes."""
+        amp_dir = tmp_path / "a&b"
+        try:
+            amp_dir.mkdir()
+            amp_file = amp_dir / "test.py"
+            amp_file.write_text("# test")
+
+            result = _read_context_files([str(amp_file)])
+
+            assert "&amp;" in result
+        except OSError:
+            pytest.skip("Filesystem does not support & in filenames")
+
+    def test_path_with_angle_brackets_is_escaped(self) -> None:
+        """Paths containing < or > must be escaped in XML attributes."""
+        # Angle brackets are typically not allowed in filenames on most OSes.
+        # Test the _escape_xml_attr function directly to verify escaping.
+        from debate_hall_mcp.tools.orchestrate import _escape_xml_attr
+
+        escaped = _escape_xml_attr("/tmp/test<file>.py")
+        assert "&lt;" in escaped
+        assert "&gt;" in escaped
+        assert "<" not in escaped.replace("&lt;", "").replace("&gt;", "")
+
+    def test_normal_path_not_over_escaped(self, tmp_path: Path) -> None:
+        """Normal paths without special chars should not be modified."""
+        test_file = tmp_path / "normal.py"
+        test_file.write_text("# normal")
+
+        result = _read_context_files([str(test_file)])
+
+        # Path should appear as-is (no unnecessary escaping)
+        assert f'path="{test_file}"' in result
+        assert "&amp;" not in result
+        assert "&quot;" not in result
+        assert "&lt;" not in result
+        assert "&gt;" not in result
+
+
+# =============================================================================
+# Bounded Memory Read Tests (Fix #2 - Security Hardening)
+# =============================================================================
+
+
+class TestBoundedMemoryRead:
+    """Tests for chunked/bounded file reading (no full file load)."""
+
+    def test_large_file_only_reads_needed_bytes(self, tmp_path: Path) -> None:
+        """Reading should not load entire file into memory when truncating."""
+        test_file = tmp_path / "huge.py"
+        # Write a large file
+        large_content = "x" * 50000
+        test_file.write_text(large_content)
+
+        # With max_chars_per_file=100, only ~101 chars should be read
+        result = _read_context_files([str(test_file)], max_chars_per_file=100)
+
+        assert "TRUNCATED at 100 chars" in result
+        # The content between the FILE open tag and TRUNCATED notice should be
+        # exactly 100 x characters (bounded read, not full 50000)
+        # Format: <FILE path="...">\nXXX...\n... [TRUNCATED ...]
+        file_tag_end = result.find(">\n", result.find("<FILE"))
+        truncated_start = result.find("\n... [TRUNCATED")
+        file_content = result[file_tag_end + 2 : truncated_start]
+        assert len(file_content) == 100
+        assert file_content == "x" * 100
 
 
 # =============================================================================
