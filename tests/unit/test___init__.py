@@ -5,7 +5,7 @@ def test_package_version() -> None:
     """Test that package version is defined."""
     from debate_hall_mcp import __version__
 
-    assert __version__ == "0.4.0"
+    assert __version__ == "0.5.0"
 
 
 def test_package_author() -> None:

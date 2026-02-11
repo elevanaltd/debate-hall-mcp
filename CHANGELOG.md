@@ -7,6 +7,69 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-02-10
+
+### Added
+- Auto-orchestration engine (Issue #111, Phases 1-4): `run_debate` and `resume_debate` MCP tools
+- ModelProvider protocol with CLI and OpenRouter implementations
+- Wind/Wall consensus mechanism with refinement loops
+- Virtual Tool Preload (VTP) for state injection into agent prompts
+- Layer 3 Query Infrastructure: `resolve_question`, `extract_decision_record` MCP tools, DecisionRecord schema
+- ConsensusMetadata persistence in DebateRoom
+- RACI Dialogue Mode for lightweight decisions (#139) - 550 tokens vs 90k (99.4% reduction)
+- Context Compiler for decision export to `.hestai/context/decisions/` (#138)
+- BM25 decision indexing and `search_decisions` MCP tool (#144)
+- Context files parameter for codebase-aware debates (#133) - `<CODEBASE_CONTEXT>` injection
+- Audit log enrichment with turn content metadata (#147)
+- Token counting per turn in VTP injection (#135)
+- Router + Focused Skills architecture (ADR-0005, #145) - 59-74% token savings
+- Role-based agent prompt resolution with path traversal prevention
+- Tier-linked timeouts, fallback providers, and CLI configurability
+- Project-local prompt discovery for team repos
+- Primer injection from octave-mcp v1.0.0
+- Compare-and-Swap (CAS) for state race condition prevention (#149)
+- Content hash re-computation for tamper detection (#105)
+- Read/write lock pattern for concurrent access (#106)
+- Production deployment documentation (#108)
+- Provider timeout zombie cleanup (#150)
+
+### Changed
+- Upgraded octave-mcp to v1.0.0 with sealing and lenient validation
+- Simplified tier config to file-only resolution with tiers.yaml
+- Renamed `context_lines` to `context_turns` (#134)
+- Migrated str+Enum to StrEnum (ruff UP042)
+- Removed destructive content truncation (#131)
+- `cognition` and `token_output` always included in transcript for VTP observability
+- `show_token_counts` config option in TierSettings (default: true)
+
+### Fixed
+- filelock bumped to >=3.20.3 for TOCTOU symlink CVE
+- Forensic field override protection in `build_turn_added_payload`
+- Context files path validation: root-dir restriction, symlink prevention, bounded reads, aggregate limits, XML escaping
+- Subprocess cleanup on provider timeout
+- ULID ordering reliability in CI tests
+- Config package-root added to tiers.yaml search paths
+
+### Security
+- Path traversal prevention in agent prompt resolution
+- Context files: root directory restriction, symlink escape prevention
+- Bounded memory reads for file injection (MAX_CHARS_PER_FILE=10000)
+- Aggregate limits: MAX_CONTEXT_FILES=20, MAX_TOTAL_CONTEXT_CHARS=100000
+- XML attribute escaping in CODEBASE_CONTEXT blocks
+- Forensic field protection prevents event log tampering via extra kwargs
+
+### Documentation
+- Position/Cognition/Role distinction clarification (#146)
+- Enhancement roadmap tracking 5 sprint cycles
+- ADR-0002 (Auto-orchestration), ADR-0003 (Feature Flags), ADR-0004 (Decision Search), ADR-0005 (Skill Hierarchy)
+- Production deployment guide with systemd/Docker examples
+- Tier configuration documentation
+
+### Quality
+- 1096 tests (1091 unit + 5 e2e), up from 496
+- All quality gates: ruff, black, mypy strict, pytest
+- CRS (Gemini) + CE (Codex) code review on all Sprint 5 changes
+
 ## [0.4.0] - 2026-01-14
 
 ### Added
@@ -145,7 +208,8 @@ Automated debate triggering via GitHub webhooks/actions is not yet implemented. 
 
 ---
 
-[Unreleased]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/elevanaltd/debate-hall-mcp/compare/v0.1.1...v0.2.0
