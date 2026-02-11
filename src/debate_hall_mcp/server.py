@@ -157,18 +157,23 @@ def create_server() -> FastMCP:
         synthesis: str,
         output_format: str | None = None,
         seal: bool = False,
+        export_decision: bool = False,
     ) -> dict[str, Any] | str:
         """Finalize debate. synthesis:Door's final resolution->closes room.
 
         Args:
             output_format: 'json' (default), 'octave', or 'both'
             seal: Add cryptographic seal to OCTAVE output for tamper detection (v1.0.0)
+            export_decision: Export DecisionRecord to context directory for
+                search indexing (Issue #138). Creates an OCTAVE file in
+                .hestai/context/decisions/ that search_decisions can find.
         """
         return debate_close(
             thread_id=thread_id,
             synthesis=synthesis,
             output_format=output_format,  # type: ignore[arg-type]
             seal=seal,
+            export_decision=export_decision,
         )
 
     @server.tool()
@@ -302,6 +307,7 @@ def create_server() -> FastMCP:
         compression_tier: Literal["none", "basic", "aggressive", "ultra"] | None = None,
         primer_tier: Literal["none", "literacy", "standard", "advanced"] | None = None,
         context_files: list[str] | None = None,
+        mode: Literal["standard", "raci"] = "standard",
     ) -> dict[str, Any]:
         """Auto-orchestrate a Wind/Wall/Door debate (ADR-0002).
 
@@ -318,6 +324,9 @@ def create_server() -> FastMCP:
             primer_tier: Override primer tier (None = use tier default)
             context_files: Optional list of absolute file paths to inject as
                 codebase context. Agents will see file contents in their prompts.
+            mode: Debate mode - "standard" for full Wind/Wall/Door debate,
+                "raci" for lightweight RACI Dialogue Mode (Issue #139).
+                RACI completes in exactly 3 turns with no consensus loop.
 
         Returns:
             Dictionary with thread_id, topic, status, turn_count, and synthesis
@@ -329,6 +338,7 @@ def create_server() -> FastMCP:
             compression_tier=compression_tier,
             primer_tier=primer_tier,
             context_files=context_files,
+            mode=mode,
         )
 
     @server.tool()
