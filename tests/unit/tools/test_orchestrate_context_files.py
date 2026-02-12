@@ -609,10 +609,10 @@ class TestOrchestratorContextBlockInjection:
                 assert "<CODEBASE_CONTEXT>" not in user_prompt
 
     @pytest.mark.anyio
-    async def test_context_block_injected_in_raci_mode(
+    async def test_context_block_injected_in_speed_mode(
         self, tmp_path: Path, mock_provider_factory: MagicMock
     ) -> None:
-        """Context block should also be injected in RACI mode prompts."""
+        """Context block should also be injected in Speed mode prompts."""
         tier_config = TierConfig(
             wind=RoleConfig(provider="cli", cli="claude"),
             wall=RoleConfig(provider="cli", cli="codex"),
@@ -620,7 +620,7 @@ class TestOrchestratorContextBlockInjection:
             settings=TierSettings(primer_tier="none", compression_tier="none"),
         )
         context_block = (
-            '<CODEBASE_CONTEXT>\n<FILE path="raci.py">\n# raci\n</FILE>\n</CODEBASE_CONTEXT>'
+            '<CODEBASE_CONTEXT>\n<FILE path="speed.py">\n# speed\n</FILE>\n</CODEBASE_CONTEXT>'
         )
         orchestrator = DebateOrchestrator(
             tier_config,
@@ -644,11 +644,11 @@ class TestOrchestratorContextBlockInjection:
                 }
 
                 provider = mock_provider_factory(tier_config.wind)
-                await orchestrator._execute_raci_role_turn(
+                await orchestrator._execute_speed_role_turn(
                     role="Wind",
                     provider=provider,
                     thread_id="test-thread",
-                    user_prompt="RACI prompt",
+                    user_prompt="Speed prompt",
                     timeout=60,
                 )
 

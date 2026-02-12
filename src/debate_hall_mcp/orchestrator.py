@@ -41,9 +41,9 @@ from debate_hall_mcp.consensus import parse_consensus_response
 from debate_hall_mcp.events import EventType, append_event, build_turn_added_payload
 from debate_hall_mcp.prompts import (
     format_door_user_prompt,
-    format_raci_door_user_prompt,
-    format_raci_wall_user_prompt,
-    format_raci_wind_user_prompt,
+    format_speed_door_user_prompt,
+    format_speed_wall_user_prompt,
+    format_speed_wind_user_prompt,
     format_wall_approval_prompt,
     format_wall_user_prompt,
     format_wind_approval_prompt,
@@ -754,7 +754,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
         the orchestration from the appropriate point based on the turn count.
 
         Mode-aware dispatch (CRS blocking issue fix):
-        - RACI mode debates dispatch to _resume_raci() for RACI-specific prompts
+        - Speed mode debates dispatch to _resume_speed() for Speed-specific prompts
         - Standard mode debates continue with standard orchestration logic
 
         Args:
@@ -779,10 +779,10 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 f"only PAUSED debates can be resumed"
             )
 
-        # MODE-AWARE DISPATCH: RACI debates use RACI-specific resume logic
-        # This ensures RACI prompts and no consensus loop (CRS blocking issue fix)
-        if room.mode == DebateMode.RACI:
-            return await self._resume_raci(room, thread_id)
+        # MODE-AWARE DISPATCH: Speed debates use Speed-specific resume logic
+        # This ensures Speed prompts and no consensus loop (CRS blocking issue fix)
+        if room.mode == DebateMode.SPEED:
+            return await self._resume_speed(room, thread_id)
 
         # Standard mode resume logic follows
         topic = room.topic
@@ -931,19 +931,19 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 save_debate_state(room, self.state_dir)
             raise
 
-    async def _resume_raci(self, room: Any, thread_id: str) -> DebateResult:
-        """Resume a PAUSED RACI debate with RACI-specific prompts.
+    async def _resume_speed(self, room: Any, thread_id: str) -> DebateResult:
+        """Resume a PAUSED Speed debate with Speed-specific prompts.
 
-        RACI resume is simpler than standard resume:
-        - Uses RACI prompts (Responsible/Consulted/Accountable)
-        - Skips consensus loop entirely (RACI never uses consensus)
+        Speed resume is simpler than standard resume:
+        - Uses Speed prompts (Responsible/Consulted/Accountable)
+        - Skips consensus loop entirely (Speed never uses consensus)
         - Completes remaining turns up to max 3
 
-        This method handles the CRS blocking issue fix: ensuring RACI debates
-        maintain their RACI semantics through pause/resume cycles.
+        This method handles the CRS blocking issue fix: ensuring Speed debates
+        maintain their Speed semantics through pause/resume cycles.
 
         Args:
-            room: The loaded DebateRoom (already validated as PAUSED, RACI)
+            room: The loaded DebateRoom (already validated as PAUSED, Speed)
             thread_id: Thread ID for the debate
 
         Returns:
@@ -968,34 +968,34 @@ Respond with your refined synthesis using the OCTAVE response format."""
             door_turns = [t for t in room.turns if t.role == "Door"]
             current_synthesis = door_turns[-1].content if door_turns else ""
 
-            # Complete missing RACI turns using RACI-specific prompts
+            # Complete missing Speed turns using Speed-specific prompts
             if turn_count < 3:
-                # Complete missing Wind turn with RACI prompt
+                # Complete missing Wind turn with Speed prompt
                 if "Wind" not in existing_roles:
-                    wind_user_prompt = format_raci_wind_user_prompt(topic, thread_id)
-                    await self._execute_raci_role_turn(
+                    wind_user_prompt = format_speed_wind_user_prompt(topic, thread_id)
+                    await self._execute_speed_role_turn(
                         "Wind", wind_provider, thread_id, wind_user_prompt, timeout
                     )
                     turn_count += 1
 
-                # Complete missing Wall turn with RACI prompt
+                # Complete missing Wall turn with Speed prompt
                 if "Wall" not in existing_roles:
-                    wall_user_prompt = format_raci_wall_user_prompt(topic, thread_id)
-                    await self._execute_raci_role_turn(
+                    wall_user_prompt = format_speed_wall_user_prompt(topic, thread_id)
+                    await self._execute_speed_role_turn(
                         "Wall", wall_provider, thread_id, wall_user_prompt, timeout
                     )
                     turn_count += 1
 
-                # Complete missing Door turn with RACI prompt
+                # Complete missing Door turn with Speed prompt
                 if "Door" not in existing_roles:
-                    door_user_prompt = format_raci_door_user_prompt(topic, thread_id)
-                    door_response = await self._execute_raci_role_turn(
+                    door_user_prompt = format_speed_door_user_prompt(topic, thread_id)
+                    door_response = await self._execute_speed_role_turn(
                         "Door", door_provider, thread_id, door_user_prompt, timeout
                     )
                     turn_count += 1
                     current_synthesis = door_response.content
 
-            # RACI: No consensus loop - close directly with synthesis
+            # Speed: No consensus loop - close directly with synthesis
             debate_close(
                 thread_id=thread_id,
                 synthesis=current_synthesis,
@@ -1010,7 +1010,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 payload={
                     "status": "synthesis",
                     "synthesis_preview": current_synthesis[:100] if current_synthesis else "",
-                    "mode": "raci",
+                    "mode": "speed",
                 },
                 state_dir=self.state_dir,
             )
@@ -1041,35 +1041,35 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
             raise
 
-    def _get_raci_prompt(self, role: str) -> str:
-        """Get RACI-specific prompt for a role.
+    def _get_speed_prompt(self, role: str) -> str:
+        """Get Speed-specific prompt for a role.
 
-        RACI prompts are more concise than standard prompts, designed for
-        the lightweight RACI Dialogue Mode (Issue #139).
+        Speed prompts are more concise than standard prompts, designed for
+        the lightweight Speed Dialogue Mode (Issue #139).
 
         Args:
             role: The debate role (wind, wall, door)
 
         Returns:
-            RACI prompt string (OCTAVE format)
+            Speed prompt string (OCTAVE format)
         """
         from debate_hall_mcp.prompts import (
-            RACI_DOOR_PROMPT,
-            RACI_WALL_PROMPT,
-            RACI_WIND_PROMPT,
+            SPEED_DOOR_PROMPT,
+            SPEED_WALL_PROMPT,
+            SPEED_WIND_PROMPT,
         )
 
         prompts = {
-            "wind": RACI_WIND_PROMPT,
-            "wall": RACI_WALL_PROMPT,
-            "door": RACI_DOOR_PROMPT,
+            "wind": SPEED_WIND_PROMPT,
+            "wall": SPEED_WALL_PROMPT,
+            "door": SPEED_DOOR_PROMPT,
         }
-        return prompts.get(role.lower(), RACI_WIND_PROMPT)
+        return prompts.get(role.lower(), SPEED_WIND_PROMPT)
 
-    async def run_raci(self, topic: str, thread_id: str | None = None) -> DebateResult:
-        """Run a RACI Dialogue Mode debate (Issue #139).
+    async def run_speed(self, topic: str, thread_id: str | None = None) -> DebateResult:
+        """Run a Speed Dialogue Mode debate (Issue #139).
 
-        RACI is a lightweight debate mode (550 tokens vs 90,000 full debate):
+        Speed is a lightweight debate mode (550 tokens vs 90,000 full debate):
         - Wind (Responsible): Proposes the action
         - Wall (Consulted): Validates or yields
         - Door (Accountable): Ratifies the decision
@@ -1099,11 +1099,11 @@ Respond with your refined synthesis using the OCTAVE response format."""
         timeout = self._get_provider_timeout()
 
         try:
-            # 1. Initialize debate in RACI mode (enforces max_turns=3, max_rounds=1)
+            # 1. Initialize debate in Speed mode (enforces max_turns=3, max_rounds=1)
             debate_init(
                 thread_id=thread_id,
                 topic=topic,
-                mode="raci",
+                mode="speed",
                 state_dir=self.state_dir,
             )
             debate_initialized = True
@@ -1112,7 +1112,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
             append_event(
                 thread_id=thread_id,
                 event_type=EventType.DEBATE_STARTED,
-                payload={"topic": topic, "tier": "raci", "mode": "raci"},
+                payload={"topic": topic, "tier": "speed", "mode": "speed"},
                 state_dir=self.state_dir,
             )
 
@@ -1122,20 +1122,20 @@ Respond with your refined synthesis using the OCTAVE response format."""
             door_provider = self._provider_factory(self.tier_config.door)
 
             # 3. Wind turn (Responsible - Proposes)
-            wind_user_prompt = format_raci_wind_user_prompt(topic, thread_id)
-            await self._execute_raci_role_turn(
+            wind_user_prompt = format_speed_wind_user_prompt(topic, thread_id)
+            await self._execute_speed_role_turn(
                 "Wind", wind_provider, thread_id, wind_user_prompt, timeout
             )
 
             # 4. Wall turn (Consulted - Validates or Yields)
-            wall_user_prompt = format_raci_wall_user_prompt(topic, thread_id)
-            await self._execute_raci_role_turn(
+            wall_user_prompt = format_speed_wall_user_prompt(topic, thread_id)
+            await self._execute_speed_role_turn(
                 "Wall", wall_provider, thread_id, wall_user_prompt, timeout
             )
 
             # 5. Door turn (Accountable - Ratifies)
-            door_user_prompt = format_raci_door_user_prompt(topic, thread_id)
-            door_response = await self._execute_raci_role_turn(
+            door_user_prompt = format_speed_door_user_prompt(topic, thread_id)
+            door_response = await self._execute_speed_role_turn(
                 "Door", door_provider, thread_id, door_user_prompt, timeout
             )
 
@@ -1154,7 +1154,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 payload={
                     "status": "synthesis",
                     "synthesis_preview": door_response.content[:100],
-                    "mode": "raci",
+                    "mode": "speed",
                 },
                 state_dir=self.state_dir,
             )
@@ -1187,7 +1187,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
             raise
 
-    async def _execute_raci_role_turn(
+    async def _execute_speed_role_turn(
         self,
         role: str,
         provider: ModelProvider,
@@ -1195,15 +1195,15 @@ Respond with your refined synthesis using the OCTAVE response format."""
         user_prompt: str,
         timeout: int,
     ) -> ProviderResponse:
-        """Execute a RACI role turn with RACI-specific prompts.
+        """Execute a Speed role turn with Speed-specific prompts.
 
-        Similar to _execute_role_turn but uses RACI prompts instead of standard.
+        Similar to _execute_role_turn but uses Speed prompts instead of standard.
 
         Args:
             role: The debate role (Wind, Wall, Door)
             provider: The provider instance for this role
             thread_id: Thread ID for the debate
-            user_prompt: The formatted RACI user prompt to send
+            user_prompt: The formatted Speed user prompt to send
             timeout: Provider timeout in seconds
 
         Returns:
@@ -1225,9 +1225,9 @@ Respond with your refined synthesis using the OCTAVE response format."""
         # Format state as structured block
         state_block = self._format_debate_state(debate_state)
 
-        # VTP: Build enhanced prompt (no primers for RACI - lightweight mode)
-        # RACI skips primer injection for token efficiency
-        # But context_block IS injected for RACI if provided (Issue #133)
+        # VTP: Build enhanced prompt (no primers for Speed - lightweight mode)
+        # Speed skips primer injection for token efficiency
+        # But context_block IS injected for Speed if provided (Issue #133)
         enhanced_prompt = ""
         if self._context_block:
             enhanced_prompt += f"{self._context_block}\n\n"
@@ -1236,7 +1236,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
         # Call provider with timeout
         response: ProviderResponse = await asyncio.wait_for(
             provider.complete(
-                system_prompt=self._get_raci_prompt(role.lower()),
+                system_prompt=self._get_speed_prompt(role.lower()),
                 user_prompt=enhanced_prompt,
             ),
             timeout=timeout,
@@ -1265,7 +1265,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 content_hash=turn_result["turn_hash"],
                 tokens_in=response.token_input,
                 tokens_out=response.token_output,
-                mode="raci",
+                mode="speed",
             ),
             state_dir=self.state_dir,
         )

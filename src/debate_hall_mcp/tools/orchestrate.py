@@ -274,7 +274,7 @@ async def run_debate(
     state_dir: Path | None = None,
     compression_tier: Literal["none", "basic", "aggressive", "ultra"] | None = None,
     primer_tier: Literal["none", "literacy", "standard", "advanced"] | None = None,
-    mode: Literal["standard", "raci"] = "standard",
+    mode: Literal["standard", "speed"] = "standard",
     context_files: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run an automated Wind/Wall/Door debate.
@@ -295,8 +295,8 @@ async def run_debate(
         state_dir: Directory for state files (defaults to ./debates)
         compression_tier: Override compression tier (None = use tier default)
         primer_tier: Override primer tier (None = use tier default)
-        mode: Debate mode - "standard" for full debate, "raci" for lightweight
-            RACI Dialogue Mode (Issue #139). RACI mode completes in exactly
+        mode: Debate mode - "standard" for full debate, "speed" for lightweight
+            Speed Dialogue Mode (Issue #139). Speed mode completes in exactly
             3 turns with no consensus loop.
         context_files: Optional list of absolute file paths to inject as codebase
             context into debate prompts (Issue #133). Files are read and injected
@@ -339,9 +339,9 @@ async def run_debate(
     # Create orchestrator with context block
     orchestrator = DebateOrchestrator(tier_config, state_dir, context_block=context_block or None)
 
-    # Run debate - use RACI mode if specified (Issue #139)
-    if mode == "raci":
-        result = await orchestrator.run_raci(topic=topic, thread_id=thread_id)
+    # Run debate - use Speed mode if specified (Issue #139)
+    if mode == "speed":
+        result = await orchestrator.run_speed(topic=topic, thread_id=thread_id)
     else:
         result = await orchestrator.run(topic=topic, thread_id=thread_id)
 
