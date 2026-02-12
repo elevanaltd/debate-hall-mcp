@@ -172,7 +172,7 @@ def _get_event_file_lock(event_file: Path) -> FileLock:
         since both reads and writes need consistency and contention
         is expected to be low.
     """
-    lock_file = event_file.with_suffix(".events.lock")
+    lock_file = event_file.with_suffix(".lock")
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     return FileLock(str(lock_file))
 
