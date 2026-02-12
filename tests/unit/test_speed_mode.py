@@ -1,9 +1,9 @@
-"""Unit tests for RACI Dialogue Mode (Issue #139).
+"""Unit tests for Speed Dialogue Mode (Issue #139).
 
-RACI Mode is a lightweight debate mode (550 tokens vs 90,000 full debate):
-- Wind (Responsible): Proposes the action
-- Wall (Consulted): Validates constraints/risks or yields
-- Door (Accountable): Ratifies the decision
+Speed Mode is a lightweight debate mode (550 tokens vs 90,000 full debate):
+- Wind (Proposer): Proposes the action
+- Wall (Validator): Validates constraints/risks or yields
+- Door (Ratifier): Ratifies the decision
 
 Key characteristics:
 - Single-round (max_rounds: 1, max_turns: 3)
@@ -28,16 +28,16 @@ from debate_hall_mcp.tools.init import debate_init
 
 
 @pytest.fixture
-def raci_tier_config() -> TierConfig:
-    """Create a test tier configuration for RACI mode."""
+def speed_tier_config() -> TierConfig:
+    """Create a test tier configuration for Speed mode."""
     return TierConfig(
         wind=RoleConfig(provider="cli", cli="claude", role="wind-agent"),
         wall=RoleConfig(provider="cli", cli="codex", role="wall-agent"),
         door=RoleConfig(provider="cli", cli="gemini", role="door-agent"),
         settings=TierSettings(
-            consensus_required=False,  # RACI never uses consensus loop
-            max_turns=3,  # RACI hard limit
-            max_refinement_loops=0,  # No refinement in RACI
+            consensus_required=False,  # Speed never uses consensus loop
+            max_turns=3,  # Speed hard limit
+            max_refinement_loops=0,  # No refinement in Speed
         ),
     )
 
@@ -70,180 +70,180 @@ def create_mock_provider_factory(mock_provider: AsyncMock) -> Any:
 
 
 class TestDebateModeEnum:
-    """Tests for RACI in DebateMode enum."""
+    """Tests for Speed in DebateMode enum."""
 
-    def test_debate_mode_has_raci_value(self) -> None:
-        """DebateMode enum should include 'raci' as a valid mode."""
-        assert DebateMode.RACI.value == "raci"
+    def test_debate_mode_has_speed_value(self) -> None:
+        """DebateMode enum should include 'speed' as a valid mode."""
+        assert DebateMode.SPEED.value == "speed"
 
-    def test_debate_mode_raci_is_str_enum(self) -> None:
-        """DebateMode.RACI should be usable as a string."""
-        assert str(DebateMode.RACI) == "raci"
-        assert DebateMode.RACI.value == "raci"
+    def test_debate_mode_speed_is_str_enum(self) -> None:
+        """DebateMode.SPEED should be usable as a string."""
+        assert str(DebateMode.SPEED) == "speed"
+        assert DebateMode.SPEED.value == "speed"
 
 
-class TestRaciDebateInit:
-    """Tests for debate_init with RACI mode."""
+class TestSpeedDebateInit:
+    """Tests for debate_init with Speed mode."""
 
-    def test_init_raci_mode_succeeds(self, temp_state_dir: Path) -> None:
-        """debate_init should accept mode='raci'."""
+    def test_init_speed_mode_succeeds(self, temp_state_dir: Path) -> None:
+        """debate_init should accept mode='speed'."""
         result = debate_init(
-            thread_id="2026-02-08-raci-test",
-            topic="RACI test topic",
-            mode="raci",
+            thread_id="2026-02-08-speed-test",
+            topic="Speed test topic",
+            mode="speed",
             state_dir=temp_state_dir,
         )
-        assert result["mode"] == "raci"
+        assert result["mode"] == "speed"
 
-    def test_init_raci_enforces_max_turns_3(self, temp_state_dir: Path) -> None:
-        """RACI mode should enforce max_turns=3 regardless of input."""
+    def test_init_speed_enforces_max_turns_3(self, temp_state_dir: Path) -> None:
+        """Speed mode should enforce max_turns=3 regardless of input."""
         result = debate_init(
-            thread_id="2026-02-08-raci-turns-test",
-            topic="RACI turns test",
-            mode="raci",
+            thread_id="2026-02-08-speed-turns-test",
+            topic="Speed turns test",
+            mode="speed",
             max_turns=12,  # User tries to set higher limit
             state_dir=temp_state_dir,
         )
-        # RACI enforces max_turns=3
+        # Speed enforces max_turns=3
         assert result["max_turns"] == 3
 
-    def test_init_raci_enforces_max_rounds_1(self, temp_state_dir: Path) -> None:
-        """RACI mode should enforce max_rounds=1 regardless of input."""
+    def test_init_speed_enforces_max_rounds_1(self, temp_state_dir: Path) -> None:
+        """Speed mode should enforce max_rounds=1 regardless of input."""
         result = debate_init(
-            thread_id="2026-02-08-raci-rounds-test",
-            topic="RACI rounds test",
-            mode="raci",
+            thread_id="2026-02-08-speed-rounds-test",
+            topic="Speed rounds test",
+            mode="speed",
             max_rounds=4,  # User tries to set higher limit
             state_dir=temp_state_dir,
         )
-        # RACI enforces max_rounds=1
+        # Speed enforces max_rounds=1
         assert result["max_rounds"] == 1
 
-    def test_init_raci_persists_mode_in_state(self, temp_state_dir: Path) -> None:
-        """RACI mode should be persisted in debate state."""
-        thread_id = "2026-02-08-raci-persist-test"
+    def test_init_speed_persists_mode_in_state(self, temp_state_dir: Path) -> None:
+        """Speed mode should be persisted in debate state."""
+        thread_id = "2026-02-08-speed-persist-test"
         debate_init(
             thread_id=thread_id,
-            topic="RACI persist test",
-            mode="raci",
+            topic="Speed persist test",
+            mode="speed",
             state_dir=temp_state_dir,
         )
         room = load_debate_state(thread_id, temp_state_dir)
-        assert room.mode == DebateMode.RACI
+        assert room.mode == DebateMode.SPEED
 
 
-class TestRaciPrompts:
-    """Tests for RACI-specific prompts."""
+class TestSpeedPrompts:
+    """Tests for Speed-specific prompts."""
 
-    def test_raci_wind_prompt_exists(self) -> None:
-        """RACI Wind prompt should exist and be distinct from standard."""
-        from debate_hall_mcp.prompts import RACI_WIND_PROMPT, WIND_PROMPT
+    def test_speed_wind_prompt_exists(self) -> None:
+        """Speed Wind prompt should exist and be distinct from standard."""
+        from debate_hall_mcp.prompts import SPEED_WIND_PROMPT, WIND_PROMPT
 
-        assert RACI_WIND_PROMPT is not None
-        assert len(RACI_WIND_PROMPT) > 0
-        # RACI prompt should be more concise
-        assert len(RACI_WIND_PROMPT) < len(WIND_PROMPT)
+        assert SPEED_WIND_PROMPT is not None
+        assert len(SPEED_WIND_PROMPT) > 0
+        # Speed prompt should be more concise
+        assert len(SPEED_WIND_PROMPT) < len(WIND_PROMPT)
 
-    def test_raci_wall_prompt_exists(self) -> None:
-        """RACI Wall prompt should exist with YIELD option."""
-        from debate_hall_mcp.prompts import RACI_WALL_PROMPT
+    def test_speed_wall_prompt_exists(self) -> None:
+        """Speed Wall prompt should exist with YIELD option."""
+        from debate_hall_mcp.prompts import SPEED_WALL_PROMPT
 
-        assert RACI_WALL_PROMPT is not None
-        assert "YIELD" in RACI_WALL_PROMPT
-        assert "APPROVE" in RACI_WALL_PROMPT or "VALIDATE" in RACI_WALL_PROMPT
+        assert SPEED_WALL_PROMPT is not None
+        assert "YIELD" in SPEED_WALL_PROMPT
+        assert "APPROVE" in SPEED_WALL_PROMPT or "VALIDATE" in SPEED_WALL_PROMPT
 
-    def test_raci_door_prompt_exists(self) -> None:
-        """RACI Door prompt should exist and focus on ratification."""
-        from debate_hall_mcp.prompts import DOOR_PROMPT, RACI_DOOR_PROMPT
+    def test_speed_door_prompt_exists(self) -> None:
+        """Speed Door prompt should exist and focus on ratification."""
+        from debate_hall_mcp.prompts import DOOR_PROMPT, SPEED_DOOR_PROMPT
 
-        assert RACI_DOOR_PROMPT is not None
-        assert len(RACI_DOOR_PROMPT) > 0
-        # RACI prompt should be more concise
-        assert len(RACI_DOOR_PROMPT) < len(DOOR_PROMPT)
+        assert SPEED_DOOR_PROMPT is not None
+        assert len(SPEED_DOOR_PROMPT) > 0
+        # Speed prompt should be more concise
+        assert len(SPEED_DOOR_PROMPT) < len(DOOR_PROMPT)
 
-    def test_format_raci_wind_user_prompt(self) -> None:
-        """format_raci_wind_user_prompt should format RACI Wind prompt."""
-        from debate_hall_mcp.prompts import format_raci_wind_user_prompt
+    def test_format_speed_wind_user_prompt(self) -> None:
+        """format_speed_wind_user_prompt should format Speed Wind prompt."""
+        from debate_hall_mcp.prompts import format_speed_wind_user_prompt
 
-        prompt = format_raci_wind_user_prompt(
+        prompt = format_speed_wind_user_prompt(
             topic="Test action proposal",
             thread_id="2026-02-08-test",
         )
-        assert "Responsible" in prompt or "propose" in prompt.lower()
+        assert "Proposer" in prompt or "propose" in prompt.lower()
         assert "Test action proposal" in prompt
 
-    def test_format_raci_wall_user_prompt(self) -> None:
-        """format_raci_wall_user_prompt should include YIELD option."""
-        from debate_hall_mcp.prompts import format_raci_wall_user_prompt
+    def test_format_speed_wall_user_prompt(self) -> None:
+        """format_speed_wall_user_prompt should include YIELD option."""
+        from debate_hall_mcp.prompts import format_speed_wall_user_prompt
 
-        prompt = format_raci_wall_user_prompt(
+        prompt = format_speed_wall_user_prompt(
             topic="Test action proposal",
             thread_id="2026-02-08-test",
         )
         assert "YIELD" in prompt
         assert "Test action proposal" in prompt
 
-    def test_format_raci_door_user_prompt(self) -> None:
-        """format_raci_door_user_prompt should focus on ratification."""
-        from debate_hall_mcp.prompts import format_raci_door_user_prompt
+    def test_format_speed_door_user_prompt(self) -> None:
+        """format_speed_door_user_prompt should focus on ratification."""
+        from debate_hall_mcp.prompts import format_speed_door_user_prompt
 
-        prompt = format_raci_door_user_prompt(
+        prompt = format_speed_door_user_prompt(
             topic="Test action proposal",
             thread_id="2026-02-08-test",
         )
-        assert "ratif" in prompt.lower() or "Accountable" in prompt
+        assert "ratif" in prompt.lower() or "Ratifier" in prompt
         assert "Test action proposal" in prompt
 
 
-class TestRaciOrchestrator:
-    """Tests for RACI mode in DebateOrchestrator."""
+class TestSpeedOrchestrator:
+    """Tests for Speed mode in DebateOrchestrator."""
 
     @pytest.mark.anyio
-    async def test_run_raci_returns_debate_result(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_run_speed_returns_debate_result(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """run_raci() should return a DebateResult."""
+        """run_speed() should return a DebateResult."""
         mock_provider = AsyncMock()
         mock_provider.complete.return_value = create_mock_provider_response(
-            "## RACI Response\n\nAction proposed."
+            "## Speed Response\n\nAction proposed."
         )
 
         orchestrator = DebateOrchestrator(
-            raci_tier_config,
+            speed_tier_config,
             temp_state_dir,
             provider_factory=create_mock_provider_factory(mock_provider),
         )
 
-        result = await orchestrator.run_raci(topic="RACI test topic")
+        result = await orchestrator.run_speed(topic="Speed test topic")
 
         assert isinstance(result, DebateResult)
         assert result.thread_id is not None
-        assert result.topic == "RACI test topic"
+        assert result.topic == "Speed test topic"
 
     @pytest.mark.anyio
-    async def test_run_raci_completes_in_exactly_3_turns(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_run_speed_completes_in_exactly_3_turns(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """RACI should complete in exactly 3 turns (Wind->Wall->Door)."""
+        """Speed should complete in exactly 3 turns (Wind->Wall->Door)."""
         mock_provider = AsyncMock()
         mock_provider.complete.return_value = create_mock_provider_response("Response content")
 
         orchestrator = DebateOrchestrator(
-            raci_tier_config,
+            speed_tier_config,
             temp_state_dir,
             provider_factory=create_mock_provider_factory(mock_provider),
         )
 
-        result = await orchestrator.run_raci(topic="3-turn test")
+        result = await orchestrator.run_speed(topic="3-turn test")
 
         assert result.turn_count == 3
         assert result.status == "synthesis"
 
     @pytest.mark.anyio
-    async def test_run_raci_calls_wind_wall_door_in_sequence(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_run_speed_calls_wind_wall_door_in_sequence(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """RACI should call Wind, Wall, Door in sequence."""
+        """Speed should call Wind, Wall, Door in sequence."""
         call_order: list[str] = []
 
         def mock_complete(
@@ -251,12 +251,12 @@ class TestRaciOrchestrator:
             user_prompt: str,  # noqa: ARG001
             **kwargs: Any,  # noqa: ARG001
         ) -> ProviderResponse:
-            # Check system_prompt for RACI role identifiers
-            if "RACI_WIND" in system_prompt or "Responsible" in system_prompt:
+            # Check system_prompt for Speed role identifiers
+            if "SPEED_WIND" in system_prompt or "Proposer" in system_prompt:
                 call_order.append("wind")
-            elif "RACI_WALL" in system_prompt or "Consulted" in system_prompt:
+            elif "SPEED_WALL" in system_prompt or "Validator" in system_prompt:
                 call_order.append("wall")
-            elif "RACI_DOOR" in system_prompt or "Accountable" in system_prompt:
+            elif "SPEED_DOOR" in system_prompt or "Ratifier" in system_prompt:
                 call_order.append("door")
             return create_mock_provider_response("Response")
 
@@ -264,25 +264,25 @@ class TestRaciOrchestrator:
         mock_provider.complete.side_effect = mock_complete
 
         orchestrator = DebateOrchestrator(
-            raci_tier_config,
+            speed_tier_config,
             temp_state_dir,
             provider_factory=create_mock_provider_factory(mock_provider),
         )
 
-        await orchestrator.run_raci(topic="Sequence test")
+        await orchestrator.run_speed(topic="Sequence test")
 
         assert call_order == ["wind", "wall", "door"]
 
     @pytest.mark.anyio
-    async def test_run_raci_skips_consensus_loop(self, temp_state_dir: Path) -> None:
-        """RACI should skip consensus loop even if consensus_required=True."""
+    async def test_run_speed_skips_consensus_loop(self, temp_state_dir: Path) -> None:
+        """Speed should skip consensus loop even if consensus_required=True."""
         # Create config with consensus_required=True
         tier_config = TierConfig(
             wind=RoleConfig(provider="cli", cli="claude"),
             wall=RoleConfig(provider="cli", cli="codex"),
             door=RoleConfig(provider="cli", cli="gemini"),
             settings=TierSettings(
-                consensus_required=True,  # Even with this, RACI skips
+                consensus_required=True,  # Even with this, Speed skips
                 max_refinement_loops=3,
             ),
         )
@@ -296,7 +296,7 @@ class TestRaciOrchestrator:
             provider_factory=create_mock_provider_factory(mock_provider),
         )
 
-        result = await orchestrator.run_raci(topic="Skip consensus test")
+        result = await orchestrator.run_speed(topic="Skip consensus test")
 
         # Should complete in 3 turns, not more (no consensus loop)
         assert result.turn_count == 3
@@ -304,10 +304,10 @@ class TestRaciOrchestrator:
         assert mock_provider.complete.call_count == 3
 
     @pytest.mark.anyio
-    async def test_run_raci_uses_raci_prompts(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_run_speed_uses_speed_prompts(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """RACI should use RACI-specific prompts, not standard prompts."""
+        """Speed should use Speed-specific prompts, not standard prompts."""
         captured_prompts: list[str] = []
 
         def mock_complete(
@@ -322,20 +322,20 @@ class TestRaciOrchestrator:
         mock_provider.complete.side_effect = mock_complete
 
         orchestrator = DebateOrchestrator(
-            raci_tier_config,
+            speed_tier_config,
             temp_state_dir,
             provider_factory=create_mock_provider_factory(mock_provider),
         )
 
-        await orchestrator.run_raci(topic="Prompt test")
+        await orchestrator.run_speed(topic="Prompt test")
 
-        # Wall prompt should include YIELD option (RACI-specific)
+        # Wall prompt should include YIELD option (Speed-specific)
         wall_prompt = captured_prompts[1]  # Second call is Wall
         assert "YIELD" in wall_prompt
 
 
-class TestRaciWallYield:
-    """Tests for Wall YIELD functionality in RACI mode."""
+class TestSpeedWallYield:
+    """Tests for Wall YIELD functionality in Speed mode."""
 
     def test_wall_yield_counts_as_approval(self) -> None:
         """Wall responding with YIELD should count as implicit approval."""
@@ -347,10 +347,10 @@ class TestRaciWallYield:
         assert result.approved is True
 
     @pytest.mark.anyio
-    async def test_wall_yield_completes_raci_successfully(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_wall_yield_completes_speed_successfully(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """RACI with Wall YIELD should complete with synthesis status."""
+        """Speed with Wall YIELD should complete with synthesis status."""
         call_count = 0
 
         def mock_complete(
@@ -371,49 +371,49 @@ class TestRaciWallYield:
         mock_provider.complete.side_effect = mock_complete
 
         orchestrator = DebateOrchestrator(
-            raci_tier_config,
+            speed_tier_config,
             temp_state_dir,
             provider_factory=create_mock_provider_factory(mock_provider),
         )
 
-        result = await orchestrator.run_raci(topic="Yield test")
+        result = await orchestrator.run_speed(topic="Yield test")
 
         assert result.status == "synthesis"
         assert result.turn_count == 3
 
 
-class TestRaciTokenEfficiency:
-    """Tests for RACI token efficiency (target: <1000 tokens average)."""
+class TestSpeedTokenEfficiency:
+    """Tests for Speed token efficiency (target: <1000 tokens average)."""
 
-    def test_raci_uses_concise_prompts(self) -> None:
-        """RACI prompts should be significantly shorter than standard prompts."""
+    def test_speed_uses_concise_prompts(self) -> None:
+        """Speed prompts should be significantly shorter than standard prompts."""
         from debate_hall_mcp.prompts import (
             DOOR_PROMPT,
-            RACI_DOOR_PROMPT,
-            RACI_WALL_PROMPT,
-            RACI_WIND_PROMPT,
+            SPEED_DOOR_PROMPT,
+            SPEED_WALL_PROMPT,
+            SPEED_WIND_PROMPT,
             WALL_PROMPT,
             WIND_PROMPT,
         )
 
-        # RACI prompts should be at least 50% shorter
-        assert len(RACI_WIND_PROMPT) < len(WIND_PROMPT) * 0.5
-        assert len(RACI_WALL_PROMPT) < len(WALL_PROMPT) * 0.5
-        assert len(RACI_DOOR_PROMPT) < len(DOOR_PROMPT) * 0.5
+        # Speed prompts should be at least 50% shorter
+        assert len(SPEED_WIND_PROMPT) < len(WIND_PROMPT) * 0.5
+        assert len(SPEED_WALL_PROMPT) < len(WALL_PROMPT) * 0.5
+        assert len(SPEED_DOOR_PROMPT) < len(DOOR_PROMPT) * 0.5
 
 
-class TestRaciIntegration:
-    """Integration tests for RACI mode with run_debate tool.
+class TestSpeedIntegration:
+    """Integration tests for Speed mode with run_debate tool.
 
-    These tests verify that run_debate properly dispatches to RACI mode.
+    These tests verify that run_debate properly dispatches to Speed mode.
     They mock DebateOrchestrator to avoid invoking real CLI providers.
     """
 
     @pytest.mark.anyio
-    async def test_run_debate_with_raci_mode(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_run_debate_with_speed_mode(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """run_debate should support mode='raci' parameter."""
+        """run_debate should support mode='speed' parameter."""
         from unittest.mock import MagicMock
 
         from debate_hall_mcp.orchestrator import DebateResult
@@ -421,8 +421,8 @@ class TestRaciIntegration:
 
         # Create mock debate result
         mock_result = DebateResult(
-            thread_id="2026-02-08-raci-integration-test",
-            topic="RACI integration test",
+            thread_id="2026-02-08-speed-integration-test",
+            topic="Speed integration test",
             status="synthesis",
             turn_count=3,
             synthesis="## Ratification\n\nDecision ratified.",
@@ -431,51 +431,51 @@ class TestRaciIntegration:
         with (
             patch(
                 "debate_hall_mcp.tools.orchestrate.load_tier_config",
-                return_value=raci_tier_config,
+                return_value=speed_tier_config,
             ),
             patch(
                 "debate_hall_mcp.tools.orchestrate.DebateOrchestrator"
             ) as mock_orchestrator_class,
         ):
             mock_orchestrator = MagicMock()
-            mock_orchestrator.run_raci = AsyncMock(return_value=mock_result)
+            mock_orchestrator.run_speed = AsyncMock(return_value=mock_result)
             mock_orchestrator_class.return_value = mock_orchestrator
 
             result = await run_debate(
-                topic="RACI integration test",
+                topic="Speed integration test",
                 tier="standard",
-                mode="raci",
+                mode="speed",
                 state_dir=temp_state_dir,
             )
 
         assert result["turn_count"] == 3
         assert result["status"] == "synthesis"
-        # Verify run_raci was called (not run)
-        mock_orchestrator.run_raci.assert_called_once()
+        # Verify run_speed was called (not run)
+        mock_orchestrator.run_speed.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_run_debate_raci_initializes_with_raci_mode(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_run_debate_speed_initializes_with_speed_mode(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """run_debate with mode='raci' should initialize debate in RACI mode."""
+        """run_debate with mode='speed' should initialize debate in Speed mode."""
         from unittest.mock import MagicMock
 
         from debate_hall_mcp.orchestrator import DebateResult
         from debate_hall_mcp.tools.orchestrate import run_debate
 
-        # Initialize a real RACI debate first to verify mode is set correctly
-        thread_id = "2026-02-08-raci-mode-init-test"
+        # Initialize a real Speed debate first to verify mode is set correctly
+        thread_id = "2026-02-08-speed-mode-init-test"
         debate_init(
             thread_id=thread_id,
-            topic="RACI mode init test",
-            mode="raci",
+            topic="Speed mode init test",
+            mode="speed",
             state_dir=temp_state_dir,
         )
 
         # Create mock debate result with the same thread_id
         mock_result = DebateResult(
             thread_id=thread_id,
-            topic="RACI mode init test",
+            topic="Speed mode init test",
             status="synthesis",
             turn_count=3,
             synthesis="## Ratification\n\nDecision ratified.",
@@ -484,57 +484,57 @@ class TestRaciIntegration:
         with (
             patch(
                 "debate_hall_mcp.tools.orchestrate.load_tier_config",
-                return_value=raci_tier_config,
+                return_value=speed_tier_config,
             ),
             patch(
                 "debate_hall_mcp.tools.orchestrate.DebateOrchestrator"
             ) as mock_orchestrator_class,
         ):
             mock_orchestrator = MagicMock()
-            mock_orchestrator.run_raci = AsyncMock(return_value=mock_result)
+            mock_orchestrator.run_speed = AsyncMock(return_value=mock_result)
             mock_orchestrator_class.return_value = mock_orchestrator
 
             result = await run_debate(
-                topic="RACI mode init test",
+                topic="Speed mode init test",
                 tier="standard",
-                mode="raci",
+                mode="speed",
                 thread_id=thread_id,
                 state_dir=temp_state_dir,
             )
 
-        # Verify run_raci was called with the correct thread_id
-        mock_orchestrator.run_raci.assert_called_once_with(
-            topic="RACI mode init test", thread_id=thread_id
+        # Verify run_speed was called with the correct thread_id
+        mock_orchestrator.run_speed.assert_called_once_with(
+            topic="Speed mode init test", thread_id=thread_id
         )
 
         # Load state and verify mode from the debate we initialized
         room = load_debate_state(result["thread_id"], temp_state_dir)
-        assert room.mode == DebateMode.RACI
+        assert room.mode == DebateMode.SPEED
 
 
-class TestRaciI3Compliance:
-    """Tests for I3::FINITE_DIALECTIC_CLOSURE compliance in RACI mode."""
+class TestSpeedI3Compliance:
+    """Tests for I3::FINITE_DIALECTIC_CLOSURE compliance in Speed mode."""
 
-    def test_raci_max_turns_cannot_exceed_3(self, temp_state_dir: Path) -> None:
-        """RACI mode should never allow more than 3 turns (I3 constraint)."""
-        thread_id = "2026-02-08-raci-i3-test"
+    def test_speed_max_turns_cannot_exceed_3(self, temp_state_dir: Path) -> None:
+        """Speed mode should never allow more than 3 turns (I3 constraint)."""
+        thread_id = "2026-02-08-speed-i3-test"
         debate_init(
             thread_id=thread_id,
             topic="I3 test",
-            mode="raci",
+            mode="speed",
             max_turns=100,  # Try to exceed
             state_dir=temp_state_dir,
         )
         room = load_debate_state(thread_id, temp_state_dir)
         assert room.max_turns == 3
 
-    def test_raci_max_rounds_cannot_exceed_1(self, temp_state_dir: Path) -> None:
-        """RACI mode should never allow more than 1 round (I3 constraint)."""
-        thread_id = "2026-02-08-raci-i3-rounds-test"
+    def test_speed_max_rounds_cannot_exceed_1(self, temp_state_dir: Path) -> None:
+        """Speed mode should never allow more than 1 round (I3 constraint)."""
+        thread_id = "2026-02-08-speed-i3-rounds-test"
         debate_init(
             thread_id=thread_id,
             topic="I3 rounds test",
-            mode="raci",
+            mode="speed",
             max_rounds=10,  # Try to exceed
             state_dir=temp_state_dir,
         )
@@ -542,44 +542,44 @@ class TestRaciI3Compliance:
         assert room.max_rounds == 1
 
     @pytest.mark.anyio
-    async def test_raci_guarantees_termination(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_speed_guarantees_termination(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """RACI should guarantee termination within 3 turns (I3)."""
+        """Speed should guarantee termination within 3 turns (I3)."""
         mock_provider = AsyncMock()
         mock_provider.complete.return_value = create_mock_provider_response("Response")
 
         orchestrator = DebateOrchestrator(
-            raci_tier_config,
+            speed_tier_config,
             temp_state_dir,
             provider_factory=create_mock_provider_factory(mock_provider),
         )
 
-        result = await orchestrator.run_raci(topic="Termination test")
+        result = await orchestrator.run_speed(topic="Termination test")
 
         # Must terminate within resource bounds
         assert result.turn_count <= 3
         assert result.status in ["synthesis", "exhaustion"]
 
 
-class TestRaciResume:
-    """Tests for RACI mode resume lifecycle (CRS blocking issue fix).
+class TestSpeedResume:
+    """Tests for Speed mode resume lifecycle (CRS blocking issue fix).
 
     CRS Review Finding: resume() ignores room.mode and treats all paused debates
-    as standard mode. This causes RACI debates to:
-    1. Use standard (heavy) prompts instead of RACI prompts
-    2. Lose Responsible/Consulted/Accountable instructions
-    3. Enter consensus loop, violating RACI's "no consensus" design
+    as standard mode. This causes Speed debates to:
+    1. Use standard (heavy) prompts instead of Speed prompts
+    2. Lose Proposer/Validator/Ratifier instructions
+    3. Enter consensus loop, violating Speed's "no consensus" design
     """
 
     @pytest.mark.anyio
-    async def test_resume_raci_uses_raci_prompts(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_resume_speed_uses_speed_prompts(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """Resumed RACI debate should use RACI prompts, not standard prompts.
+        """Resumed Speed debate should use Speed prompts, not standard prompts.
 
         This is the core test for the CRS blocking issue: ensuring that
-        resume() dispatches to RACI-specific logic when room.mode is RACI.
+        resume() dispatches to Speed-specific logic when room.mode is SPEED.
         """
         captured_user_prompts: list[str] = []
         captured_system_prompts: list[str] = []
@@ -605,30 +605,30 @@ class TestRaciResume:
         mock_provider = AsyncMock()
         mock_provider.complete.side_effect = mock_complete
 
-        # First: Create a RACI debate and simulate a pause (e.g., timeout on Wind)
+        # First: Create a Speed debate and simulate a pause (e.g., timeout on Wind)
         from debate_hall_mcp.state import DebateStatus, save_debate_state
 
-        thread_id = "2026-02-08-raci-resume-test"
+        thread_id = "2026-02-08-speed-resume-test"
         debate_init(
             thread_id=thread_id,
-            topic="RACI resume test",
-            mode="raci",
+            topic="Speed resume test",
+            mode="speed",
             state_dir=temp_state_dir,
         )
 
-        # Simulate pause (what happens when provider times out during run_raci)
+        # Simulate pause (what happens when provider times out during run_speed)
         room = load_debate_state(thread_id, temp_state_dir)
         room.status = DebateStatus.PAUSED
         save_debate_state(room, temp_state_dir)
 
-        # Verify room is in RACI mode and PAUSED
+        # Verify room is in Speed mode and PAUSED
         room = load_debate_state(thread_id, temp_state_dir)
-        assert room.mode == DebateMode.RACI
+        assert room.mode == DebateMode.SPEED
         assert room.status == DebateStatus.PAUSED
 
-        # Resume the RACI debate
+        # Resume the Speed debate
         orchestrator = DebateOrchestrator(
-            raci_tier_config,
+            speed_tier_config,
             temp_state_dir,
             provider_factory=create_mock_provider_factory(mock_provider),
         )
@@ -639,37 +639,37 @@ class TestRaciResume:
         assert result.status == "synthesis"
         assert result.turn_count == 3
 
-        # CRITICAL ASSERTION: Prompts should be RACI-specific
-        # RACI prompts contain "Responsible", "Consulted", "Accountable"
+        # CRITICAL ASSERTION: Prompts should be Speed-specific
+        # Speed prompts contain "Proposer", "Validator", "Ratifier"
         # Standard prompts contain "Wind (PATHOS) - The Ideator", etc.
         for user_prompt in captured_user_prompts:
-            # RACI prompts should NOT contain standard identifiers
+            # Speed prompts should NOT contain standard identifiers
             assert (
                 "Wind (PATHOS) - The Ideator" not in user_prompt
-            ), "Resume used standard Wind prompt instead of RACI prompt"
+            ), "Resume used standard Wind prompt instead of Speed prompt"
             assert (
                 "Wall (ETHOS) - The Validator" not in user_prompt
-            ), "Resume used standard Wall prompt instead of RACI prompt"
+            ), "Resume used standard Wall prompt instead of Speed prompt"
             assert (
                 "Door (LOGOS) - The Synthesizer" not in user_prompt
-            ), "Resume used standard Door prompt instead of RACI prompt"
+            ), "Resume used standard Door prompt instead of Speed prompt"
 
-        # At least one prompt should contain RACI-specific language
+        # At least one prompt should contain Speed-specific language
         all_prompts = " ".join(captured_user_prompts)
         assert (
-            "RACI" in all_prompts or "Responsible" in all_prompts or "Consulted" in all_prompts
-        ), "Resume prompts did not contain RACI-specific language"
+            "Speed" in all_prompts or "Proposer" in all_prompts or "Validator" in all_prompts
+        ), "Resume prompts did not contain Speed-specific language"
 
     @pytest.mark.anyio
-    async def test_resume_raci_skips_consensus_loop(self, temp_state_dir: Path) -> None:
-        """Resumed RACI debate should skip consensus loop even if consensus_required=True."""
+    async def test_resume_speed_skips_consensus_loop(self, temp_state_dir: Path) -> None:
+        """Resumed Speed debate should skip consensus loop even if consensus_required=True."""
         # Create tier config with consensus_required=True
         tier_config = TierConfig(
             wind=RoleConfig(provider="cli", cli="claude"),
             wall=RoleConfig(provider="cli", cli="codex"),
             door=RoleConfig(provider="cli", cli="gemini"),
             settings=TierSettings(
-                consensus_required=True,  # This should be ignored for RACI
+                consensus_required=True,  # This should be ignored for Speed
                 max_refinement_loops=3,
             ),
         )
@@ -677,14 +677,14 @@ class TestRaciResume:
         mock_provider = AsyncMock()
         mock_provider.complete.return_value = create_mock_provider_response("Response")
 
-        # Create and pause a RACI debate
+        # Create and pause a Speed debate
         from debate_hall_mcp.state import DebateStatus, save_debate_state
 
-        thread_id = "2026-02-08-raci-no-consensus-test"
+        thread_id = "2026-02-08-speed-no-consensus-test"
         debate_init(
             thread_id=thread_id,
-            topic="RACI no consensus test",
-            mode="raci",
+            topic="Speed no consensus test",
+            mode="speed",
             state_dir=temp_state_dir,
         )
 
@@ -707,23 +707,23 @@ class TestRaciResume:
         assert mock_provider.complete.call_count == 3
 
     @pytest.mark.anyio
-    async def test_resume_raci_with_partial_turns_completes(
-        self, raci_tier_config: TierConfig, temp_state_dir: Path
+    async def test_resume_speed_with_partial_turns_completes(
+        self, speed_tier_config: TierConfig, temp_state_dir: Path
     ) -> None:
-        """Resumed RACI debate with partial turns should complete remaining turns."""
+        """Resumed Speed debate with partial turns should complete remaining turns."""
         mock_provider = AsyncMock()
         mock_provider.complete.return_value = create_mock_provider_response("Response")
 
-        # Create RACI debate with 1 turn already completed (Wind)
+        # Create Speed debate with 1 turn already completed (Wind)
         from datetime import UTC, datetime
 
         from debate_hall_mcp.state import DebateStatus, Turn, save_debate_state
 
-        thread_id = "2026-02-08-raci-partial-test"
+        thread_id = "2026-02-08-speed-partial-test"
         debate_init(
             thread_id=thread_id,
-            topic="RACI partial test",
-            mode="raci",
+            topic="Speed partial test",
+            mode="speed",
             state_dir=temp_state_dir,
         )
 
@@ -741,7 +741,7 @@ class TestRaciResume:
 
         # Resume
         orchestrator = DebateOrchestrator(
-            raci_tier_config,
+            speed_tier_config,
             temp_state_dir,
             provider_factory=create_mock_provider_factory(mock_provider),
         )
@@ -787,7 +787,7 @@ class TestRaciResume:
         debate_init(
             thread_id=thread_id,
             topic="Standard resume test",
-            mode="mediated",  # Standard mode, not RACI
+            mode="mediated",  # Standard mode, not Speed
             state_dir=temp_state_dir,
         )
 

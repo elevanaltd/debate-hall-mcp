@@ -116,7 +116,7 @@ def build_turn_added_payload(
         content_hash: SHA-256 hash of the turn (from Turn model)
         tokens_in: Optional input token count
         tokens_out: Optional output token count
-        **extra: Additional payload fields (e.g., mode for RACI)
+        **extra: Additional payload fields (e.g., mode for Speed)
 
     Returns:
         Dictionary suitable for use as append_event payload
@@ -127,7 +127,7 @@ def build_turn_added_payload(
         "model": model,
     }
 
-    # 2. Merge extra fields first (e.g., mode="raci")
+    # 2. Merge extra fields first (e.g., mode="speed")
     payload.update(extra)
 
     # 3. Set forensic fields AFTER extra merge to prevent override.

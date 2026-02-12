@@ -741,10 +741,10 @@ class TestBuildTurnAddedPayload:
             model="claude-opus-4-5",
             content="Test content",
             content_hash="hash606",
-            mode="raci",
+            mode="speed",
         )
 
-        assert payload["mode"] == "raci"
+        assert payload["mode"] == "speed"
         # Standard fields still present
         assert payload["role"] == "Wind"
         assert payload["content_hash"] == "hash606"
