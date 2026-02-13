@@ -1285,19 +1285,76 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
         return response
 
-    def _get_raci_prompt(self, turn_type: str) -> str:
-        """Get RACI-specific system prompt based on turn type.
+    def _get_raci_turn_instruction(self, turn_type: str) -> str:
+        """Get a concise RACI governance instruction for a turn type.
 
-        Maps TurnType to the appropriate RACI system prompt constant.
+        Returns a short instruction to append to an agent identity prompt,
+        telling the agent what RACI governance role it plays in this debate.
+        These are intentionally concise -- the agent file already has the
+        full identity; we just need the governance role context.
 
         Args:
             turn_type: The TurnType value (proposal, advice, rebuttal, verdict)
 
         Returns:
-            RACI system prompt string
+            RACI turn instruction string
         """
         from debate_hall_mcp.state import TurnType
 
+        instructions = {
+            TurnType.PROPOSAL.value: (
+                "In this RACI review, you are RESPONSIBLE. "
+                "Present your proposal for the topic under review."
+            ),
+            TurnType.ADVICE.value: (
+                "In this RACI review, you are CONSULTED. "
+                "Provide your expert assessment — identify risks, "
+                "validate constraints, or recommend changes. "
+                "Do not introduce new scope."
+            ),
+            TurnType.REBUTTAL.value: (
+                "In this RACI review, you are RESPONSIBLE. "
+                "Synthesize the feedback from all consulted parties "
+                "and present your updated position."
+            ),
+            TurnType.VERDICT.value: (
+                "In this RACI review, you are ACCOUNTABLE. "
+                "Render a structured verdict: GO, NO-GO, or CONDITIONAL. "
+                "Include your reasoning, any blockers identified, "
+                "and required changes if conditional."
+            ),
+        }
+        return instructions.get(turn_type, instructions[TurnType.PROPOSAL.value])
+
+    def _get_raci_prompt(self, turn_type: str, role_name: str) -> str:
+        """Get RACI-specific system prompt based on turn type and role.
+
+        Resolution order:
+        1. Try agent file resolution via get_agent_prompt(role_name)
+        2. If agent file found, return agent content + RACI turn instruction
+        3. If no agent file, fall back to generic RACI prompt constants
+
+        This allows RACI agents to have their full identity from ./agents/
+        files while still knowing their governance role in the debate.
+
+        Args:
+            turn_type: The TurnType value (proposal, advice, rebuttal, verdict)
+            role_name: The role name to resolve (e.g., "critical-engineer")
+
+        Returns:
+            RACI system prompt string (agent identity + instruction, or generic)
+        """
+        from debate_hall_mcp.state import TurnType
+
+        # Try agent file resolution first
+        agent_prompt = get_agent_prompt(role_name)
+
+        if agent_prompt is not None:
+            # Agent found -- append RACI turn-type instruction
+            raci_instruction = self._get_raci_turn_instruction(turn_type)
+            return f"{agent_prompt}\n\n{raci_instruction}"
+
+        # No agent file -- fall back to generic RACI prompts
         prompts = {
             TurnType.PROPOSAL.value: RACI_RESPONSIBLE_PROMPT,
             TurnType.ADVICE.value: RACI_CONSULTED_PROMPT,
@@ -1485,8 +1542,8 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 else:
                     user_prompt = format_raci_proposal_prompt(topic, thread_id)
 
-                # Get the appropriate system prompt
-                system_prompt = self._get_raci_prompt(spec.turn_type.value)
+                # Get the appropriate system prompt (with agent file resolution)
+                system_prompt = self._get_raci_prompt(spec.turn_type.value, spec.role)
 
                 last_response = await self._execute_raci_role_turn(
                     role=spec.role,
@@ -1596,7 +1653,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 else:
                     user_prompt = format_raci_proposal_prompt(topic, thread_id)
 
-                system_prompt = self._get_raci_prompt(spec.turn_type.value)
+                system_prompt = self._get_raci_prompt(spec.turn_type.value, spec.role)
 
                 last_response = await self._execute_raci_role_turn(
                     role=spec.role,
