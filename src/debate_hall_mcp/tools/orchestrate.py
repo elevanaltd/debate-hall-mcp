@@ -274,8 +274,9 @@ async def run_debate(
     state_dir: Path | None = None,
     compression_tier: Literal["none", "basic", "aggressive", "ultra"] | None = None,
     primer_tier: Literal["none", "literacy", "standard", "advanced"] | None = None,
-    mode: Literal["standard", "speed"] = "standard",
+    mode: Literal["standard", "speed", "raci"] = "standard",
     context_files: list[str] | None = None,
+    raci_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run an automated Wind/Wall/Door debate.
 
@@ -296,12 +297,18 @@ async def run_debate(
         compression_tier: Override compression tier (None = use tier default)
         primer_tier: Override primer tier (None = use tier default)
         mode: Debate mode - "standard" for full debate, "speed" for lightweight
-            Speed Dialogue Mode (Issue #139). Speed mode completes in exactly
-            3 turns with no consensus loop.
+            Speed Dialogue Mode (Issue #139), "raci" for RACI governance mode.
+            Speed completes in exactly 3 turns with no consensus loop.
+            RACI uses a compiled turn manifest for deterministic governance.
         context_files: Optional list of absolute file paths to inject as codebase
             context into debate prompts (Issue #133). Files are read and injected
             as a <CODEBASE_CONTEXT> block before <DEBATE_STATE>. Missing files
             are skipped with a warning. Each file is truncated at 10000 chars.
+        raci_config: Required when mode="raci". Dictionary with RACI assignments:
+            - responsible: Role name for Responsible agent (required)
+            - accountable: Role name for Accountable agent (required)
+            - consulted: List of Consulted role names (optional, max 5)
+            - informed: List of Informed role names (optional, no turns)
 
     Returns:
         Dictionary with debate result:
@@ -339,8 +346,18 @@ async def run_debate(
     # Create orchestrator with context block
     orchestrator = DebateOrchestrator(tier_config, state_dir, context_block=context_block or None)
 
-    # Run debate - use Speed mode if specified (Issue #139)
-    if mode == "speed":
+    # Run debate - dispatch to appropriate mode
+    if mode == "raci":
+        # RACI mode requires raci_config
+        if raci_config is None:
+            raise ValueError("raci_config is required when mode='raci'")
+        from debate_hall_mcp.raci import RACIConfig
+
+        raci_config_obj = RACIConfig(**raci_config)
+        result = await orchestrator.run_raci(
+            topic=topic, raci_config=raci_config_obj, thread_id=thread_id
+        )
+    elif mode == "speed":
         result = await orchestrator.run_speed(topic=topic, thread_id=thread_id)
     else:
         result = await orchestrator.run(topic=topic, thread_id=thread_id)

@@ -121,8 +121,8 @@ def debate_init(
     validate_thread_id(thread_id)
 
     # Validate mode
-    if mode not in ("fixed", "mediated", "speed"):
-        raise ValueError(f"Invalid mode: {mode}. Must be 'fixed', 'mediated', or 'speed'")
+    if mode not in ("fixed", "mediated", "speed", "raci"):
+        raise ValueError(f"Invalid mode: {mode}. Must be 'fixed', 'mediated', 'speed', or 'raci'")
 
     # Speed mode enforces hard limits (I3::FINITE_DIALECTIC_CLOSURE)
     if mode == "speed":

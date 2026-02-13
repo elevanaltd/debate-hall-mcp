@@ -307,7 +307,8 @@ def create_server() -> FastMCP:
         compression_tier: Literal["none", "basic", "aggressive", "ultra"] | None = None,
         primer_tier: Literal["none", "literacy", "standard", "advanced"] | None = None,
         context_files: list[str] | None = None,
-        mode: Literal["standard", "speed"] = "standard",
+        mode: Literal["standard", "speed", "raci"] = "standard",
+        raci_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Auto-orchestrate a Wind/Wall/Door debate (ADR-0002).
 
@@ -325,8 +326,13 @@ def create_server() -> FastMCP:
             context_files: Optional list of absolute file paths to inject as
                 codebase context. Agents will see file contents in their prompts.
             mode: Debate mode - "standard" for full Wind/Wall/Door debate,
-                "speed" for lightweight Speed Dialogue Mode (Issue #139).
-                Speed completes in exactly 3 turns with no consensus loop.
+                "speed" for lightweight Speed Dialogue Mode (Issue #139),
+                "raci" for RACI governance mode (Turn Manifest Compiler).
+            raci_config: Required when mode="raci". Dictionary with RACI roles:
+                - responsible: Proposer role name (required)
+                - accountable: Decision maker role name (required)
+                - consulted: List of advisor role names (optional, max 5)
+                - informed: List of notified role names (optional, no turns)
 
         Returns:
             Dictionary with thread_id, topic, status, turn_count, and synthesis
@@ -339,6 +345,7 @@ def create_server() -> FastMCP:
             primer_tier=primer_tier,
             context_files=context_files,
             mode=mode,
+            raci_config=raci_config,
         )
 
     @server.tool()

@@ -207,6 +207,34 @@ class DebateMode(StrEnum):
     FIXED = "fixed"  # Wind->Wall->Door->Wind...
     MEDIATED = "mediated"  # Orchestrator picks next role
     SPEED = "speed"  # Lightweight Speed mode: Wind->Wall->Door, single round
+    RACI = "raci"  # RACI governance mode: compiled turn manifest
+
+
+class TurnType(StrEnum):
+    """Type of contribution expected for a turn in a RACI manifest."""
+
+    PROPOSAL = "proposal"  # R: Responsible presents
+    ADVICE = "advice"  # C: Consulted provides feedback
+    REBUTTAL = "rebuttal"  # R: Responsible synthesizes C feedback
+    VERDICT = "verdict"  # A: Accountable renders GO/NO-GO
+
+
+class TurnSpec(BaseModel):
+    """Specification for a single turn in a RACI manifest."""
+
+    role: str = Field(..., description="Agent/role name (caller-defined)")
+    turn_type: TurnType = Field(..., description="What kind of contribution")
+    raci_designation: str = Field(..., description="R, C, A, or I")
+
+
+class TurnManifest(BaseModel):
+    """Pre-compiled execution plan for RACI debates."""
+
+    specs: list[TurnSpec] = Field(..., description="Ordered turn specifications")
+    responsible: str = Field(..., description="Responsible role name")
+    accountable: str = Field(..., description="Accountable role name")
+    consulted: list[str] = Field(default_factory=list, description="Consulted role names")
+    informed: list[str] = Field(default_factory=list, description="Informed role names (no turns)")
 
 
 class GitHubTargetType(StrEnum):
@@ -470,6 +498,10 @@ class DebateRoom(BaseModel):
     consensus_metadata: ConsensusMetadata | None = Field(
         default=None,
         description="Consensus loop result (populated by orchestrator on close)",
+    )
+    turn_manifest: TurnManifest | None = Field(
+        default=None,
+        description="Pre-compiled RACI turn manifest (populated by orchestrator for RACI mode)",
     )
 
 
