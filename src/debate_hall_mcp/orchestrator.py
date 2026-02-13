@@ -40,7 +40,14 @@ from debate_hall_mcp.config import RoleConfig, TierConfig
 from debate_hall_mcp.consensus import parse_consensus_response
 from debate_hall_mcp.events import EventType, append_event, build_turn_added_payload
 from debate_hall_mcp.prompts import (
+    RACI_ACCOUNTABLE_PROMPT,
+    RACI_CONSULTED_PROMPT,
+    RACI_RESPONSIBLE_PROMPT,
     format_door_user_prompt,
+    format_raci_advice_prompt,
+    format_raci_proposal_prompt,
+    format_raci_rebuttal_prompt,
+    format_raci_verdict_prompt,
     format_speed_door_user_prompt,
     format_speed_wall_user_prompt,
     format_speed_wind_user_prompt,
@@ -779,10 +786,12 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 f"only PAUSED debates can be resumed"
             )
 
-        # MODE-AWARE DISPATCH: Speed debates use Speed-specific resume logic
-        # This ensures Speed prompts and no consensus loop (CRS blocking issue fix)
+        # MODE-AWARE DISPATCH: Speed and RACI debates use mode-specific resume logic
+        # This ensures correct prompts and no consensus loop (CRS blocking issue fix)
         if room.mode == DebateMode.SPEED:
             return await self._resume_speed(room, thread_id)
+        if room.mode == DebateMode.RACI:
+            return await self._resume_raci(room, thread_id)
 
         # Standard mode resume logic follows
         topic = room.topic
@@ -1271,3 +1280,370 @@ Respond with your refined synthesis using the OCTAVE response format."""
         )
 
         return response
+
+    def _get_raci_prompt(self, turn_type: str) -> str:
+        """Get RACI-specific system prompt based on turn type.
+
+        Maps TurnType to the appropriate RACI system prompt constant.
+
+        Args:
+            turn_type: The TurnType value (proposal, advice, rebuttal, verdict)
+
+        Returns:
+            RACI system prompt string
+        """
+        from debate_hall_mcp.state import TurnType
+
+        prompts = {
+            TurnType.PROPOSAL.value: RACI_RESPONSIBLE_PROMPT,
+            TurnType.ADVICE.value: RACI_CONSULTED_PROMPT,
+            TurnType.REBUTTAL.value: RACI_RESPONSIBLE_PROMPT,
+            TurnType.VERDICT.value: RACI_ACCOUNTABLE_PROMPT,
+        }
+        return prompts.get(turn_type, RACI_RESPONSIBLE_PROMPT)
+
+    async def _execute_raci_role_turn(
+        self,
+        role: str,
+        provider: ModelProvider,
+        thread_id: str,
+        user_prompt: str,
+        system_prompt: str,
+        timeout: int,
+    ) -> ProviderResponse:
+        """Execute a RACI role turn with RACI-specific prompts.
+
+        Similar to _execute_speed_role_turn but uses RACI system prompts
+        based on the turn type.
+
+        Args:
+            role: The RACI role name (caller-defined, e.g., "architect")
+            provider: The provider instance
+            thread_id: Thread ID for the debate
+            user_prompt: The formatted RACI user prompt
+            system_prompt: The RACI system prompt for this turn type
+            timeout: Provider timeout in seconds
+
+        Returns:
+            ProviderResponse from the provider
+        """
+        # VTP: Pre-fetch debate state and inject into prompt
+        context_turns = self.tier_config.settings.context_turns
+        debate_state = debate_get(
+            thread_id=thread_id,
+            include_transcript=True,
+            context_turns=context_turns,
+            state_dir=self.state_dir,
+        )
+
+        # Format state as structured block
+        state_block = self._format_debate_state(debate_state)
+
+        # VTP: Build enhanced prompt (no primers for RACI - lightweight mode)
+        enhanced_prompt = ""
+        if self._context_block:
+            enhanced_prompt += f"{self._context_block}\n\n"
+        enhanced_prompt += f"{state_block}\n\n{user_prompt}"
+
+        # Call provider with timeout
+        response: ProviderResponse = await asyncio.wait_for(
+            provider.complete(
+                system_prompt=system_prompt,
+                user_prompt=enhanced_prompt,
+            ),
+            timeout=timeout,
+        )
+
+        # Record the debate turn (use role name as the turn role)
+        turn_result = debate_turn(
+            thread_id=thread_id,
+            role=role,
+            content=response.content,
+            model=response.model,
+            token_input=response.token_input,
+            token_output=response.token_output,
+            state_dir=self.state_dir,
+        )
+
+        # Emit enriched TURN_ADDED event
+        append_event(
+            thread_id=thread_id,
+            event_type=EventType.TURN_ADDED,
+            payload=build_turn_added_payload(
+                role=role,
+                model=response.model,
+                content=response.content,
+                content_hash=turn_result["turn_hash"],
+                tokens_in=response.token_input,
+                tokens_out=response.token_output,
+                mode="raci",
+            ),
+            state_dir=self.state_dir,
+        )
+
+        return response
+
+    async def run_raci(
+        self,
+        topic: str,
+        raci_config: Any,
+        thread_id: str | None = None,
+    ) -> DebateResult:
+        """Run a RACI governance mode debate.
+
+        Uses the Turn Manifest Compiler to compile a governance topology into
+        a TurnManifest, then executes each turn in sequence.
+
+        Sequence: R(proposal) -> C*(advice) -> R(rebuttal) -> A(verdict)
+        If no C agents: R(proposal) -> A(verdict)
+
+        Key characteristics:
+        - No consensus loop (A-verdict IS the decision)
+        - max_turns auto-calculated from manifest (I3 compliance)
+        - Manifest stored in state for resume support and auditability (I4)
+
+        Args:
+            topic: The debate topic / decision to address
+            raci_config: RACIConfig with R/A/C/I assignments
+            thread_id: Optional thread ID (generated if not provided)
+
+        Returns:
+            DebateResult with debate outcome
+
+        Raises:
+            asyncio.TimeoutError: If provider times out
+            Exception: If provider fails or debate cannot be completed
+        """
+        from debate_hall_mcp.raci import RACIConfig, compile_raci_manifest
+        from debate_hall_mcp.state import TurnType
+
+        # Ensure raci_config is an RACIConfig object
+        if isinstance(raci_config, dict):
+            raci_config = RACIConfig(**raci_config)
+
+        # Compile manifest
+        manifest = compile_raci_manifest(raci_config)
+
+        # Generate thread_id if not provided
+        if thread_id is None:
+            thread_id = self._generate_thread_id(topic)
+
+        debate_initialized = False
+        timeout = self._get_provider_timeout()
+
+        try:
+            # 1. Initialize debate in RACI mode with auto-calculated max_turns
+            debate_init(
+                thread_id=thread_id,
+                topic=topic,
+                mode="raci",
+                max_turns=len(manifest.specs),
+                state_dir=self.state_dir,
+            )
+            debate_initialized = True
+
+            # Store manifest on debate room
+            room = load_debate_state(thread_id, self.state_dir)
+            room.turn_manifest = manifest
+            room.max_turns = len(manifest.specs)
+            save_debate_state(room, self.state_dir)
+
+            # Emit debate_started event
+            append_event(
+                thread_id=thread_id,
+                event_type=EventType.DEBATE_STARTED,
+                payload={
+                    "topic": topic,
+                    "tier": "raci",
+                    "mode": "raci",
+                    "manifest_turns": len(manifest.specs),
+                },
+                state_dir=self.state_dir,
+            )
+
+            # 2. Create a single provider (RACI uses one provider for all roles)
+            # Use the wind provider as the default for all RACI roles
+            provider = self._provider_factory(self.tier_config.wind)
+
+            # 3. Execute each turn in manifest sequence
+            last_response: ProviderResponse | None = None
+            for spec in manifest.specs:
+                # Get the appropriate user prompt based on turn type
+                if spec.turn_type == TurnType.PROPOSAL:
+                    user_prompt = format_raci_proposal_prompt(topic, thread_id)
+                elif spec.turn_type == TurnType.ADVICE:
+                    user_prompt = format_raci_advice_prompt(topic, thread_id, spec.role)
+                elif spec.turn_type == TurnType.REBUTTAL:
+                    user_prompt = format_raci_rebuttal_prompt(topic, thread_id)
+                elif spec.turn_type == TurnType.VERDICT:
+                    user_prompt = format_raci_verdict_prompt(topic, thread_id)
+                else:
+                    user_prompt = format_raci_proposal_prompt(topic, thread_id)
+
+                # Get the appropriate system prompt
+                system_prompt = self._get_raci_prompt(spec.turn_type.value)
+
+                last_response = await self._execute_raci_role_turn(
+                    role=spec.role,
+                    provider=provider,
+                    thread_id=thread_id,
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    timeout=timeout,
+                )
+
+            # 4. Close debate with A's verdict as synthesis
+            verdict_content = last_response.content if last_response else ""
+            debate_close(
+                thread_id=thread_id,
+                synthesis=verdict_content,
+                state_dir=self.state_dir,
+                output_format="json",
+            )
+
+            # Emit debate_closed event
+            append_event(
+                thread_id=thread_id,
+                event_type=EventType.DEBATE_CLOSED,
+                payload={
+                    "status": "synthesis",
+                    "synthesis_preview": verdict_content[:100],
+                    "mode": "raci",
+                },
+                state_dir=self.state_dir,
+            )
+
+            # 5. Return result
+            return DebateResult(
+                thread_id=thread_id,
+                topic=topic,
+                status="synthesis",
+                turn_count=len(manifest.specs),
+                synthesis=verdict_content,
+            )
+
+        except Exception as e:
+            # Emit error event
+            with contextlib.suppress(Exception):
+                append_event(
+                    thread_id=thread_id,
+                    event_type=EventType.ERROR,
+                    payload={"error_type": type(e).__name__},
+                    state_dir=self.state_dir,
+                )
+
+            # Mark debate as PAUSED for recovery
+            if debate_initialized:
+                with contextlib.suppress(Exception):
+                    room = load_debate_state(thread_id, self.state_dir)
+                    room.status = DebateStatus.PAUSED
+                    save_debate_state(room, self.state_dir)
+
+            raise
+
+    async def _resume_raci(self, room: Any, thread_id: str) -> DebateResult:
+        """Resume a PAUSED RACI debate from where it left off.
+
+        Uses the stored TurnManifest to determine which turns remain,
+        then executes them in sequence using RACI-specific prompts.
+
+        Args:
+            room: The loaded DebateRoom (already validated as PAUSED, RACI)
+            thread_id: Thread ID for the debate
+
+        Returns:
+            DebateResult with debate outcome
+        """
+        from debate_hall_mcp.state import TurnType
+
+        topic = room.topic
+        turn_count = len(room.turns)
+        timeout = self._get_provider_timeout()
+        manifest = room.turn_manifest
+
+        if manifest is None:
+            raise ValueError(
+                f"Cannot resume RACI debate '{thread_id}': no turn_manifest stored in state"
+            )
+
+        # Mark as active for resumption
+        room.status = DebateStatus.ACTIVE
+        save_debate_state(room, self.state_dir)
+
+        try:
+            # Create provider
+            provider = self._provider_factory(self.tier_config.wind)
+
+            # Execute remaining turns from manifest
+            last_response: ProviderResponse | None = None
+            for i in range(turn_count, len(manifest.specs)):
+                spec = manifest.specs[i]
+
+                # Get the appropriate user prompt
+                if spec.turn_type == TurnType.PROPOSAL:
+                    user_prompt = format_raci_proposal_prompt(topic, thread_id)
+                elif spec.turn_type == TurnType.ADVICE:
+                    user_prompt = format_raci_advice_prompt(topic, thread_id, spec.role)
+                elif spec.turn_type == TurnType.REBUTTAL:
+                    user_prompt = format_raci_rebuttal_prompt(topic, thread_id)
+                elif spec.turn_type == TurnType.VERDICT:
+                    user_prompt = format_raci_verdict_prompt(topic, thread_id)
+                else:
+                    user_prompt = format_raci_proposal_prompt(topic, thread_id)
+
+                system_prompt = self._get_raci_prompt(spec.turn_type.value)
+
+                last_response = await self._execute_raci_role_turn(
+                    role=spec.role,
+                    provider=provider,
+                    thread_id=thread_id,
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    timeout=timeout,
+                )
+                turn_count += 1
+
+            # Close with verdict
+            verdict_content = last_response.content if last_response else ""
+            debate_close(
+                thread_id=thread_id,
+                synthesis=verdict_content,
+                state_dir=self.state_dir,
+                output_format="json",
+            )
+
+            # Emit debate_closed event
+            append_event(
+                thread_id=thread_id,
+                event_type=EventType.DEBATE_CLOSED,
+                payload={
+                    "status": "synthesis",
+                    "synthesis_preview": verdict_content[:100],
+                    "mode": "raci",
+                },
+                state_dir=self.state_dir,
+            )
+
+            return DebateResult(
+                thread_id=thread_id,
+                topic=topic,
+                status="synthesis",
+                turn_count=turn_count,
+                synthesis=verdict_content,
+            )
+
+        except Exception as e:
+            with contextlib.suppress(Exception):
+                append_event(
+                    thread_id=thread_id,
+                    event_type=EventType.ERROR,
+                    payload={"error_type": type(e).__name__},
+                    state_dir=self.state_dir,
+                )
+
+            with contextlib.suppress(Exception):
+                room = load_debate_state(thread_id, self.state_dir)
+                room.status = DebateStatus.PAUSED
+                save_debate_state(room, self.state_dir)
+
+            raise
