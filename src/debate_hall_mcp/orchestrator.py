@@ -31,7 +31,11 @@ import contextlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from debate_hall_mcp.raci import RACIConfig
+    from debate_hall_mcp.state import DebateRoom
 
 from pydantic import BaseModel, Field
 from ulid import ULID
@@ -1386,7 +1390,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
     async def run_raci(
         self,
         topic: str,
-        raci_config: Any,
+        raci_config: "RACIConfig | dict[str, Any]",
         thread_id: str | None = None,
     ) -> DebateResult:
         """Run a RACI governance mode debate.
@@ -1401,10 +1405,11 @@ Respond with your refined synthesis using the OCTAVE response format."""
         - No consensus loop (A-verdict IS the decision)
         - max_turns auto-calculated from manifest (I3 compliance)
         - Manifest stored in state for resume support and auditability (I4)
+        - All roles use the wind provider (lightweight governance design)
 
         Args:
             topic: The debate topic / decision to address
-            raci_config: RACIConfig with R/A/C/I assignments
+            raci_config: RACIConfig or dict with R/A/C/I assignments
             thread_id: Optional thread ID (generated if not provided)
 
         Returns:
@@ -1541,7 +1546,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
             raise
 
-    async def _resume_raci(self, room: Any, thread_id: str) -> DebateResult:
+    async def _resume_raci(self, room: "DebateRoom", thread_id: str) -> DebateResult:
         """Resume a PAUSED RACI debate from where it left off.
 
         Uses the stored TurnManifest to determine which turns remain,
