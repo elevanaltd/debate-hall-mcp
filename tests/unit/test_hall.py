@@ -134,3 +134,139 @@ class TestCustomExceptions:
         err = ActiveDebatesExistError("h1", ["d1", "d2"])
         assert "2 active debate(s)" in str(err)
         assert isinstance(err, ValueError)
+
+
+# ── P1T02: Participant + RaciMatrix Models ─────────────────────────────
+
+
+class TestParticipantModel:
+    """Test Participant Pydantic model with validators."""
+
+    def test_valid_participant_creation(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind
+
+        p = Participant(id="alice", name="Alice", kind=ParticipantKind.AGENT)
+        assert p.id == "alice"
+        assert p.name == "Alice"
+        assert p.kind == ParticipantKind.AGENT
+        assert p.status == "on_call"
+        assert p.raci_designation is None
+        assert p.provider_config is None
+        assert p.capabilities == []
+
+    def test_participant_id_with_hyphens_and_underscores(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind
+
+        p = Participant(id="impl-lead_01", name="Impl Lead", kind=ParticipantKind.AGENT)
+        assert p.id == "impl-lead_01"
+
+    def test_participant_id_rejects_spaces(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind
+
+        with pytest.raises(ValueError, match="invalid characters"):
+            Participant(id="bad id", name="Bad", kind=ParticipantKind.AGENT)
+
+    def test_participant_id_rejects_special_chars(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind
+
+        with pytest.raises(ValueError, match="invalid characters"):
+            Participant(id="bad/id", name="Bad", kind=ParticipantKind.AGENT)
+
+    def test_participant_id_rejects_empty(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind
+
+        with pytest.raises(ValueError):
+            Participant(id="", name="Bad", kind=ParticipantKind.AGENT)
+
+    def test_raci_designation_valid_values(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind
+
+        for designation in ("R", "A", "C", "I"):
+            p = Participant(
+                id="alice", name="Alice", kind=ParticipantKind.AGENT,
+                raci_designation=designation,
+            )
+            assert p.raci_designation == designation
+
+    def test_raci_designation_rejects_invalid(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind
+
+        with pytest.raises(ValueError, match="raci_designation must be"):
+            Participant(
+                id="alice", name="Alice", kind=ParticipantKind.AGENT,
+                raci_designation="X",
+            )
+
+    def test_participant_serialization_roundtrip(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind
+
+        p = Participant(id="alice", name="Alice", kind=ParticipantKind.AGENT)
+        data = p.model_dump()
+        p2 = Participant.model_validate(data)
+        assert p2.id == p.id
+        assert p2.name == p.name
+
+
+class TestRaciMatrix:
+    """Test RaciMatrix model with cross-validation."""
+
+    def test_valid_raci_matrix(self) -> None:
+        from debate_hall_mcp.hall import RaciMatrix
+
+        m = RaciMatrix(responsible="alice", accountable="bob")
+        assert m.responsible == "alice"
+        assert m.accountable == "bob"
+        assert m.consulted == []
+        assert m.informed == []
+
+    def test_raci_matrix_with_consulted_and_informed(self) -> None:
+        from debate_hall_mcp.hall import RaciMatrix
+
+        m = RaciMatrix(
+            responsible="alice", accountable="bob",
+            consulted=["charlie"], informed=["dave"],
+        )
+        assert m.consulted == ["charlie"]
+        assert m.informed == ["dave"]
+
+    def test_same_responsible_and_accountable_rejected(self) -> None:
+        from debate_hall_mcp.hall import RaciMatrix
+
+        with pytest.raises(ValueError, match="responsible and accountable must be different"):
+            RaciMatrix(responsible="alice", accountable="alice")
+
+    def test_consulted_exceeds_max_rejected(self) -> None:
+        from debate_hall_mcp.hall import RaciMatrix
+
+        with pytest.raises(ValueError, match="consulted exceeds max 5"):
+            RaciMatrix(
+                responsible="r", accountable="a",
+                consulted=["c1", "c2", "c3", "c4", "c5", "c6"],
+            )
+
+    def test_informed_exceeds_max_rejected(self) -> None:
+        from debate_hall_mcp.hall import RaciMatrix
+
+        with pytest.raises(ValueError, match="informed exceeds max 3"):
+            RaciMatrix(
+                responsible="r", accountable="a",
+                informed=["i1", "i2", "i3", "i4"],
+            )
+
+    def test_duplicate_across_roles_rejected(self) -> None:
+        from debate_hall_mcp.hall import RaciMatrix
+
+        with pytest.raises(ValueError, match="exactly one RACI designation"):
+            RaciMatrix(
+                responsible="alice", accountable="bob",
+                consulted=["alice"],
+            )
+
+    def test_duplicate_within_consulted_rejected(self) -> None:
+        from debate_hall_mcp.hall import RaciMatrix
+
+        with pytest.raises(ValueError, match="exactly one RACI designation"):
+            RaciMatrix(
+                responsible="r", accountable="a",
+                consulted=["c1", "c1"],
+            )

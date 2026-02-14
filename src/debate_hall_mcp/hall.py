@@ -23,7 +23,14 @@ Immutables Compliance:
 
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from debate_hall_mcp.config import RoleConfig
 
 # ── S1.1: HallStatus Enum ────────────────────────────────────────────
 
@@ -149,3 +156,103 @@ class ActiveDebatesExistError(ValueError):
             f"Cannot close hall '{hall_id}': {len(active_debates)} active debate(s) "
             f"must close first (I8): {active_debates}"
         )
+
+
+# ── S1.3: Participant Model ──────────────────────────────────────────
+
+
+class Participant(BaseModel):
+    """A registered participant in the Hall (I6: Participant Identity Registry).
+
+    The Hall maintains the single authoritative registry of all participants.
+    No actor speaks without a registered identity.
+    """
+
+    id: str = Field(..., description="Unique participant ID within hall")
+    name: str = Field(..., min_length=1, max_length=128, description="Display name")
+    kind: ParticipantKind = Field(..., description="Participant kind")
+    status: Literal["on_call", "active", "completed", "offline"] = Field(
+        default="on_call", description="Current participation status"
+    )
+    prompt_source: str | None = Field(
+        default=None,
+        description="Role name for prompt resolution via get_agent_prompt()",
+    )
+    provider_config: RoleConfig | None = Field(
+        default=None,
+        description="Provider config for AI agents (None = use hall default)",
+    )
+    capabilities: list[str] = Field(
+        default_factory=list,
+        description="Tag-based capability matching",
+    )
+    raci_designation: str | None = Field(
+        default=None,
+        description="Current RACI role: R|A|C|I (None when not in active debate)",
+    )
+    registered_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="UTC timestamp of registration",
+    )
+
+    @field_validator("id")
+    @classmethod
+    def validate_participant_id(cls, v: str) -> str:
+        """Validate participant ID is filesystem-safe and non-empty."""
+        if not v or not v.strip():
+            raise ValueError("participant id must be non-empty")
+        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError(
+                f"participant id '{v}' contains invalid characters: "
+                "only alphanumeric, hyphens, and underscores allowed"
+            )
+        return v
+
+    @field_validator("raci_designation")
+    @classmethod
+    def validate_raci_designation(cls, v: str | None) -> str | None:
+        """Validate RACI designation is one of R, A, C, I, or None."""
+        if v is not None and v not in ("R", "A", "C", "I"):
+            raise ValueError(f"raci_designation must be R, A, C, I, or None; got '{v}'")
+        return v
+
+
+# ── S1.4: RaciMatrix Model ───────────────────────────────────────────
+
+
+class RaciMatrix(BaseModel):
+    """RACI role assignment matrix for a hall-managed debate.
+
+    Invariants:
+    - Exactly one responsible
+    - Exactly one accountable
+    - responsible != accountable
+    - All IDs must reference registered participants
+    - consulted max 5, informed max 3
+    """
+
+    responsible: str = Field(..., description="Participant ID for Responsible role")
+    accountable: str = Field(..., description="Participant ID for Accountable role")
+    consulted: list[str] = Field(
+        default_factory=list,
+        description="Participant IDs for Consulted roles (max 5)",
+    )
+    informed: list[str] = Field(
+        default_factory=list,
+        description="Participant IDs for Informed roles (max 3)",
+    )
+
+    @model_validator(mode="after")
+    def validate_raci_matrix(self) -> RaciMatrix:
+        """Validate RACI constraints."""
+        if self.responsible == self.accountable:
+            raise ValueError("responsible and accountable must be different participants")
+        if len(self.consulted) > 5:
+            raise ValueError(f"consulted exceeds max 5: got {len(self.consulted)}")
+        if len(self.informed) > 3:
+            raise ValueError(f"informed exceeds max 3: got {len(self.informed)}")
+        # Check for duplicates across all roles
+        all_ids = [self.responsible, self.accountable] + self.consulted + self.informed
+        if len(all_ids) != len(set(all_ids)):
+            raise ValueError("each participant must have exactly one RACI designation")
+        return self
