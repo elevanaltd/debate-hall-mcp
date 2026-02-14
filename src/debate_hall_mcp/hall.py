@@ -28,9 +28,12 @@ import os
 import re
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from filelock import FileLock
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from ulid import ULID
 
 from debate_hall_mcp.config import RoleConfig
 
@@ -535,3 +538,159 @@ def apply_hall_event(state: HallState, event: HallEvent) -> HallState:
     state.last_event_id = event.event_id
     state.updated_at = event.timestamp
     return state
+
+
+# ── S2.1/S2.2: Event Ledger Functions ────────────────────────────────
+
+
+def _get_halls_dir(state_dir: Path) -> Path:
+    """Get the halls subdirectory, creating if needed."""
+    halls_dir = state_dir / "halls"
+    halls_dir.mkdir(parents=True, exist_ok=True)
+    return halls_dir
+
+
+def _get_hall_lock(hall_id: str, state_dir: Path) -> FileLock:
+    """Get FileLock for hall operations."""
+    halls_dir = _get_halls_dir(state_dir)
+    lock_file = halls_dir / f"{hall_id}.lock"
+    return FileLock(str(lock_file))
+
+
+def _get_hall_events_file(hall_id: str, state_dir: Path) -> Path:
+    """Get path to hall event ledger JSONL file."""
+    return _get_halls_dir(state_dir) / f"{hall_id}.events.jsonl"
+
+
+def _get_hall_state_file(hall_id: str, state_dir: Path) -> Path:
+    """Get path to hall snapshot JSON file."""
+    return _get_halls_dir(state_dir) / f"{hall_id}.json"
+
+
+def _validate_hall_id_for_filesystem(hall_id: str) -> None:
+    """Validate hall_id is safe for filesystem operations (M-001)."""
+    if not hall_id or not re.match(r"^[a-zA-Z0-9_-]+$", hall_id):
+        raise ValueError(
+            f"Invalid hall_id '{hall_id}': only alphanumeric, hyphens, " "and underscores allowed"
+        )
+
+
+def append_hall_event(
+    hall_id: str,
+    event_type: HallEventType,
+    data: dict[str, Any],
+    state_dir: Path,
+) -> HallEvent:
+    """Append an event to the hall's event ledger.
+
+    Thread-safe via FileLock. W-CE-2: f.flush() + os.fsync() after write.
+
+    Args:
+        hall_id: Hall identifier
+        event_type: Type of hall event
+        data: Event-specific data
+        state_dir: State directory
+
+    Returns:
+        The created HallEvent
+    """
+    _validate_hall_id_for_filesystem(hall_id)
+
+    event = HallEvent(
+        event_id=str(ULID()),
+        hall_id=hall_id,
+        event_type=event_type,
+        timestamp=datetime.now(UTC),
+        data=data,
+    )
+
+    events_file = _get_hall_events_file(hall_id, state_dir)
+    lock = _get_hall_lock(hall_id, state_dir)
+
+    with lock, open(events_file, "a") as f:
+        f.write(event.model_dump_json() + "\n")
+        # W-CE-2: Ensure data reaches disk
+        f.flush()
+        os.fsync(f.fileno())
+
+    return event
+
+
+def load_hall_events(
+    hall_id: str,
+    state_dir: Path,
+    after: str | None = None,
+) -> list[HallEvent]:
+    """Load events from hall event ledger.
+
+    Args:
+        hall_id: Hall identifier
+        state_dir: State directory
+        after: Only return events with event_id > this ULID (for delta replay)
+
+    Returns:
+        List of HallEvent objects, ordered by ULID.
+        Empty list if events file does not exist.
+    """
+    _validate_hall_id_for_filesystem(hall_id)
+    events_file = _get_hall_events_file(hall_id, state_dir)
+
+    if not events_file.exists():
+        return []
+
+    events: list[HallEvent] = []
+    lock = _get_hall_lock(hall_id, state_dir)
+
+    with lock, open(events_file) as f:
+        for line_num, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = HallEvent.model_validate_json(line)
+            except ValidationError:
+                logger.warning(
+                    "Skipping corrupt hall event line %d in %s",
+                    line_num,
+                    events_file.name,
+                )
+                continue
+
+            if after is not None and event.event_id <= after:
+                continue
+
+            events.append(event)
+
+    return events
+
+
+def _load_hall_events_unlocked(
+    hall_id: str,
+    state_dir: Path,
+    after: str | None = None,
+) -> list[HallEvent]:
+    """Load hall events WITHOUT acquiring lock (caller holds lock)."""
+    events_file = _get_hall_events_file(hall_id, state_dir)
+    if not events_file.exists():
+        return []
+
+    events: list[HallEvent] = []
+    with open(events_file) as f:
+        for line_num, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = HallEvent.model_validate_json(line)
+            except ValidationError:
+                logger.warning(
+                    "Skipping corrupt hall event line %d for hall %s",
+                    line_num,
+                    hall_id,
+                )
+                continue
+            if after is not None and event.event_id <= after:
+                continue
+            events.append(event)
+
+    return events

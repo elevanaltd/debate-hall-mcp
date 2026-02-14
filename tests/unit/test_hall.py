@@ -12,6 +12,8 @@ Phase 1 tests covering:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 
@@ -688,3 +690,121 @@ class TestApplyHallEvent:
         result = apply_hall_event(state, event)
         assert result.last_event_id == event.event_id
         assert result.updated_at == event.timestamp
+
+
+# ── P1T05: Event Ledger Functions ──────────────────────────────────────
+
+
+class TestEventLedgerHelpers:
+    """Test helper functions for file layout."""
+
+    def test_get_halls_dir_creates_directory(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import _get_halls_dir
+
+        halls_dir = _get_halls_dir(tmp_path)
+        assert halls_dir.exists()
+        assert halls_dir == tmp_path / "halls"
+
+    def test_validate_hall_id_for_filesystem_accepts_valid(self) -> None:
+        from debate_hall_mcp.hall import _validate_hall_id_for_filesystem
+
+        # Should not raise
+        _validate_hall_id_for_filesystem("hall-2026-01-15-my_topic")
+
+    def test_validate_hall_id_for_filesystem_rejects_invalid(self) -> None:
+        from debate_hall_mcp.hall import _validate_hall_id_for_filesystem
+
+        with pytest.raises(ValueError, match="Invalid hall_id"):
+            _validate_hall_id_for_filesystem("bad/id")
+
+
+class TestAppendHallEvent:
+    """Test append_hall_event persistence function."""
+
+    def test_append_returns_hall_event_with_ulid(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import HallEventType, append_hall_event
+
+        event = append_hall_event(
+            "test-hall", HallEventType.HALL_OPENED,
+            {"topic": "Test"}, tmp_path,
+        )
+        assert len(event.event_id) == 26  # ULID length
+        assert event.hall_id == "test-hall"
+        assert event.event_type == HallEventType.HALL_OPENED
+
+    def test_append_creates_events_file(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import HallEventType, append_hall_event
+
+        append_hall_event(
+            "test-hall", HallEventType.HALL_OPENED,
+            {"topic": "Test"}, tmp_path,
+        )
+        events_file = tmp_path / "halls" / "test-hall.events.jsonl"
+        assert events_file.exists()
+
+    def test_append_multiple_events(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import HallEventType, append_hall_event
+
+        e1 = append_hall_event(
+            "test-hall", HallEventType.HALL_OPENED, {}, tmp_path,
+        )
+        e2 = append_hall_event(
+            "test-hall", HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+        )
+        assert e1.event_id != e2.event_id
+        events_file = tmp_path / "halls" / "test-hall.events.jsonl"
+        lines = events_file.read_text().strip().split("\n")
+        assert len(lines) == 2
+
+
+class TestLoadHallEvents:
+    """Test load_hall_events with after-filter and corrupt handling."""
+
+    def test_load_events_returns_in_order(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import HallEventType, append_hall_event, load_hall_events
+
+        append_hall_event("h1", HallEventType.HALL_OPENED, {}, tmp_path)
+        append_hall_event(
+            "h1", HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+        )
+        events = load_hall_events("h1", tmp_path)
+        assert len(events) == 2
+        assert events[0].event_type == HallEventType.HALL_OPENED
+        assert events[1].event_type == HallEventType.PARTICIPANT_REGISTERED
+
+    def test_load_events_after_filter(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import HallEventType, append_hall_event, load_hall_events
+
+        e1 = append_hall_event("h1", HallEventType.HALL_OPENED, {}, tmp_path)
+        append_hall_event(
+            "h1", HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+        )
+        events = load_hall_events("h1", tmp_path, after=e1.event_id)
+        assert len(events) == 1
+        assert events[0].event_type == HallEventType.PARTICIPANT_REGISTERED
+
+    def test_load_events_empty_file_returns_empty(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import load_hall_events
+
+        # No events file -> empty list
+        events = load_hall_events("nonexistent", tmp_path)
+        assert events == []
+
+    def test_load_events_corrupt_line_skipped(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import HallEventType, append_hall_event, load_hall_events
+
+        append_hall_event("h1", HallEventType.HALL_OPENED, {}, tmp_path)
+        # Inject a corrupt line
+        events_file = tmp_path / "halls" / "h1.events.jsonl"
+        with open(events_file, "a") as f:
+            f.write("THIS IS NOT VALID JSON\n")
+        append_hall_event(
+            "h1", HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "bob", "name": "Bob", "kind": "agent"}, tmp_path,
+        )
+        events = load_hall_events("h1", tmp_path)
+        # Should have 2 valid events, corrupt line skipped
+        assert len(events) == 2
