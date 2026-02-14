@@ -480,3 +480,211 @@ class TestHallState:
 
         assert HallState.MAX_CONTEXT_FILES == 10
         assert HallState.MAX_CONTEXT_FILE_SIZE == 65536
+
+
+# ── P1T04: apply_hall_event Reducer ────────────────────────────────────
+
+
+def _make_hall_state(
+    hall_id: str = "test-hall",
+    topic: str = "Test",
+    status: str = "open",
+) -> "HallState":  # noqa: F821
+    """Helper to create a HallState for reducer tests."""
+    from datetime import UTC, datetime
+
+    from debate_hall_mcp.hall import HallState, HallStatus
+
+    return HallState(
+        hall_id=hall_id,
+        topic=topic,
+        status=HallStatus(status),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+
+def _make_event(
+    event_type: str,
+    data: dict[str, object] | None = None,
+    hall_id: str = "test-hall",
+) -> "HallEvent":  # noqa: F821
+    """Helper to create a HallEvent for reducer tests."""
+    from datetime import UTC, datetime
+
+    from debate_hall_mcp.hall import HallEvent, HallEventType
+
+    return HallEvent(
+        event_id="01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        hall_id=hall_id,
+        event_type=HallEventType(event_type),
+        timestamp=datetime.now(UTC),
+        data=data or {},
+    )
+
+
+class TestApplyHallEvent:
+    """Test apply_hall_event pure reducer for all 10 event types."""
+
+    def test_hall_opened(self) -> None:
+        from debate_hall_mcp.hall import HallStatus, apply_hall_event
+
+        state = _make_hall_state()
+        event = _make_event("hall_opened")
+        result = apply_hall_event(state, event)
+        assert result.status == HallStatus.OPEN
+        assert result.last_event_id == event.event_id
+
+    def test_participant_registered(self) -> None:
+        from debate_hall_mcp.hall import apply_hall_event
+
+        state = _make_hall_state()
+        event = _make_event("participant_registered", {
+            "id": "alice", "name": "Alice", "kind": "agent",
+        })
+        result = apply_hall_event(state, event)
+        assert "alice" in result.participants
+        assert result.participants["alice"].name == "Alice"
+
+    def test_participant_unregistered(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind, apply_hall_event
+
+        state = _make_hall_state()
+        state.participants["alice"] = Participant(
+            id="alice", name="Alice", kind=ParticipantKind.AGENT,
+        )
+        event = _make_event("participant_unregistered", {"participant_id": "alice"})
+        result = apply_hall_event(state, event)
+        assert "alice" not in result.participants
+
+    def test_raci_assigned(self) -> None:
+        from debate_hall_mcp.hall import Participant, ParticipantKind, apply_hall_event
+
+        state = _make_hall_state()
+        state.participants["alice"] = Participant(
+            id="alice", name="Alice", kind=ParticipantKind.AGENT,
+        )
+        state.participants["bob"] = Participant(
+            id="bob", name="Bob", kind=ParticipantKind.AGENT,
+        )
+        event = _make_event("raci_assigned", {
+            "raci_matrix": {"responsible": "alice", "accountable": "bob"},
+        })
+        result = apply_hall_event(state, event)
+        assert result.raci_matrix is not None
+        assert result.raci_matrix.responsible == "alice"
+        assert result.participants["alice"].raci_designation == "R"
+        assert result.participants["bob"].raci_designation == "A"
+
+    def test_debate_spawned(self) -> None:
+        from debate_hall_mcp.hall import HallStatus, apply_hall_event
+
+        state = _make_hall_state()
+        event = _make_event("debate_spawned", {
+            "thread_id": "thread-001",
+            "participant_ids": [],
+        })
+        result = apply_hall_event(state, event)
+        assert "thread-001" in result.active_debates
+        assert result.status == HallStatus.ACTIVE
+
+    def test_debate_completed_moves_to_completed(self) -> None:
+        from debate_hall_mcp.hall import HallStatus, apply_hall_event
+
+        state = _make_hall_state(status="active")
+        state.active_debates = ["thread-001"]
+        event = _make_event("debate_completed", {
+            "thread_id": "thread-001",
+            "compressed_log": "summary",
+            "participant_ids": [],
+        })
+        result = apply_hall_event(state, event)
+        assert "thread-001" not in result.active_debates
+        assert "thread-001" in result.completed_debates
+        assert result.compressed_log == "summary"
+        # Auto-transition to REVIEWING when no active debates
+        assert result.status == HallStatus.REVIEWING
+
+    def test_debate_completed_raci_reset(self) -> None:
+        from debate_hall_mcp.hall import (
+            Participant,
+            ParticipantKind,
+            apply_hall_event,
+        )
+
+        state = _make_hall_state(status="active")
+        state.active_debates = ["thread-001"]
+        state.participants["alice"] = Participant(
+            id="alice", name="Alice", kind=ParticipantKind.AGENT,
+            raci_designation="R",
+        )
+        event = _make_event("debate_completed", {
+            "thread_id": "thread-001",
+            "participant_ids": ["alice"],
+        })
+        result = apply_hall_event(state, event)
+        assert result.participants["alice"].raci_designation is None
+        assert result.raci_matrix is None
+
+    def test_consultation_completed(self) -> None:
+        from debate_hall_mcp.hall import apply_hall_event
+
+        state = _make_hall_state(status="active")
+        event = _make_event("consultation_completed", {
+            "thread_id": "consult-001",
+            "compressed_log": "consult summary",
+        })
+        result = apply_hall_event(state, event)
+        assert "consult-001" in result.completed_debates
+        assert result.compressed_log == "consult summary"
+
+    def test_context_compressed(self) -> None:
+        from debate_hall_mcp.hall import apply_hall_event
+
+        state = _make_hall_state()
+        event = _make_event("context_compressed", {
+            "compressed_log": "new compressed log",
+        })
+        result = apply_hall_event(state, event)
+        assert result.compressed_log == "new compressed log"
+
+    def test_hall_closed(self) -> None:
+        from debate_hall_mcp.hall import HallStatus, apply_hall_event
+
+        state = _make_hall_state(status="reviewing")
+        event = _make_event("hall_closed", {
+            "compressed_log": "final log",
+        })
+        result = apply_hall_event(state, event)
+        assert result.status == HallStatus.ARCHIVED
+        assert result.compressed_log == "final log"
+
+    def test_hall_force_closed(self) -> None:
+        from debate_hall_mcp.hall import HallStatus, apply_hall_event
+
+        state = _make_hall_state(status="active")
+        event = _make_event("hall_force_closed")
+        result = apply_hall_event(state, event)
+        assert result.status == HallStatus.FORCE_CLOSED
+
+    def test_malformed_event_data_skipped_w_ce_3(self) -> None:
+        """W-CE-3: Malformed event data is logged and skipped."""
+        from debate_hall_mcp.hall import apply_hall_event
+
+        state = _make_hall_state()
+        # Malformed: participant_registered with missing required fields
+        event = _make_event("participant_registered", {"bad_field": True})
+        # Should not crash — should log warning and skip
+        result = apply_hall_event(state, event)
+        # State should be updated (last_event_id/updated_at) but no participant added
+        assert len(result.participants) == 0
+        assert result.last_event_id == event.event_id
+
+    def test_last_event_id_always_updated(self) -> None:
+        from debate_hall_mcp.hall import apply_hall_event
+
+        state = _make_hall_state()
+        event = _make_event("hall_opened")
+        result = apply_hall_event(state, event)
+        assert result.last_event_id == event.event_id
+        assert result.updated_at == event.timestamp

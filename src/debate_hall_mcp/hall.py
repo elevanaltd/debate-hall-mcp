@@ -23,6 +23,7 @@ Immutables Compliance:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from datetime import UTC, datetime
@@ -32,6 +33,8 @@ from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from debate_hall_mcp.config import RoleConfig
+
+logger = logging.getLogger(__name__)
 
 # ── S1.1: HallStatus Enum ────────────────────────────────────────────
 
@@ -423,3 +426,112 @@ class HallState(BaseModel):
                     )
 
         return v
+
+
+# ── S2.3: Event Reducer ──────────────────────────────────────────────
+
+
+def apply_hall_event(state: HallState, event: HallEvent) -> HallState:
+    """Pure reducer: state(N) + event -> state(N+1).
+
+    Applies a single event to the hall state, returning the mutated state.
+    This function is the ONLY way hall state changes. All MCP tools
+    append events, then the reducer derives the new state.
+
+    W-CE-3: Wraps model construction and dict access in try/except to
+    handle malformed event data gracefully during replay.
+
+    Args:
+        state: Current hall state (will be mutated)
+        event: Event to apply
+
+    Returns:
+        The mutated state (same object as input)
+    """
+    try:
+        match event.event_type:
+            case HallEventType.HALL_OPENED:
+                state.status = HallStatus.OPEN
+
+            case HallEventType.PARTICIPANT_REGISTERED:
+                participant = Participant(**event.data)
+                state.participants[participant.id] = participant
+
+            case HallEventType.PARTICIPANT_UNREGISTERED:
+                pid = event.data["participant_id"]
+                state.participants.pop(pid, None)
+
+            case HallEventType.RACI_ASSIGNED:
+                state.raci_matrix = RaciMatrix(**event.data["raci_matrix"])
+                # Reset all participant RACI designations first
+                for _pid, participant in state.participants.items():
+                    participant.raci_designation = None
+                # Set new designations from matrix
+                matrix = state.raci_matrix
+                if matrix.responsible in state.participants:
+                    state.participants[matrix.responsible].raci_designation = "R"
+                if matrix.accountable in state.participants:
+                    state.participants[matrix.accountable].raci_designation = "A"
+                for pid in matrix.consulted:
+                    if pid in state.participants:
+                        state.participants[pid].raci_designation = "C"
+                for pid in matrix.informed:
+                    if pid in state.participants:
+                        state.participants[pid].raci_designation = "I"
+
+            case HallEventType.DEBATE_SPAWNED:
+                thread_id = event.data["thread_id"]
+                if thread_id not in state.active_debates:
+                    state.active_debates.append(thread_id)
+                state.status = HallStatus.ACTIVE
+                for pid in event.data.get("participant_ids", []):
+                    if pid in state.participants:
+                        state.participants[pid].status = "active"
+
+            case HallEventType.DEBATE_COMPLETED:
+                thread_id = event.data["thread_id"]
+                if thread_id in state.active_debates:
+                    state.active_debates.remove(thread_id)
+                if thread_id not in state.completed_debates:
+                    state.completed_debates.append(thread_id)
+                if "compressed_log" in event.data:
+                    state.compressed_log = event.data["compressed_log"]
+                for pid in event.data.get("participant_ids", []):
+                    if pid in state.participants:
+                        state.participants[pid].status = "on_call"
+                        state.participants[pid].raci_designation = None
+                state.raci_matrix = None
+                if not state.active_debates and state.status == HallStatus.ACTIVE:
+                    state.status = HallStatus.REVIEWING
+
+            case HallEventType.CONSULTATION_COMPLETED:
+                thread_id = event.data["thread_id"]
+                if thread_id not in state.completed_debates:
+                    state.completed_debates.append(thread_id)
+                if "compressed_log" in event.data:
+                    state.compressed_log = event.data["compressed_log"]
+
+            case HallEventType.CONTEXT_COMPRESSED:
+                state.compressed_log = event.data["compressed_log"]
+
+            case HallEventType.HALL_CLOSED:
+                state.status = HallStatus.ARCHIVED
+                if "compressed_log" in event.data:
+                    state.compressed_log = event.data["compressed_log"]
+
+            case HallEventType.HALL_FORCE_CLOSED:
+                state.status = HallStatus.FORCE_CLOSED
+
+    except (KeyError, TypeError, ValueError) as exc:
+        # W-CE-3: Log warning and skip malformed event data
+        logger.warning(
+            "Skipping malformed hall event %s (type=%s): %s",
+            event.event_id,
+            event.event_type,
+            exc,
+        )
+
+    # Always update version marker and timestamp
+    state.last_event_id = event.event_id
+    state.updated_at = event.timestamp
+    return state
