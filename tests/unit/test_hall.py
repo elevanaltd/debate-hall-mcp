@@ -808,3 +808,157 @@ class TestLoadHallEvents:
         events = load_hall_events("h1", tmp_path)
         # Should have 2 valid events, corrupt line skipped
         assert len(events) == 2
+
+
+# ── P1T06: Smart Loader + Save Hall ────────────────────────────────────
+
+
+def _seed_hall(tmp_path: Path, hall_id: str = "test-hall") -> None:
+    """Create a hall with one HALL_OPENED event for testing."""
+    from debate_hall_mcp.hall import HallEventType, append_hall_event
+
+    append_hall_event(
+        hall_id, HallEventType.HALL_OPENED,
+        {"topic": "Test Topic", "max_depth": 3, "max_context_tokens": 4096},
+        tmp_path,
+    )
+
+
+class TestLoadHall:
+    """Test load_hall Smart Loader with self-healing."""
+
+    def test_load_from_events_only(self, tmp_path: Path) -> None:
+        """No snapshot: full reconstruction from events."""
+        from debate_hall_mcp.hall import HallStatus, load_hall
+
+        _seed_hall(tmp_path)
+        state = load_hall("test-hall", tmp_path)
+        assert state.hall_id == "test-hall"
+        assert state.topic == "Test Topic"
+        assert state.status == HallStatus.OPEN
+
+    def test_load_creates_snapshot(self, tmp_path: Path) -> None:
+        """load_hall should flush snapshot after replay."""
+        from debate_hall_mcp.hall import _get_hall_state_file, load_hall
+
+        _seed_hall(tmp_path)
+        load_hall("test-hall", tmp_path)
+        snapshot = _get_hall_state_file("test-hall", tmp_path)
+        assert snapshot.exists()
+
+    def test_load_from_current_snapshot(self, tmp_path: Path) -> None:
+        """When snapshot is up-to-date, no replay needed."""
+        from debate_hall_mcp.hall import load_hall
+
+        _seed_hall(tmp_path)
+        # First load creates snapshot
+        state1 = load_hall("test-hall", tmp_path)
+        # Second load reads from snapshot (no new events)
+        state2 = load_hall("test-hall", tmp_path)
+        assert state2.hall_id == state1.hall_id
+        assert state2.last_event_id == state1.last_event_id
+
+    def test_load_with_delta_replay(self, tmp_path: Path) -> None:
+        """Snapshot is stale, delta events replayed."""
+        from debate_hall_mcp.hall import HallEventType, append_hall_event, load_hall
+
+        _seed_hall(tmp_path)
+        load_hall("test-hall", tmp_path)  # Create snapshot
+        # Add more events after snapshot
+        append_hall_event(
+            "test-hall", HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+        )
+        state = load_hall("test-hall", tmp_path)
+        assert "alice" in state.participants
+
+    def test_load_not_found(self, tmp_path: Path) -> None:
+        """No events + no snapshot = FileNotFoundError."""
+        from debate_hall_mcp.hall import load_hall
+
+        with pytest.raises(FileNotFoundError, match="not found"):
+            load_hall("nonexistent", tmp_path)
+
+    def test_load_corrupt_snapshot_falls_back_to_events_w_ce_1(
+        self, tmp_path: Path,
+    ) -> None:
+        """W-CE-1: Corrupt snapshot triggers events-only reconstruction."""
+        from debate_hall_mcp.hall import _get_hall_state_file, load_hall
+
+        _seed_hall(tmp_path)
+        load_hall("test-hall", tmp_path)  # Creates valid snapshot
+        # Corrupt the snapshot
+        snapshot = _get_hall_state_file("test-hall", tmp_path)
+        snapshot.write_text("THIS IS NOT VALID JSON")
+        # Should fall back to events-only reconstruction
+        state = load_hall("test-hall", tmp_path)
+        assert state.hall_id == "test-hall"
+        assert state.topic == "Test Topic"
+
+
+class TestSaveHall:
+    """Test save_hall event-first write path."""
+
+    def test_save_hall_appends_event_and_updates_state(
+        self, tmp_path: Path,
+    ) -> None:
+        from debate_hall_mcp.hall import HallEventType, load_hall, save_hall
+
+        _seed_hall(tmp_path)
+        state = load_hall("test-hall", tmp_path)
+        event = save_hall(
+            state, HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "bob", "name": "Bob", "kind": "agent"}, tmp_path,
+        )
+        assert event.event_type == HallEventType.PARTICIPANT_REGISTERED
+        assert "bob" in state.participants
+
+    def test_save_hall_snapshot_updated(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import HallEventType, load_hall, save_hall
+
+        _seed_hall(tmp_path)
+        state = load_hall("test-hall", tmp_path)
+        save_hall(
+            state, HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "bob", "name": "Bob", "kind": "agent"}, tmp_path,
+        )
+        # Reload and verify
+        state2 = load_hall("test-hall", tmp_path)
+        assert "bob" in state2.participants
+
+    def test_snapshot_excludes_provider_config_h002(self, tmp_path: Path) -> None:
+        """H-002: provider_config must NOT appear in snapshot."""
+        import json
+
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            _get_hall_state_file,
+            load_hall,
+            save_hall,
+        )
+
+        _seed_hall(tmp_path)
+        state = load_hall("test-hall", tmp_path)
+        save_hall(
+            state, HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+        )
+        snapshot_file = _get_hall_state_file("test-hall", tmp_path)
+        data = json.loads(snapshot_file.read_text())
+        # Check that provider_config is not in any participant
+        for pid, pdata in data.get("participants", {}).items():
+            assert "provider_config" not in pdata, (
+                f"provider_config found in participant {pid}"
+            )
+
+    def test_snapshot_file_permissions(self, tmp_path: Path) -> None:
+        """Snapshot file should have 0o600 permissions."""
+        import stat
+
+        from debate_hall_mcp.hall import _get_hall_state_file, load_hall
+
+        _seed_hall(tmp_path)
+        load_hall("test-hall", tmp_path)
+        snapshot = _get_hall_state_file("test-hall", tmp_path)
+        mode = stat.S_IMODE(snapshot.stat().st_mode)
+        assert mode == 0o600

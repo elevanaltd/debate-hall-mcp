@@ -23,9 +23,12 @@ Immutables Compliance:
 
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
 import os
 import re
+import tempfile
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -694,3 +697,170 @@ def _load_hall_events_unlocked(
             events.append(event)
 
     return events
+
+
+# ── S2.4: Smart Loader (Read Path) ──────────────────────────────────
+
+
+def load_hall(hall_id: str, state_dir: Path) -> HallState:
+    """Load hall state with self-healing read-repair.
+
+    Read Path (Hydrated Snapshot Pattern):
+    1. Acquire hall lock
+    2. Load JSON snapshot (if exists)
+    3. Read event tail (events after snapshot.last_event_id)
+    4. If tail is non-empty: replay delta events via reducer
+    5. Flush updated snapshot to JSON
+    6. Release lock and return fresh state
+
+    W-CE-1: If snapshot is corrupt (JSONDecodeError/ValidationError),
+    falls back to events-only reconstruction.
+
+    Args:
+        hall_id: Hall identifier
+        state_dir: State directory
+
+    Returns:
+        Current HallState (up-to-date with event ledger)
+
+    Raises:
+        FileNotFoundError: If hall does not exist
+    """
+    _validate_hall_id_for_filesystem(hall_id)
+
+    state_file = _get_hall_state_file(hall_id, state_dir)
+    lock = _get_hall_lock(hall_id, state_dir)
+
+    with lock:
+        state: HallState | None = None
+
+        # Step 1: Try to load snapshot
+        if state_file.exists():
+            try:
+                with open(state_file) as f:
+                    data = json.load(f)
+                state = HallState.model_validate(data)
+            except (json.JSONDecodeError, ValidationError) as exc:
+                # W-CE-1: Corrupt snapshot — fall back to events-only
+                logger.warning(
+                    "Corrupt snapshot for hall '%s', rebuilding from events: %s",
+                    hall_id,
+                    exc,
+                )
+                state = None
+
+        # Step 2: Load delta events (after snapshot version)
+        after = state.last_event_id if state else None
+        delta_events = _load_hall_events_unlocked(hall_id, state_dir, after=after)
+
+        # Step 3: If no snapshot and no events, hall doesn't exist
+        if state is None and not delta_events:
+            raise FileNotFoundError(f"Hall '{hall_id}' not found")
+
+        # Step 4: If no snapshot but events exist, create initial state
+        if state is None and delta_events:
+            first = delta_events[0]
+            state = HallState(
+                hall_id=hall_id,
+                topic=first.data.get("topic", ""),
+                max_depth=first.data.get("max_depth", 3),
+                max_context_tokens=first.data.get("max_context_tokens", 4096),
+                max_debates=first.data.get("max_debates", 20),
+                context_files=first.data.get("context_files", []),
+                tier_name=first.data.get("tier_name", "standard"),
+                created_at=first.timestamp,
+                updated_at=first.timestamp,
+            )
+
+        # Step 5: Replay delta events through reducer
+        if delta_events and state is not None:
+            for event in delta_events:
+                state = apply_hall_event(state, event)
+
+            # Step 6: Flush updated snapshot (read-repair)
+            _save_hall_snapshot_unlocked(state, state_dir)
+
+        assert state is not None  # Guaranteed by steps 3-4
+        return state
+
+
+# ── S2.5: Save Hall (Write Path) ────────────────────────────────────
+
+
+def save_hall(
+    state: HallState,
+    event_type: HallEventType,
+    event_data: dict[str, Any],
+    state_dir: Path,
+) -> HallEvent:
+    """Write path: append event first, then update snapshot.
+
+    Args:
+        state: Current HallState (will be mutated by reducer)
+        event_type: Type of event to append
+        event_data: Event-specific data
+        state_dir: State directory
+
+    Returns:
+        The appended HallEvent
+    """
+    _validate_hall_id_for_filesystem(state.hall_id)
+    lock = _get_hall_lock(state.hall_id, state_dir)
+
+    with lock:
+        # Step 1: Create and append event
+        event = HallEvent(
+            event_id=str(ULID()),
+            hall_id=state.hall_id,
+            event_type=event_type,
+            timestamp=datetime.now(UTC),
+            data=event_data,
+        )
+
+        events_file = _get_hall_events_file(state.hall_id, state_dir)
+        with open(events_file, "a") as f:
+            f.write(event.model_dump_json() + "\n")
+            # W-CE-2: Ensure data reaches disk
+            f.flush()
+            os.fsync(f.fileno())
+
+        # Step 2: Apply event to in-memory state
+        apply_hall_event(state, event)
+
+        # Step 3: Flush snapshot
+        _save_hall_snapshot_unlocked(state, state_dir)
+
+    return event
+
+
+def _save_hall_snapshot_unlocked(state: HallState, state_dir: Path) -> None:
+    """Flush hall state snapshot to JSON (caller holds lock).
+
+    Uses atomic write pattern (temp file + rename).
+    H-002: Excludes provider_config from serialized snapshot.
+    """
+    state_file = _get_hall_state_file(state.hall_id, state_dir)
+
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(_get_halls_dir(state_dir)),
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            # H-002: Exclude provider_config from all participants
+            f.write(
+                state.model_dump_json(
+                    indent=2,
+                    exclude={"participants": {"__all__": {"provider_config"}}},
+                )
+            )
+            # W-CE-2: Ensure data reaches disk
+            f.flush()
+            os.fsync(f.fileno())
+        # Set restrictive permissions (H-002: defense in depth)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, str(state_file))
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
