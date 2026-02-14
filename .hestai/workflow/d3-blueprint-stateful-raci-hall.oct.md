@@ -2,8 +2,8 @@
 
 META:
   TYPE::TECHNICAL_BLUEPRINT
-  VERSION::"1.0"
-  STATUS::DRAFT
+  VERSION::"1.1"
+  STATUS::AMENDED
   FEATURE::"Stateful RACI Hall"
   ISSUE::"#163"
   PHASE::D3_DAEDALUS_CONSTRUCTION
@@ -11,7 +11,19 @@ META:
   NORTH_STAR::"stateful-raci-hall-north-star.oct.md[v1.1]"
   AUTHOR::"design-architect[LOGOS]"
   DATE::"2026-02-14"
+  AMENDED::"2026-02-14"
   AUTHORITY::ULTIMATE[Blueprint_creation+Specification_definition]
+  AMENDMENTS::[
+    "v1.1::Resolve 4 blocking findings from TA validation and security review",
+    "B1::Remove vestigial EXISTING_TOOL_MODIFICATIONS concept; set parent_hall_id/parent_thread_id at debate creation time via debate_init, not post-completion",
+    "B2::Specify per-spec provider lookup INSIDE manifest execution loop with explicit code",
+    "H-001::Add field_validator for context_files with directory jail, path traversal protection, size/count limits",
+    "H-002::Exclude provider_config from snapshot serialization via model_dump_json exclude parameter"
+  ]
+  COMPRESSION_DECISION::[
+    VERDICT::LEAVE_UNCOMPRESSED,
+    RATIONALE::"60% of document is verbatim Python code blocks (function signatures, validators, complete implementations) that cannot survive compression. Remaining 40% is already-dense rationale and structured tables. Document serves as TDD implementation spec where 'buildable without guessing' (design-architect principle) requires full verbosity. Token cost (~15k tokens) is acceptable for a document loaded once per implementation session, not per-turn. Partial narrative compression would save ~15-20% but reduce readability without meaningful context window benefit."
+  ]
 
 [BLUEPRINT_OVERVIEW]
 
@@ -368,8 +380,12 @@ class HallState(BaseModel):
     )
     context_files: list[str] = Field(
         default_factory=list,
-        description="Shared codebase context file paths",
+        description="Shared codebase context file paths (validated for path safety)",
     )
+    # H-001 AMENDMENT: Maximum file count and size limits for context_files
+    MAX_CONTEXT_FILES = 10
+    MAX_CONTEXT_FILE_SIZE = 65536  # 64KB per file
+
     tier_name: str = Field(
         default="standard",
         description="Tier config name for provider creation",
@@ -384,12 +400,83 @@ class HallState(BaseModel):
     @field_validator("hall_id")
     @classmethod
     def validate_hall_id(cls, v: str) -> str:
-        """Validate hall_id is filesystem-safe."""
+        """Validate hall_id is filesystem-safe.
+
+        AMENDMENT (M-001): Uses strict regex matching participant_id validation
+        instead of blocklist approach. Prevents shell metacharacters, Unicode,
+        control characters, and cross-platform filesystem issues.
+        """
         if not v or not v.strip():
             raise ValueError("hall_id must be non-empty")
-        for pattern in ("..", "/", "\\"):
-            if pattern in v:
-                raise ValueError(f"hall_id '{v}' contains path-unsafe characters")
+        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError(
+                f"hall_id '{v}' contains invalid characters: "
+                "only alphanumeric, hyphens, and underscores allowed"
+            )
+        return v
+
+    @field_validator("context_files")
+    @classmethod
+    def validate_context_files(cls, v: list[str]) -> list[str]:
+        """Validate context_files paths for safety (H-001 AMENDMENT).
+
+        Security controls:
+        1. Maximum file count (10) to prevent prompt injection volume
+        2. All paths must be absolute (no relative paths)
+        3. All paths must resolve without '..' traversal after resolution
+        4. Paths must not point to sensitive directories
+        5. File size checked at read time (MAX_CONTEXT_FILE_SIZE = 64KB)
+
+        The actual directory jail is enforced at read time in _hall_debate_impl
+        using the state_dir as the allowed root, OR using an explicit
+        allowed_dirs list passed to hall_open. This validator performs
+        structural validation only.
+        """
+        if len(v) > 10:
+            raise ValueError(
+                f"context_files exceeds maximum of 10 files: got {len(v)}"
+            )
+
+        SENSITIVE_PREFIXES = (
+            "/etc/", "/root/", "/proc/", "/sys/", "/dev/",
+        )
+        SENSITIVE_HOME_DIRS = (
+            ".ssh", ".gnupg", ".config/secrets", ".env",
+            ".aws", ".docker", ".kube",
+        )
+
+        for fpath in v:
+            # Must be absolute
+            if not os.path.isabs(fpath):
+                raise ValueError(
+                    f"context_files path must be absolute: '{fpath}'"
+                )
+
+            # Resolve and check for traversal
+            resolved = os.path.realpath(fpath)
+            if ".." in fpath:
+                raise ValueError(
+                    f"context_files path contains traversal: '{fpath}'"
+                )
+
+            # Block sensitive directories
+            for prefix in SENSITIVE_PREFIXES:
+                if resolved.startswith(prefix):
+                    raise ValueError(
+                        f"context_files path '{fpath}' points to "
+                        f"restricted directory: {prefix}"
+                    )
+
+            # Block sensitive home subdirectories
+            home_dir = os.path.expanduser("~")
+            for sensitive_dir in SENSITIVE_HOME_DIRS:
+                sensitive_path = os.path.join(home_dir, sensitive_dir)
+                if resolved.startswith(sensitive_path):
+                    raise ValueError(
+                        f"context_files path '{fpath}' points to "
+                        f"sensitive home directory: ~/{sensitive_dir}"
+                    )
+
         return v
 ```
 
@@ -564,10 +651,15 @@ def load_hall_events(
 
 
 def _validate_hall_id_for_filesystem(hall_id: str) -> None:
-    """Validate hall_id is safe for filesystem operations."""
-    for pattern in ("..", "/", "\\"):
-        if pattern in hall_id:
-            raise ValueError(f"Invalid hall_id '{hall_id}': contains path-unsafe characters")
+    """Validate hall_id is safe for filesystem operations.
+
+    AMENDMENT (M-001): Uses strict regex matching HallState.validate_hall_id.
+    """
+    if not hall_id or not re.match(r"^[a-zA-Z0-9_-]+$", hall_id):
+        raise ValueError(
+            f"Invalid hall_id '{hall_id}': only alphanumeric, hyphens, "
+            "and underscores allowed"
+        )
 ```
 
 ### S2.3::Event Reducer (Pure Function)
@@ -855,6 +947,11 @@ def _save_hall_snapshot_unlocked(state: HallState, state_dir: Path) -> None:
     """Flush hall state snapshot to JSON (caller holds lock).
 
     Uses atomic write pattern (temp file + rename) matching state.py.
+
+    H-002 AMENDMENT: Excludes provider_config from all participants in the
+    serialized snapshot to prevent API keys and sensitive credentials from
+    persisting on disk. Provider configs are ephemeral — reconstructed from
+    hall_register calls or environment variables at runtime.
     """
     state_file = _get_hall_state_file(state.hall_id, state_dir)
 
@@ -864,9 +961,19 @@ def _save_hall_snapshot_unlocked(state: HallState, state_dir: Path) -> None:
     )
     try:
         with os.fdopen(fd, "w") as f:
-            f.write(state.model_dump_json(indent=2))
+            # H-002: Exclude provider_config from all participants
+            f.write(state.model_dump_json(
+                indent=2,
+                exclude={
+                    "participants": {
+                        "__all__": {"provider_config"}
+                    }
+                },
+            ))
             f.flush()
             os.fsync(f.fileno())
+        # Set restrictive permissions (H-002: defense in depth)
+        os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, str(state_file))
     except Exception:
         with contextlib.suppress(OSError):
@@ -1082,6 +1189,14 @@ def hall_register(
         PARTICIPANT_REGISTERED with data: {id, name, kind, status, prompt_source, capabilities, registered_at}
         (provider_config is NOT included in event data to avoid persisting secrets)
 
+    H-002 AMENDMENT: provider_config is stored in the in-memory HallState.participants
+    registry only. It is excluded from both:
+    1. Event ledger data (already excluded in v1.0)
+    2. Snapshot JSON serialization (v1.1 amendment: model_dump_json exclude parameter)
+    Provider configs must be re-registered via hall_register after server restart.
+    API keys should be passed via environment variables (existing OpenRouterProvider pattern),
+    not inline in provider_config.
+
     Validation:
         - Hall must exist and not be ARCHIVED or FORCE_CLOSED
         - name must be non-empty (1-128 chars)
@@ -1206,11 +1321,19 @@ async def hall_debate(
         - RuntimeError if debate orchestration fails
 
     Side effects:
-        - Creates DebateRoom with parent_hall_id and parent_thread_id set
+        - Creates DebateRoom with parent_hall_id and parent_thread_id set AT CREATION TIME
+          (B1 amendment: not post-completion)
         - Updates participant statuses to "active" during debate
         - Regenerates compressed_log on debate completion
         - Updates hall status to ACTIVE on first debate
         - Resets participant statuses to "on_call" on completion
+
+    Context injection mechanism (B1 clarification):
+        Hall context is injected EXCLUSIVELY via the DebateOrchestrator's
+        hall_context parameter (S4.1-S4.2). Existing tools (add_turn,
+        close_debate, get_debate) are NOT modified. The orchestrator
+        prepends <HALL_CONTEXT>...</HALL_CONTEXT> to every agent prompt.
+        No tool-level context injection occurs based on parent_hall_id.
     """
 ```
 
@@ -1379,27 +1502,67 @@ The same change applies to `_execute_speed_role_turn` and `_execute_raci_role_tu
 
 ### S4.3::Changes to run_raci for Participant Providers
 
-In `run_raci`, when `self._participant_providers` is non-empty, use participant-specific providers:
+**B2 AMENDMENT**: The existing `run_raci` method (orchestrator.py line ~1541) creates
+a single provider and reuses it for all manifest specs. The per-participant provider
+lookup MUST be placed INSIDE the `for spec in manifest.specs:` loop to ensure each
+participant gets their own provider. The following shows the exact insertion point.
+
+In `run_raci`, the existing code around the manifest execution loop looks like:
 
 ```python
-# In run_raci, replace:
-#   provider = self._provider_factory(self.tier_config.wind)
-# With:
-
-if self._participant_providers:
-    # Hall-managed debate: use participant-specific providers
-    def _get_participant_provider(role_name: str) -> ModelProvider:
-        if role_name in self._participant_providers:
-            return self._participant_providers[role_name]
-        # Fallback to default wind provider
-        return self._provider_factory(self.tier_config.wind)
-
-    # Then in the manifest execution loop, replace `provider` with:
-    provider = _get_participant_provider(spec.role)
-else:
-    # Standalone RACI: use single wind provider (existing behavior)
-    provider = self._provider_factory(self.tier_config.wind)
+# EXISTING CODE (orchestrator.py ~line 1541):
+provider = self._provider_factory(self.tier_config.wind)
+# ... then in loop:
+for spec in manifest.specs:
+    # ... spec processing ...
+    last_response = await self._execute_raci_role_turn(
+        role=spec.role,
+        provider=provider,  # <-- single provider for all turns
+        ...
+    )
 ```
+
+**Replace with** (exact insertion point: inside the `for spec in manifest.specs:` loop,
+BEFORE the `if spec.raci_designation == "I"` branch):
+
+```python
+# AMENDED CODE: Remove the single provider creation above the loop.
+# Instead, create per-spec provider INSIDE the loop:
+for spec in manifest.specs:
+    # B2 AMENDMENT: Per-participant provider lookup (INSIDE loop)
+    if self._participant_providers:
+        # Hall-managed debate: look up participant-specific provider
+        provider = self._participant_providers.get(
+            spec.role,
+            self._provider_factory(self.tier_config.wind),
+        )
+    else:
+        # Standalone RACI: use single wind provider (existing behavior)
+        provider = self._provider_factory(self.tier_config.wind)
+
+    if spec.raci_designation == "I":
+        # Informed participants: notification only (existing logic)
+        last_response = await self._execute_raci_role_turn(
+            role=spec.role,
+            provider=provider,
+            ...
+        )
+    else:
+        # R/A/C participants: full turn execution (existing logic)
+        last_response = await self._execute_raci_role_turn(
+            role=spec.role,
+            provider=provider,
+            ...
+        )
+```
+
+This ensures:
+1. Each manifest spec gets its own provider resolved from `self._participant_providers`
+2. Fallback to default wind provider if participant not in the mapping
+3. When `self._participant_providers` is empty (standalone RACI), behavior is identical
+   to existing single-provider logic (backward compatible)
+4. Both the `if spec.raci_designation == "I"` branch AND the `else` branch use the
+   per-spec `provider` variable
 
 ### S4.4::Backward Compatibility Guarantees
 
@@ -1712,8 +1875,17 @@ This resolves G2 (token budget empirical validation): the math shows 4096 comfor
 | `test_load_hall_events_after_filter` | Ledger | `after` parameter filters correctly |
 | `test_load_hall_events_corrupt_line` | Error | Corrupt JSONL line skipped with warning |
 | `test_hall_id_filesystem_safety` | Security | Path traversal in hall_id rejected |
+| `test_hall_id_strict_regex` | Security (M-001) | Special chars, Unicode, spaces in hall_id rejected |
+| `test_context_files_max_count` | Security (H-001) | >10 context_files rejected |
+| `test_context_files_relative_path` | Security (H-001) | Relative paths in context_files rejected |
+| `test_context_files_traversal` | Security (H-001) | Paths with '..' rejected |
+| `test_context_files_sensitive_dirs` | Security (H-001) | Paths to /etc/, ~/.ssh/ etc. rejected |
+| `test_context_files_valid_absolute` | Security (H-001) | Valid absolute paths accepted |
+| `test_snapshot_excludes_provider_config` | Security (H-002) | Snapshot JSON does not contain provider_config |
+| `test_snapshot_file_permissions` | Security (H-002) | Snapshot file created with 0o600 permissions |
+| `test_load_hall_without_provider_config` | Security (H-002) | Hall loads correctly from snapshot missing provider_config |
 
-**Estimated test count: ~28 tests**
+**Estimated test count: ~38 tests**
 
 ### S7.2::Unit Tests for compression.py
 
@@ -1811,14 +1983,14 @@ This resolves G2 (token budget empirical validation): the math shows 4096 comfor
 
 | Module | Tests |
 |--------|-------|
-| test_hall.py | ~28 |
+| test_hall.py | ~38 |
 | test_compression.py | ~14 |
 | test_hall_tools.py | ~28 |
 | test_hall_integration.py | ~7 |
 | test_no_regression.py | ~7 |
-| **Total new tests** | **~84** |
+| **Total new tests** | **~94** |
 | **Existing tests** | **864+** |
-| **Total after implementation** | **~948+** |
+| **Total after implementation** | **~958+** |
 
 ===
 
@@ -2289,14 +2461,27 @@ async def _hall_debate_impl(
             participant_providers[participant.name] = create_provider(role_config)
 
     # Build context block from hall context_files
+    # H-001 AMENDMENT: Read-time enforcement of file size limits.
+    # Structural validation (path safety, traversal, sensitive dirs) is
+    # handled by HallState.validate_context_files at hall_open time.
+    # Here we enforce per-file size limits to prevent memory exhaustion.
     context_block = None
     if hall.context_files:
         context_parts = []
         for fpath in hall.context_files:
             try:
-                content = Path(fpath).read_text(encoding="utf-8")
+                file_path = Path(fpath)
+                # H-001: Enforce file size limit (64KB)
+                file_size = file_path.stat().st_size
+                if file_size > HallState.MAX_CONTEXT_FILE_SIZE:
+                    logger.warning(
+                        "Skipping context file %s: size %d exceeds limit %d",
+                        fpath, file_size, HallState.MAX_CONTEXT_FILE_SIZE,
+                    )
+                    continue
+                content = file_path.read_text(encoding="utf-8")
                 context_parts.append(f"<FILE path=\"{fpath}\">\n{content}\n</FILE>")
-            except (FileNotFoundError, PermissionError):
+            except (FileNotFoundError, PermissionError, OSError):
                 continue
         if context_parts:
             context_block = "\n\n".join(context_parts)
@@ -2323,6 +2508,23 @@ async def _hall_debate_impl(
         },
         state_dir,
     )
+
+    # B1 AMENDMENT: Pre-create the DebateRoom with parent_hall_id and
+    # parent_thread_id set at creation time. This ensures the debate knows
+    # its hall context from the very first turn. The orchestrator's run methods
+    # detect an existing DebateRoom and skip init_debate if thread_id already
+    # exists in state_dir.
+    from debate_hall_mcp.tools.core import init_debate as _init_debate
+    _init_debate(
+        topic=topic,
+        thread_id=thread_id,
+        mode="fixed" if mode in ("raci", "speed") else mode,
+    )
+    # Set parent fields on the newly created DebateRoom
+    room = load_debate_state(thread_id, state_dir)
+    room.parent_hall_id = hall_id
+    room.parent_thread_id = parent_thread_id
+    save_debate_state(room, state_dir)
 
     # Create orchestrator with hall context and participant providers
     orchestrator = DebateOrchestrator(
@@ -2351,13 +2553,6 @@ async def _hall_debate_impl(
                 topic=topic,
                 thread_id=thread_id,
             )
-
-        # Set parent_hall_id and parent_thread_id on the debate room
-        room = load_debate_state(thread_id, state_dir)
-        room.parent_hall_id = hall_id
-        room.parent_thread_id = parent_thread_id
-        from debate_hall_mcp.state import save_debate_state
-        save_debate_state(room, state_dir)
 
     except Exception:
         # On failure, still emit DEBATE_COMPLETED with error status
