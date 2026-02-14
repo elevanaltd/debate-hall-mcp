@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ── P1T01: Enums + Error Taxonomy ────────────────────────────────────
 
 
@@ -186,7 +185,9 @@ class TestParticipantModel:
 
         for designation in ("R", "A", "C", "I"):
             p = Participant(
-                id="alice", name="Alice", kind=ParticipantKind.AGENT,
+                id="alice",
+                name="Alice",
+                kind=ParticipantKind.AGENT,
                 raci_designation=designation,
             )
             assert p.raci_designation == designation
@@ -196,7 +197,9 @@ class TestParticipantModel:
 
         with pytest.raises(ValueError, match="raci_designation must be"):
             Participant(
-                id="alice", name="Alice", kind=ParticipantKind.AGENT,
+                id="alice",
+                name="Alice",
+                kind=ParticipantKind.AGENT,
                 raci_designation="X",
             )
 
@@ -226,8 +229,10 @@ class TestRaciMatrix:
         from debate_hall_mcp.hall import RaciMatrix
 
         m = RaciMatrix(
-            responsible="alice", accountable="bob",
-            consulted=["charlie"], informed=["dave"],
+            responsible="alice",
+            accountable="bob",
+            consulted=["charlie"],
+            informed=["dave"],
         )
         assert m.consulted == ["charlie"]
         assert m.informed == ["dave"]
@@ -243,7 +248,8 @@ class TestRaciMatrix:
 
         with pytest.raises(ValueError, match="consulted exceeds max 5"):
             RaciMatrix(
-                responsible="r", accountable="a",
+                responsible="r",
+                accountable="a",
                 consulted=["c1", "c2", "c3", "c4", "c5", "c6"],
             )
 
@@ -252,7 +258,8 @@ class TestRaciMatrix:
 
         with pytest.raises(ValueError, match="informed exceeds max 3"):
             RaciMatrix(
-                responsible="r", accountable="a",
+                responsible="r",
+                accountable="a",
                 informed=["i1", "i2", "i3", "i4"],
             )
 
@@ -261,7 +268,8 @@ class TestRaciMatrix:
 
         with pytest.raises(ValueError, match="exactly one RACI designation"):
             RaciMatrix(
-                responsible="alice", accountable="bob",
+                responsible="alice",
+                accountable="bob",
                 consulted=["alice"],
             )
 
@@ -270,7 +278,8 @@ class TestRaciMatrix:
 
         with pytest.raises(ValueError, match="exactly one RACI designation"):
             RaciMatrix(
-                responsible="r", accountable="a",
+                responsible="r",
+                accountable="a",
                 consulted=["c1", "c1"],
             )
 
@@ -376,7 +385,10 @@ class TestHallState:
         now = datetime.now(UTC)
         with pytest.raises(ValueError, match="invalid characters"):
             HallState(
-                hall_id="bad/hall", topic="T", created_at=now, updated_at=now,
+                hall_id="bad/hall",
+                topic="T",
+                created_at=now,
+                updated_at=now,
             )
 
     def test_hall_id_rejects_spaces_m001(self) -> None:
@@ -387,7 +399,10 @@ class TestHallState:
         now = datetime.now(UTC)
         with pytest.raises(ValueError, match="invalid characters"):
             HallState(
-                hall_id="bad hall", topic="T", created_at=now, updated_at=now,
+                hall_id="bad hall",
+                topic="T",
+                created_at=now,
+                updated_at=now,
             )
 
     def test_hall_id_rejects_empty_m001(self) -> None:
@@ -398,7 +413,10 @@ class TestHallState:
         now = datetime.now(UTC)
         with pytest.raises(ValueError, match="must be non-empty"):
             HallState(
-                hall_id="", topic="T", created_at=now, updated_at=now,
+                hall_id="",
+                topic="T",
+                created_at=now,
+                updated_at=now,
             )
 
     def test_hall_id_accepts_valid_m001(self) -> None:
@@ -408,8 +426,10 @@ class TestHallState:
 
         now = datetime.now(UTC)
         state = HallState(
-            hall_id="hall-2026-01-15-my_topic", topic="T",
-            created_at=now, updated_at=now,
+            hall_id="hall-2026-01-15-my_topic",
+            topic="T",
+            created_at=now,
+            updated_at=now,
         )
         assert state.hall_id == "hall-2026-01-15-my_topic"
 
@@ -422,7 +442,10 @@ class TestHallState:
         now = datetime.now(UTC)
         with pytest.raises(ValueError, match="exceeds maximum of 10"):
             HallState(
-                hall_id="h1", topic="T", created_at=now, updated_at=now,
+                hall_id="h1",
+                topic="T",
+                created_at=now,
+                updated_at=now,
                 context_files=[f"/tmp/f{i}" for i in range(11)],  # noqa: S108
             )
 
@@ -435,7 +458,10 @@ class TestHallState:
         now = datetime.now(UTC)
         with pytest.raises(ValueError, match="must be absolute"):
             HallState(
-                hall_id="h1", topic="T", created_at=now, updated_at=now,
+                hall_id="h1",
+                topic="T",
+                created_at=now,
+                updated_at=now,
                 context_files=["relative/path.py"],
             )
 
@@ -448,7 +474,10 @@ class TestHallState:
         now = datetime.now(UTC)
         with pytest.raises(ValueError, match="traversal"):
             HallState(
-                hall_id="h1", topic="T", created_at=now, updated_at=now,
+                hall_id="h1",
+                topic="T",
+                created_at=now,
+                updated_at=now,
                 context_files=["/home/user/../etc/passwd"],
             )
 
@@ -461,7 +490,10 @@ class TestHallState:
         now = datetime.now(UTC)
         with pytest.raises(ValueError, match="restricted directory"):
             HallState(
-                hall_id="h1", topic="T", created_at=now, updated_at=now,
+                hall_id="h1",
+                topic="T",
+                created_at=now,
+                updated_at=now,
                 context_files=["/etc/passwd"],
             )
 
@@ -473,7 +505,10 @@ class TestHallState:
 
         now = datetime.now(UTC)
         state = HallState(
-            hall_id="h1", topic="T", created_at=now, updated_at=now,
+            hall_id="h1",
+            topic="T",
+            created_at=now,
+            updated_at=now,
             context_files=["/tmp/valid.py"],  # noqa: S108
         )
         assert state.context_files == ["/tmp/valid.py"]
@@ -492,7 +527,7 @@ def _make_hall_state(
     hall_id: str = "test-hall",
     topic: str = "Test",
     status: str = "open",
-) -> "HallState":  # noqa: F821
+) -> HallState:  # noqa: F821
     """Helper to create a HallState for reducer tests."""
     from datetime import UTC, datetime
 
@@ -511,7 +546,7 @@ def _make_event(
     event_type: str,
     data: dict[str, object] | None = None,
     hall_id: str = "test-hall",
-) -> "HallEvent":  # noqa: F821
+) -> HallEvent:  # noqa: F821
     """Helper to create a HallEvent for reducer tests."""
     from datetime import UTC, datetime
 
@@ -542,9 +577,14 @@ class TestApplyHallEvent:
         from debate_hall_mcp.hall import apply_hall_event
 
         state = _make_hall_state()
-        event = _make_event("participant_registered", {
-            "id": "alice", "name": "Alice", "kind": "agent",
-        })
+        event = _make_event(
+            "participant_registered",
+            {
+                "id": "alice",
+                "name": "Alice",
+                "kind": "agent",
+            },
+        )
         result = apply_hall_event(state, event)
         assert "alice" in result.participants
         assert result.participants["alice"].name == "Alice"
@@ -554,7 +594,9 @@ class TestApplyHallEvent:
 
         state = _make_hall_state()
         state.participants["alice"] = Participant(
-            id="alice", name="Alice", kind=ParticipantKind.AGENT,
+            id="alice",
+            name="Alice",
+            kind=ParticipantKind.AGENT,
         )
         event = _make_event("participant_unregistered", {"participant_id": "alice"})
         result = apply_hall_event(state, event)
@@ -565,14 +607,21 @@ class TestApplyHallEvent:
 
         state = _make_hall_state()
         state.participants["alice"] = Participant(
-            id="alice", name="Alice", kind=ParticipantKind.AGENT,
+            id="alice",
+            name="Alice",
+            kind=ParticipantKind.AGENT,
         )
         state.participants["bob"] = Participant(
-            id="bob", name="Bob", kind=ParticipantKind.AGENT,
+            id="bob",
+            name="Bob",
+            kind=ParticipantKind.AGENT,
         )
-        event = _make_event("raci_assigned", {
-            "raci_matrix": {"responsible": "alice", "accountable": "bob"},
-        })
+        event = _make_event(
+            "raci_assigned",
+            {
+                "raci_matrix": {"responsible": "alice", "accountable": "bob"},
+            },
+        )
         result = apply_hall_event(state, event)
         assert result.raci_matrix is not None
         assert result.raci_matrix.responsible == "alice"
@@ -583,10 +632,13 @@ class TestApplyHallEvent:
         from debate_hall_mcp.hall import HallStatus, apply_hall_event
 
         state = _make_hall_state()
-        event = _make_event("debate_spawned", {
-            "thread_id": "thread-001",
-            "participant_ids": [],
-        })
+        event = _make_event(
+            "debate_spawned",
+            {
+                "thread_id": "thread-001",
+                "participant_ids": [],
+            },
+        )
         result = apply_hall_event(state, event)
         assert "thread-001" in result.active_debates
         assert result.status == HallStatus.ACTIVE
@@ -596,11 +648,14 @@ class TestApplyHallEvent:
 
         state = _make_hall_state(status="active")
         state.active_debates = ["thread-001"]
-        event = _make_event("debate_completed", {
-            "thread_id": "thread-001",
-            "compressed_log": "summary",
-            "participant_ids": [],
-        })
+        event = _make_event(
+            "debate_completed",
+            {
+                "thread_id": "thread-001",
+                "compressed_log": "summary",
+                "participant_ids": [],
+            },
+        )
         result = apply_hall_event(state, event)
         assert "thread-001" not in result.active_debates
         assert "thread-001" in result.completed_debates
@@ -618,13 +673,18 @@ class TestApplyHallEvent:
         state = _make_hall_state(status="active")
         state.active_debates = ["thread-001"]
         state.participants["alice"] = Participant(
-            id="alice", name="Alice", kind=ParticipantKind.AGENT,
+            id="alice",
+            name="Alice",
+            kind=ParticipantKind.AGENT,
             raci_designation="R",
         )
-        event = _make_event("debate_completed", {
-            "thread_id": "thread-001",
-            "participant_ids": ["alice"],
-        })
+        event = _make_event(
+            "debate_completed",
+            {
+                "thread_id": "thread-001",
+                "participant_ids": ["alice"],
+            },
+        )
         result = apply_hall_event(state, event)
         assert result.participants["alice"].raci_designation is None
         assert result.raci_matrix is None
@@ -633,10 +693,13 @@ class TestApplyHallEvent:
         from debate_hall_mcp.hall import apply_hall_event
 
         state = _make_hall_state(status="active")
-        event = _make_event("consultation_completed", {
-            "thread_id": "consult-001",
-            "compressed_log": "consult summary",
-        })
+        event = _make_event(
+            "consultation_completed",
+            {
+                "thread_id": "consult-001",
+                "compressed_log": "consult summary",
+            },
+        )
         result = apply_hall_event(state, event)
         assert "consult-001" in result.completed_debates
         assert result.compressed_log == "consult summary"
@@ -645,9 +708,12 @@ class TestApplyHallEvent:
         from debate_hall_mcp.hall import apply_hall_event
 
         state = _make_hall_state()
-        event = _make_event("context_compressed", {
-            "compressed_log": "new compressed log",
-        })
+        event = _make_event(
+            "context_compressed",
+            {
+                "compressed_log": "new compressed log",
+            },
+        )
         result = apply_hall_event(state, event)
         assert result.compressed_log == "new compressed log"
 
@@ -655,9 +721,12 @@ class TestApplyHallEvent:
         from debate_hall_mcp.hall import HallStatus, apply_hall_event
 
         state = _make_hall_state(status="reviewing")
-        event = _make_event("hall_closed", {
-            "compressed_log": "final log",
-        })
+        event = _make_event(
+            "hall_closed",
+            {
+                "compressed_log": "final log",
+            },
+        )
         result = apply_hall_event(state, event)
         assert result.status == HallStatus.ARCHIVED
         assert result.compressed_log == "final log"
@@ -726,8 +795,10 @@ class TestAppendHallEvent:
         from debate_hall_mcp.hall import HallEventType, append_hall_event
 
         event = append_hall_event(
-            "test-hall", HallEventType.HALL_OPENED,
-            {"topic": "Test"}, tmp_path,
+            "test-hall",
+            HallEventType.HALL_OPENED,
+            {"topic": "Test"},
+            tmp_path,
         )
         assert len(event.event_id) == 26  # ULID length
         assert event.hall_id == "test-hall"
@@ -737,8 +808,10 @@ class TestAppendHallEvent:
         from debate_hall_mcp.hall import HallEventType, append_hall_event
 
         append_hall_event(
-            "test-hall", HallEventType.HALL_OPENED,
-            {"topic": "Test"}, tmp_path,
+            "test-hall",
+            HallEventType.HALL_OPENED,
+            {"topic": "Test"},
+            tmp_path,
         )
         events_file = tmp_path / "halls" / "test-hall.events.jsonl"
         assert events_file.exists()
@@ -747,11 +820,16 @@ class TestAppendHallEvent:
         from debate_hall_mcp.hall import HallEventType, append_hall_event
 
         e1 = append_hall_event(
-            "test-hall", HallEventType.HALL_OPENED, {}, tmp_path,
+            "test-hall",
+            HallEventType.HALL_OPENED,
+            {},
+            tmp_path,
         )
         e2 = append_hall_event(
-            "test-hall", HallEventType.PARTICIPANT_REGISTERED,
-            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+            "test-hall",
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"},
+            tmp_path,
         )
         assert e1.event_id != e2.event_id
         events_file = tmp_path / "halls" / "test-hall.events.jsonl"
@@ -767,8 +845,10 @@ class TestLoadHallEvents:
 
         append_hall_event("h1", HallEventType.HALL_OPENED, {}, tmp_path)
         append_hall_event(
-            "h1", HallEventType.PARTICIPANT_REGISTERED,
-            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+            "h1",
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"},
+            tmp_path,
         )
         events = load_hall_events("h1", tmp_path)
         assert len(events) == 2
@@ -780,8 +860,10 @@ class TestLoadHallEvents:
 
         e1 = append_hall_event("h1", HallEventType.HALL_OPENED, {}, tmp_path)
         append_hall_event(
-            "h1", HallEventType.PARTICIPANT_REGISTERED,
-            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+            "h1",
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"},
+            tmp_path,
         )
         events = load_hall_events("h1", tmp_path, after=e1.event_id)
         assert len(events) == 1
@@ -803,8 +885,10 @@ class TestLoadHallEvents:
         with open(events_file, "a") as f:
             f.write("THIS IS NOT VALID JSON\n")
         append_hall_event(
-            "h1", HallEventType.PARTICIPANT_REGISTERED,
-            {"id": "bob", "name": "Bob", "kind": "agent"}, tmp_path,
+            "h1",
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "bob", "name": "Bob", "kind": "agent"},
+            tmp_path,
         )
         events = load_hall_events("h1", tmp_path)
         # Should have 2 valid events, corrupt line skipped
@@ -819,7 +903,8 @@ def _seed_hall(tmp_path: Path, hall_id: str = "test-hall") -> None:
     from debate_hall_mcp.hall import HallEventType, append_hall_event
 
     append_hall_event(
-        hall_id, HallEventType.HALL_OPENED,
+        hall_id,
+        HallEventType.HALL_OPENED,
         {"topic": "Test Topic", "max_depth": 3, "max_context_tokens": 4096},
         tmp_path,
     )
@@ -867,8 +952,10 @@ class TestLoadHall:
         load_hall("test-hall", tmp_path)  # Create snapshot
         # Add more events after snapshot
         append_hall_event(
-            "test-hall", HallEventType.PARTICIPANT_REGISTERED,
-            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+            "test-hall",
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"},
+            tmp_path,
         )
         state = load_hall("test-hall", tmp_path)
         assert "alice" in state.participants
@@ -881,7 +968,8 @@ class TestLoadHall:
             load_hall("nonexistent", tmp_path)
 
     def test_load_corrupt_snapshot_falls_back_to_events_w_ce_1(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """W-CE-1: Corrupt snapshot triggers events-only reconstruction."""
         from debate_hall_mcp.hall import _get_hall_state_file, load_hall
@@ -901,15 +989,18 @@ class TestSaveHall:
     """Test save_hall event-first write path."""
 
     def test_save_hall_appends_event_and_updates_state(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         from debate_hall_mcp.hall import HallEventType, load_hall, save_hall
 
         _seed_hall(tmp_path)
         state = load_hall("test-hall", tmp_path)
         event = save_hall(
-            state, HallEventType.PARTICIPANT_REGISTERED,
-            {"id": "bob", "name": "Bob", "kind": "agent"}, tmp_path,
+            state,
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "bob", "name": "Bob", "kind": "agent"},
+            tmp_path,
         )
         assert event.event_type == HallEventType.PARTICIPANT_REGISTERED
         assert "bob" in state.participants
@@ -920,8 +1011,10 @@ class TestSaveHall:
         _seed_hall(tmp_path)
         state = load_hall("test-hall", tmp_path)
         save_hall(
-            state, HallEventType.PARTICIPANT_REGISTERED,
-            {"id": "bob", "name": "Bob", "kind": "agent"}, tmp_path,
+            state,
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "bob", "name": "Bob", "kind": "agent"},
+            tmp_path,
         )
         # Reload and verify
         state2 = load_hall("test-hall", tmp_path)
@@ -941,16 +1034,16 @@ class TestSaveHall:
         _seed_hall(tmp_path)
         state = load_hall("test-hall", tmp_path)
         save_hall(
-            state, HallEventType.PARTICIPANT_REGISTERED,
-            {"id": "alice", "name": "Alice", "kind": "agent"}, tmp_path,
+            state,
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"},
+            tmp_path,
         )
         snapshot_file = _get_hall_state_file("test-hall", tmp_path)
         data = json.loads(snapshot_file.read_text())
         # Check that provider_config is not in any participant
         for pid, pdata in data.get("participants", {}).items():
-            assert "provider_config" not in pdata, (
-                f"provider_config found in participant {pid}"
-            )
+            assert "provider_config" not in pdata, f"provider_config found in participant {pid}"
 
     def test_snapshot_file_permissions(self, tmp_path: Path) -> None:
         """Snapshot file should have 0o600 permissions."""
@@ -1001,12 +1094,14 @@ class TestDebateRoomExtension:
 
         from debate_hall_mcp.state import DebateRoom
 
-        old_json = json.dumps({
-            "thread_id": "old-thread",
-            "topic": "Old topic",
-            "mode": "fixed",
-            "status": "active",
-        })
+        old_json = json.dumps(
+            {
+                "thread_id": "old-thread",
+                "topic": "Old topic",
+                "mode": "fixed",
+                "status": "active",
+            }
+        )
         room = DebateRoom.model_validate_json(old_json)
         assert room.parent_hall_id is None
         assert room.parent_thread_id is None
@@ -1021,12 +1116,15 @@ class TestG1Benchmark:
 
         hall_id = f"bench-{count}"
         append_hall_event(
-            hall_id, HallEventType.HALL_OPENED,
-            {"topic": f"Benchmark {count} events"}, tmp_path,
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": f"Benchmark {count} events"},
+            tmp_path,
         )
         for i in range(count - 1):
             append_hall_event(
-                hall_id, HallEventType.PARTICIPANT_REGISTERED,
+                hall_id,
+                HallEventType.PARTICIPANT_REGISTERED,
                 {"id": f"p{i}", "name": f"Participant {i}", "kind": "agent"},
                 tmp_path,
             )
