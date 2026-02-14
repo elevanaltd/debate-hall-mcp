@@ -308,7 +308,7 @@ async def run_debate(
             - responsible: Role name for Responsible agent (required)
             - accountable: Role name for Accountable agent (required)
             - consulted: List of Consulted role names (optional, max 5)
-            - informed: List of Informed role names (optional, no turns)
+            - informed: List of Informed role names (optional, max 3, post-verdict OBSERVATION turns)
 
     Returns:
         Dictionary with debate result:
