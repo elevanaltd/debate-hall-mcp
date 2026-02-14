@@ -34,7 +34,7 @@ class RACIConfig(BaseModel):
     - Responsible (R): The agent who does the work / proposes the action
     - Accountable (A): The agent who makes the final GO/NO-GO decision
     - Consulted (C): Agents whose advice is sought before the decision
-    - Informed (I): Agents who are notified of the outcome (no turns)
+    - Informed (I): Agents who provide post-verdict impact analysis (OBSERVATION turns)
 
     Validation rules:
     - responsible and accountable must not be empty strings
