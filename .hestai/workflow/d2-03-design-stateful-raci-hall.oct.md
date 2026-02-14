@@ -2,169 +2,304 @@
 
 META:
   TYPE::DESIGN_SPEC
-  VERSION::"1.0"
+  VERSION::"2.0"
   STATUS::APPROVED
   PARENT::"issue-163-stateful-raci-hall"
-  AUTHOR::"Synthesizer (LOGOS)"
+  AUTHOR::"HO Synthesis (Manual D2 + run_debate Wind/Wall/Door)"
   DATE::"2026-02-14"
+  SOURCES::[
+    MANUAL_D2::"Claude(Ideator)+Gemini(Synthesizer) via subagent delegation",
+    AUTO_D2::"run_debate[thread:2026-02-14-stateful-raci-hall-d2-debate][Wind:Claude/PATHOS+Wall:GPT5.2/ETHOS+Door:Gemini3Pro/LOGOS]"
+  ]
 
-## APPROACH: The Hall as Workflow Container (Separated Model)
+## APPROACH: Hydrated Snapshot Hall (Event-Sourced Container)
 
 **Unified Concept:**
-We adopt the **Separated Hall Model (Path 1)** as the structural foundation to satisfy Validator constraint S1/Verdict. However, we infuse it with the **TurnManifest Compiler (Path 2)** logic to drive dynamic workflows, and utilize **Hash-Chained Events (Path 3)** for immutable history tracking.
+The Hall is a **Separated Model** (not a DebateRoom) that acts as a **Workflow Container** orchestrating child DebateRooms. Its persistence follows the **Hydrated Snapshot Pattern** (CQRS variant): the event ledger is the single source of truth, while `halls/{id}.json` is a cached checkpoint that self-heals on read.
 
-The `Hall` is not a `DebateRoom`. It is a higher-order **Workflow Container** that orchestrates a `RaciMatrix`. It maintains state (The "Hall") and spawns ephemeral `DebateRooms` or `SpeedConsultations` as child processes to resolve specific steps in the RACI flow. The `DebateOrchestrator` is refactored to be a generic "Turn Processor" that can handle either a fixed debate loop or a dynamic RACI manifest.
+This approach was synthesized from:
+- **Manual D2**: Separated model, RaciMatrix, Dynamic Participant Injection, Decision Record Stacking compression, 5-phase implementation
+- **run_debate synthesis**: Hydrated Snapshot Pattern, event-sourced reducer, `last_event_id` tracking, read-repair mechanism, self-healing persistence
 
-This approach resolves the tension between "Reuse Code" (Ideator) and "Don't Overload" (Validator) by reusing the *logic* (Orchestrator/Engine) but separating the *state* (Hall vs Room).
+The key architectural insight from run_debate: **"Ledger is Truth; File is Checkpoint."** This resolves the dual-write consistency problem the manual D2 did not address, while satisfying the North Star's requirement for persistent `halls/{id}.json` artifacts (H3).
+
+## PERSISTENCE_ARCHITECTURE
+
+**Organizing Principle:** The Event Ledger (`halls/{id}.events.jsonl`) is the authoritative source of truth. The state file (`halls/{id}.json`) is a Persistent Materialized View.
+
+**Write Path:**
+```
+Acquire Lock -> Append Event to JSONL (Truth) -> Update In-Memory State -> Flush JSON (Checkpoint) -> Release Lock
+```
+
+**Read Path (Self-Healing):**
+```
+Acquire Lock -> Load JSON Snapshot -> Read Event Tail -> If Tail > Snapshot.last_event_id:
+    Replay Delta Events via Reducer -> Flush Updated JSON -> Return Fresh State
+Else: Return Snapshot
+```
+
+**Benefits:**
+- Single source of truth (events) — no dual-write consistency bugs
+- Crash recovery via read-repair (stale JSON auto-heals from ledger)
+- Satisfies North Star H3 (artifacts exist) and I4 (ledger integrity)
+- Reuses existing `events.py` infrastructure (FileLock, ULID ordering, append-only JSONL)
+
+**Cross-Domain Evidence:** Git (reflog is truth, HEAD is pointer), Kafka (log is database), Redux (actions are truth, UI is derived), Banking (ledger entries are truth, balance is derived).
 
 ## DATA_MODEL
 
-### HallState (New)
-Managed by a new `HallManager`. Persisted separately from DebateRooms.
+### HallState (New — Snapshot Model)
+Persisted as checkpoint at `{state_dir}/halls/{hall_id}.json`. Derived from events.
 ```python
 class HallState(BaseModel):
-    id: str = Field(default_factory=generate_id) # "hall-YYYY-MM-DD-topic"
+    hall_id: str                              # "hall-YYYY-MM-DD-topic"
     topic: str
-    raci_matrix: RaciMatrix
-    status: HallStatus = HallStatus.ACTIVE
-    history: List[HallEvent] = [] # Linear timeline of decisions/actions
-    context_files: List[str] = [] # Shared context for all child debates
-    
-    # Validation: Enforce S2 (Lock Discipline)
-    # Child debates reference this ID but cannot modify this object directly.
+    status: HallStatus = HallStatus.OPEN      # open|active|reviewing|archived
+    participants: dict[str, Participant] = {}  # Registry (I6)
+    raci_matrix: RaciMatrix | None = None     # Current RACI assignment
+    active_debates: list[str] = []            # thread_ids of child debates
+    completed_debates: list[str] = []
+    compressed_log: str = ""                  # OCTAVE summary (I7)
+    max_depth: int = 3                        # I8 enforcement
+    max_context_tokens: int = 4096            # I7 budget
+    context_files: list[str] = []             # Shared codebase context
+    last_event_id: str = ""                   # ULID of last applied event (snapshot version)
+    created_at: datetime
+    updated_at: datetime
+```
+
+### Participant (New)
+```python
+class ParticipantKind(str, Enum):
+    AGENT = "agent"
+    HUMAN = "human"
+    SYSTEM = "system"
+
+class Participant(BaseModel):
+    id: str                              # Unique within hall
+    name: str                            # Display name (e.g., "implementation-lead")
+    kind: ParticipantKind
+    status: Literal["on_call", "active", "completed"] = "on_call"
+    prompt_source: str | None = None     # Agent file path for prompt loading (I6)
+    provider_config: RoleConfig | None = None  # For AI agents
+    capabilities: list[str] = []         # Tag-based capability matching
+    raci_designation: str | None = None  # R|A|C|I when assigned
 ```
 
 ### RaciMatrix (New)
-Defines the dynamic participant structure.
 ```python
 class RaciMatrix(BaseModel):
-    responsible: str # The Proposer (e.g., "implementation-lead")
-    accountable: str # The Decision Maker (e.g., "tech-lead")
-    consulted: List[str] = [] # Advisors (e.g., ["security", "legal"])
-    informed: List[str] = [] # Observers (e.g., ["product-owner"])
+    responsible: str                     # The Proposer
+    accountable: str                     # The Decision Maker
+    consulted: list[str] = []            # Advisors
+    informed: list[str] = []             # Observers
 ```
 
 ### DebateRoom (Extension)
-Extended to support hierarchy without coupling.
 ```python
 class DebateRoom(BaseModel):
-    # ... existing fields ...
-    parent_hall_id: Optional[str] = None # Soft Constraint S1
+    # ... existing fields unchanged ...
+    parent_hall_id: str | None = None         # Links to containing Hall
+    parent_thread_id: str | None = None       # Links to parent debate (for nesting)
+```
+
+## EVENT_REDUCER
+
+Pure function that derives state from events. Lives in new `src/debate_hall_mcp/hall.py`.
+
+```python
+def apply_hall_event(state: HallState, event: HallEvent) -> HallState:
+    """Pure reducer: state(N) + event -> state(N+1)"""
+    match event.event_type:
+        case HallEventType.HALL_OPENED:
+            state.status = HallStatus.OPEN
+        case HallEventType.PARTICIPANT_REGISTERED:
+            state.participants[event.data["id"]] = Participant(**event.data)
+        case HallEventType.PARTICIPANT_UNREGISTERED:
+            del state.participants[event.data["id"]]
+        case HallEventType.DEBATE_SPAWNED:
+            state.active_debates.append(event.data["thread_id"])
+            state.status = HallStatus.ACTIVE
+        case HallEventType.DEBATE_CLOSED:
+            thread_id = event.data["thread_id"]
+            state.active_debates.remove(thread_id)
+            state.completed_debates.append(thread_id)
+            state.compressed_log = generate_compressed_log(state, event.data)
+        case HallEventType.HALL_CLOSED:
+            state.status = HallStatus.ARCHIVED
+    state.last_event_id = event.event_id
+    state.updated_at = event.timestamp
+    return state
 ```
 
 ## MCP_TOOLS
 
-1.  **`hall_open(topic: str, raci_config: Dict[str, Any]) -> str`**
-    *   Initializes `HallState`.
-    *   Compiles `RaciMatrix` -> `TurnManifest` (initial plan).
-    *   Returns `hall_id`.
+### Hall Lifecycle (3 tools)
+1. **`hall_open(topic, max_depth?, max_context_tokens?, context_files?) -> hall_id`**
+   - Creates HallState. Appends HALL_OPENED event.
+   - Returns hall_id.
 
-2.  **`hall_consult(hall_id: str, role: str, question: str) -> str`**
-    *   **Mode:** Speed (2-turn).
-    *   **Action:** Spawns a temporary `DebateOrchestrator` in `speed` mode.
-    *   **Context:** Injects `HallState.history` (read-only).
-    *   **Output:** Appends `ConsultationEvent` to `HallState.history`.
+2. **`hall_status(hall_id) -> HallState`**
+   - Loads hall via Smart Loader (read-repair if needed).
+   - Returns full state including compressed_log, participants, debates.
 
-3.  **`hall_debate(hall_id: str, topic: str, tier: str = "standard") -> str`**
-    *   **Mode:** Standard (Wind/Wall/Door).
-    *   **Action:** Spawns a full `DebateOrchestrator`.
-    *   **Context:** Injects `HallState.history` (read-only).
-    *   **Output:** Returns `thread_id`. (Completion requires `hall_decide`).
+3. **`hall_close(hall_id, summary?) -> archived HallState`**
+   - Validates all active debates closed (I8 enforcement).
+   - If active debates remain, returns error with list of open threads.
+   - Appends HALL_CLOSED event. Generates final compressed_log.
+   - Status -> ARCHIVED.
 
-4.  **`hall_decide(hall_id: str, decision: DecisionRecord) -> str`**
-    *   **Action:** The Accountable role ratifies a decision.
-    *   **Output:** Appends `DecisionEvent` to `HallState.history`.
-    *   **Effect:** May trigger `hall_close` if objectives met.
+### Participant Management (2 tools)
+4. **`hall_register(hall_id, name, kind, prompt_source?, provider_config?, capabilities?) -> participant_id`**
+   - Adds participant to registry. Validates prompt_source exists via get_agent_prompt().
+   - Appends PARTICIPANT_REGISTERED event.
 
-5.  **`hall_close(hall_id: str) -> str`**
-    *   **Action:** Finalizes the Hall. Generates summary.
-    *   **Status:** `ACTIVE` -> `CLOSED`.
+5. **`hall_unregister(hall_id, participant_id) -> success`**
+   - Validates participant not in active debate.
+   - Appends PARTICIPANT_UNREGISTERED event.
 
-## ORCHESTRATOR_REFACTOR (Solving H1)
+### Debate Control (2 tools)
+6. **`hall_debate(hall_id, topic, mode?, participants_override?, parent_thread_id?) -> thread_id`**
+   - Validates depth < max_depth (I8).
+   - Creates child DebateRoom with parent_hall_id set.
+   - Auto-assigns participants from registry based on RACI matrix.
+   - Appends DEBATE_SPAWNED event.
+   - Runs debate via DebateOrchestrator with dynamic participant injection.
+
+7. **`hall_consult(hall_id, question, consultant_id) -> response`**
+   - Lightweight 2-turn exchange (speed mode, max_turns=2).
+   - Injects compressed_log as context for consultant.
+   - Appends CONSULTATION event to hall ledger.
+   - Returns response synchronously.
+
+**Total new tools: 7** (extending existing 14+6 RACI = 27 total)
+
+## ORCHESTRATOR_REFACTOR
 
 **Problem:** `DebateOrchestrator.run_turn` hardcodes `[Wind, Wall, Door]`.
-**Solution:** `Dynamic Participant Injection`.
+**Solution:** Dynamic Participant Injection.
 
-1.  **Abstract `Participant`:**
-    Create a `Participant` class wrapping `role`, `prompt_path`, and `capabilities`.
-    
-2.  **Refactor `DebateOrchestrator`:**
-    ```python
-    class DebateOrchestrator:
-        def __init__(self, ..., participants: List[Participant] = None):
-            if not participants:
-                self.participants = self._load_standard_tier() # Default Wind/Wall/Door
-            else:
-                self.participants = participants
-    ```
+1. **Abstract `Participant`** wrapping role, prompt_path, capabilities.
+2. **Refactor `DebateOrchestrator.__init__`** to accept optional `participants: list[Participant]`. Default loads standard Wind/Wall/Door tier.
+3. **HallManager as Meta-Orchestrator**: Steps through the RACI manifest, configures `DebateOrchestrator` with specific participants per step.
+4. **Backward compatibility**: Zero changes when `participants=None` (existing behavior preserved).
 
-3.  **Manifest-Driven Execution:**
-    For RACI mode, the `DebateOrchestrator` doesn't loop fixed roles. It executes the next step in the `TurnManifest`.
-    *   *Refinement:* The `HallManager` acts as the "Meta-Orchestrator", stepping through the RACI manifest and calling `DebateOrchestrator` (configured with specific participants) for each step.
+## COMPRESSION_STRATEGY (I7)
 
-## COMPRESSION_STRATEGY (Solving H3)
+**Strategy:** Decision Record Stacking with Token Budgeting.
 
-**Strategy:** Decision Record Stacking & Token Budgeting.
+**Format:** Structured OCTAVE (per NR4: no LLM summarization).
+```octave
+===HALL_CONTEXT===
+HALL::{hall_id}
+STATUS::{status}
+DECISIONS::{count}
 
-1.  **Stacking:** Only the `DecisionRecord` (summary + synthesis) of past child-debates is kept in the `HallState.history` context.
-    *   *Math:* ~80 tokens/decision.
-    *   *Budget:* 4096 tokens (Standard) / 80 = ~50 active decisions in context. Ample for most workflows.
+D1::[topic::{topic}, verdict::{GO|NO-GO|CONDITIONAL}, constraint::{wall_summary}, thread::{thread_id}]
+D2::[...]
 
-2.  **Pre-flight Checks (H3):**
-    Before `hall_consult` or `hall_debate`:
-    ```python
-    current_tokens = count_tokens(HallState.history)
-    if current_tokens > MAX_CONTEXT_WINDOW - RESERVED_BUFFER:
-        raise ContextLimitExceeded("Hall history full. Please summarize or archive.")
-    ```
+ACTIVE::[
+  {thread_id}::[topic::{topic}, turn::{n}/{max}, participants::{names}]
+]
 
-## LOCK_DISCIPLINE (Solving S2)
+PARTICIPANTS::[
+  {name}::[kind::{kind}, status::{status}, raci::{designation}]
+]
 
-**Rule:** `Parent (Hall) -> Child (Room) -> Parent (Hall)`
+UNRESOLVED::[explicit_open_questions]
+===END===
+```
 
-1.  **Read:** Child receives `HallState` as *Read-Only Context* (injected into System Prompt).
-2.  **Write:** Child writes *only* to its own `transcript` and `DecisionRecord`.
-3.  **Commit:** Upon child completion, `HallManager` reads the Child's `DecisionRecord` and appends it to `HallState.history` as an immutable event.
-    *   *Constraint:* Child NEVER calls `hall_update` directly.
+**Token Budget:**
+- Header: ~20 tokens
+- Per decision: ~80 tokens
+- Per active debate: ~40 tokens
+- Per participant: ~15 tokens
+- Example: 10 decisions + 2 active + 5 participants = 975 tokens (24% of 4096 budget)
 
-## PARTICIPANT_TO_ROLE_MAPPING (Solving F1)
+**Pre-flight Check:**
+```python
+if count_tokens(compressed_log) > max_context_tokens - RESERVED_BUFFER:
+    raise ContextLimitExceeded("Hall context budget exceeded")
+```
 
-**Registry Bridge:**
-We need a mapping from abstract RACI roles (e.g., "Security") to concrete System Prompts.
+**Trigger:** Compression regenerated on each DEBATE_CLOSED event via the reducer.
 
-1.  **Configuration:** `config.py` adds `AGENT_REGISTRY`.
-    ```python
-    AGENT_REGISTRY = {
-        "security": "agents/security-specialist.oct.md",
-        "legal": "agents/policy-compliance.oct.md",
-        "product": "agents/product-owner.oct.md",
-        # ... standard roles ...
-    }
-    ```
-2.  **Dynamic Loading:**
-    When `hall_open` receives `raci_config={"consulted": ["security"]}`, it looks up "security" in `AGENT_REGISTRY`.
-    *   *Fallback:* If not found, use a generic "Consultant" prompt with the role name injected as a variable.
+## LOCK_DISCIPLINE
+
+**Rule:** Coarse-grained FileLock on `halls/{id}.lock`.
+
+1. **Lock scope:** Protects the full read-hydrate-write cycle.
+2. **Mechanism:** `filelock.FileLock` (matching `events.py` pattern).
+3. **Child isolation:** Each child DebateRoom has independent lock (existing CAS). No cross-lock dependencies.
+4. **Unidirectional flow:** Child receives hall context as read-only injection. Child writes only to own state. HallManager commits child results to hall ledger.
+5. **No deadlock risk:** Hall lock and debate lock never nested — HallManager releases hall lock before running child debate.
+
+## PARTICIPANT_TO_ROLE_MAPPING
+
+**Resolution chain:** `prompt_source` field on Participant -> `get_agent_prompt(name)` (existing loader.py).
+
+**Discovery order:** `./agents/{name}.oct.md` -> `.hestai-sys/library/agents/{name}.oct.md` (existing pattern).
+
+**Fallback:** Generic consultant prompt with role name injected as variable.
+
+**Injection:** On turn request, load prompt_source content and inject as system context alongside compressed_log (VTP pattern extension).
 
 ## IMPLEMENTATION_SEQUENCE
 
-1.  **Phase 1: Core Models & Registry (H2, F1)**
-    *   Define `HallState`, `RaciMatrix`, `HallEvent`.
-    *   Implement `AgentRegistry` and `Participant` abstraction.
-    *   Add `hall_*` event types to `EventType` enum.
+### Phase 1: Core Models & Event Infrastructure
+- Define `HallState`, `Participant`, `ParticipantKind`, `RaciMatrix`, `HallStatus` models
+- Define `HallEventType` enum and extend event infrastructure for hall-level events
+- Implement `apply_hall_event` reducer (pure function)
+- Implement Smart Loader with read-repair (Hydrated Snapshot)
+- Persistence: `{state_dir}/halls/` directory, JSON + JSONL files
+- Add `parent_hall_id` and `parent_thread_id` to DebateRoom (backward-compatible defaults)
 
-2.  **Phase 2: Orchestrator Refactor (H1)**
-    *   Refactor `DebateOrchestrator` to accept dynamic `participants`.
-    *   Ensure backward compatibility with standard Wind/Wall/Door debates.
+### Phase 2: Orchestrator Refactor
+- Refactor `DebateOrchestrator` for dynamic participant injection
+- Ensure backward compatibility (zero existing test breakage)
+- Extract participant resolution from tier config
 
-3.  **Phase 3: Hall Manager & Tools (S1, S2)**
-    *   Implement `HallManager` (CRUD for HallState).
-    *   Implement `hall_open`, `hall_close`.
-    *   Implement `hall_consult` (Speed mode integration).
+### Phase 3: Hall Manager & Basic Tools
+- Implement `HallManager` (CRUD via event appending + snapshot flushing)
+- Implement `hall_open`, `hall_status`, `hall_close` MCP tools
+- Implement `hall_register`, `hall_unregister` MCP tools
+- I8 enforcement: close_hall validates all children closed
 
-4.  **Phase 4: Debate Integration & Compression (H3)**
-    *   Implement `hall_debate` (Standard mode integration).
-    *   Add token counting and pre-flight checks.
-    *   Implement parent-context injection.
+### Phase 4: Debate Integration & Compression
+- Implement `hall_debate` (spawns child DebateRoom within hall context)
+- Implement `hall_consult` (speed mode within hall)
+- Implement compression engine (Decision Record Stacking)
+- Token budgeting and pre-flight checks
+- Context injection via VTP extension (<HALL_CONTEXT> tag)
 
-5.  **Phase 5: E2E Verification**
-    *   Test full RACI flow: Open -> Consult -> Debate -> Decide -> Close.
+### Phase 5: E2E Verification & Hardening
+- Full RACI flow test: Open -> Register -> Consult -> Debate -> Close
+- Nested debate test: Parent -> Child -> Grandchild (depth limit)
+- Crash recovery test: Corrupt JSON -> read-repair from events
+- Golden tests: all existing tools return identical responses
+- Soak tests: large halls (50+ events), deep nesting
+
+## I_COMPLIANCE_MATRIX
+
+| Immutable | Mechanism |
+|-----------|-----------|
+| I1 (Cognitive State Isolation) | Agents receive context per-turn via VTP injection. Registry is Hall-side state. |
+| I2 (Universal OCTAVE Binding) | Compressed log is structured OCTAVE. All hall tools return OCTAVE-formatted responses. |
+| I3 (Finite Dialectic Closure) | Each child debate independently enforces max_turns/max_rounds. Hall enforces max_depth (I8). |
+| I4 (Verifiable Event Ledger) | Hall events in append-only JSONL with ULID ordering and FileLock. Snapshot derived from ledger. |
+| I5 (Sovereign Safety Override) | hall_close cascades force_close to all active child debates. Admin kill switch preserved. |
+| I6 (Participant Identity Registry) | Hall maintains authoritative registry. prompt_source loaded on registration. Identity injected per-turn. |
+| I7 (Holographic Context Compression) | Decision Record Stacking within max_context_tokens budget. Regenerated on debate close. |
+| I8 (Recursive Topology Closure) | max_depth enforced on spawn. Parent cannot close until all children resolved. Leaf-to-root pruning. |
+
+## EVIDENCE_GAPS_TO_RESOLVE (from run_debate Wall)
+
+- **G1:** Replay latency for event-sourcing with 50+ hall events — needs empirical benchmark
+- **G2:** 4096-token budget empirical validation against real compressed log schema
+- **G3:** Test blast radius quantification — exact count of existing tests affected by DebateRoom extension
+
+These gaps should be addressed during Phase 1 implementation with measurement, not assumed.
+
+===END===
