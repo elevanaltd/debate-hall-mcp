@@ -12,6 +12,7 @@ Phase 1 tests covering:
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -962,3 +963,97 @@ class TestSaveHall:
         snapshot = _get_hall_state_file("test-hall", tmp_path)
         mode = stat.S_IMODE(snapshot.stat().st_mode)
         assert mode == 0o600
+
+
+# ── P1T07: DebateRoom Extension + G1 Benchmark ─────────────────────────
+
+
+class TestDebateRoomExtension:
+    """Test parent_hall_id and parent_thread_id fields on DebateRoom."""
+
+    def test_debate_room_new_fields_default_to_none(self) -> None:
+        from debate_hall_mcp.state import DebateMode, DebateRoom
+
+        room = DebateRoom(
+            thread_id="test-2026-01-15-my-topic",
+            topic="Test",
+            mode=DebateMode.FIXED,
+        )
+        assert room.parent_hall_id is None
+        assert room.parent_thread_id is None
+
+    def test_debate_room_with_parent_fields(self) -> None:
+        from debate_hall_mcp.state import DebateMode, DebateRoom
+
+        room = DebateRoom(
+            thread_id="test-thread",
+            topic="Test",
+            mode=DebateMode.RACI,
+            parent_hall_id="hall-2026-01-15-topic",
+            parent_thread_id="parent-thread",
+        )
+        assert room.parent_hall_id == "hall-2026-01-15-topic"
+        assert room.parent_thread_id == "parent-thread"
+
+    def test_old_json_roundtrip_without_parent_fields(self) -> None:
+        """Backward compat: old JSON without parent fields deserializes OK."""
+        import json
+
+        from debate_hall_mcp.state import DebateRoom
+
+        old_json = json.dumps({
+            "thread_id": "old-thread",
+            "topic": "Old topic",
+            "mode": "fixed",
+            "status": "active",
+        })
+        room = DebateRoom.model_validate_json(old_json)
+        assert room.parent_hall_id is None
+        assert room.parent_thread_id is None
+
+
+class TestG1Benchmark:
+    """G1: 200 event replay < 200ms."""
+
+    def _generate_events(self, tmp_path: Path, count: int) -> None:
+        """Generate N hall events for benchmarking."""
+        from debate_hall_mcp.hall import HallEventType, append_hall_event
+
+        hall_id = f"bench-{count}"
+        append_hall_event(
+            hall_id, HallEventType.HALL_OPENED,
+            {"topic": f"Benchmark {count} events"}, tmp_path,
+        )
+        for i in range(count - 1):
+            append_hall_event(
+                hall_id, HallEventType.PARTICIPANT_REGISTERED,
+                {"id": f"p{i}", "name": f"Participant {i}", "kind": "agent"},
+                tmp_path,
+            )
+
+    def test_g1_50_events(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import load_hall
+
+        self._generate_events(tmp_path, 50)
+        start = time.monotonic()
+        load_hall("bench-50", tmp_path)
+        elapsed_ms = (time.monotonic() - start) * 1000
+        assert elapsed_ms < 200, f"50 events took {elapsed_ms:.1f}ms (limit: 200ms)"
+
+    def test_g1_100_events(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import load_hall
+
+        self._generate_events(tmp_path, 100)
+        start = time.monotonic()
+        load_hall("bench-100", tmp_path)
+        elapsed_ms = (time.monotonic() - start) * 1000
+        assert elapsed_ms < 200, f"100 events took {elapsed_ms:.1f}ms (limit: 200ms)"
+
+    def test_g1_200_events(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import load_hall
+
+        self._generate_events(tmp_path, 200)
+        start = time.monotonic()
+        load_hall("bench-200", tmp_path)
+        elapsed_ms = (time.monotonic() - start) * 1000
+        assert elapsed_ms < 200, f"200 events took {elapsed_ms:.1f}ms (limit: 200ms)"

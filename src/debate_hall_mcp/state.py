@@ -508,6 +508,16 @@ class DebateRoom(BaseModel):
         description="Pre-compiled RACI turn manifest (populated by orchestrator for RACI mode)",
     )
 
+    # Hall integration (Issue #163 - Stateful RACI Hall)
+    parent_hall_id: str | None = Field(
+        default=None,
+        description="ID of containing Hall (None for standalone debates)",
+    )
+    parent_thread_id: str | None = Field(
+        default=None,
+        description="Thread ID of parent debate (None for root-level debates, enables I8 nesting)",
+    )
+
 
 def calculate_turn_hash(
     role: str, content: str, timestamp: datetime, previous_hash: str | None
