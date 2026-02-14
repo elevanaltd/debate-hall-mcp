@@ -332,7 +332,7 @@ def create_server() -> FastMCP:
                 - responsible: Proposer role name (required)
                 - accountable: Decision maker role name (required)
                 - consulted: List of advisor role names (optional, max 5)
-                - informed: List of notified role names (optional, no turns)
+                - informed: List of observer role names (optional, max 3, post-verdict OBSERVATION turns)
 
         Returns:
             Dictionary with thread_id, topic, status, turn_count, and synthesis
