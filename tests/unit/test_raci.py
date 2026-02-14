@@ -317,6 +317,141 @@ class TestMaxInformedValidation:
         assert config.informed == []
 
 
+class TestRACIDisjointnessValidation:
+    """Tests for RACI role disjointness validation (V1-V5).
+
+    Each role must have exactly one RACI designation.
+    All comparisons are case-insensitive.
+    """
+
+    def test_v1_duplicate_informed_rejected(self) -> None:
+        """V1: Duplicate entries in informed list should be rejected."""
+        with pytest.raises(ValueError, match="duplicate in informed.*appears more than once"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                informed=["ops", "ops"],
+            )
+
+    def test_v2_duplicate_consulted_rejected(self) -> None:
+        """V2: Duplicate entries in consulted list should be rejected."""
+        with pytest.raises(ValueError, match="duplicate in consulted.*appears more than once"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                consulted=["arch", "arch"],
+            )
+
+    def test_v3_informed_overlaps_responsible_rejected(self) -> None:
+        """V3: Informed agent that is also Responsible should be rejected."""
+        with pytest.raises(ValueError, match="role 'dev'.*responsible.*informed"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                informed=["dev"],
+            )
+
+    def test_v4_informed_overlaps_accountable_rejected(self) -> None:
+        """V4: Informed agent that is also Accountable should be rejected."""
+        with pytest.raises(ValueError, match="role 'lead'.*accountable.*informed"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                informed=["lead"],
+            )
+
+    def test_v5_informed_overlaps_consulted_rejected(self) -> None:
+        """V5: Informed agent that is also Consulted should be rejected."""
+        with pytest.raises(ValueError, match="role 'arch'.*consulted.*informed"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                consulted=["arch"],
+                informed=["arch"],
+            )
+
+    def test_case_insensitive_disjointness(self) -> None:
+        """Case differences should be treated as same role (e.g., 'Dev' and 'dev')."""
+        # V3: case-insensitive R vs I
+        with pytest.raises(ValueError, match="role 'Dev'.*responsible.*informed"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                informed=["Dev"],
+            )
+
+    def test_case_insensitive_r_equals_a(self) -> None:
+        """R==A check should also be case-insensitive."""
+        with pytest.raises(ValueError, match="responsible.*accountable|separation"):
+            RACIConfig(
+                responsible="Dev",
+                accountable="dev",
+            )
+
+    def test_valid_config_all_unique_roles(self) -> None:
+        """Config with all unique roles across R/A/C/I should pass validation."""
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            consulted=["arch", "security"],
+            informed=["pm", "ops"],
+        )
+        assert config.responsible == "dev"
+        assert config.accountable == "lead"
+        assert config.consulted == ["arch", "security"]
+        assert config.informed == ["pm", "ops"]
+
+    def test_consulted_same_as_responsible_allowed(self) -> None:
+        """Consulted == Responsible is a valid pattern (R appears in proposal + rebuttal).
+
+        This is by design: consulted agents advise, then R synthesizes feedback.
+        Do NOT block this pattern.
+        """
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            consulted=["dev"],
+        )
+        assert config.consulted == ["dev"]
+
+    def test_v1_duplicate_informed_case_insensitive(self) -> None:
+        """V1: Duplicate detection in informed should be case-insensitive."""
+        with pytest.raises(ValueError, match="duplicate in informed"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                informed=["Ops", "ops"],
+            )
+
+    def test_v2_duplicate_consulted_case_insensitive(self) -> None:
+        """V2: Duplicate detection in consulted should be case-insensitive."""
+        with pytest.raises(ValueError, match="duplicate in consulted"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                consulted=["Arch", "arch"],
+            )
+
+    def test_v4_case_insensitive_accountable_informed(self) -> None:
+        """V4: Case-insensitive check for accountable vs informed."""
+        with pytest.raises(ValueError, match="role 'LEAD'.*accountable.*informed"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                informed=["LEAD"],
+            )
+
+    def test_v5_case_insensitive_consulted_informed(self) -> None:
+        """V5: Case-insensitive check for consulted vs informed overlap."""
+        with pytest.raises(ValueError, match="role 'ARCH'.*consulted.*informed"):
+            RACIConfig(
+                responsible="dev",
+                accountable="lead",
+                consulted=["arch"],
+                informed=["ARCH"],
+            )
+
+
 class TestObservationTurnOrdering:
     """Tests for OBSERVATION turn ordering in compiled manifests."""
 
