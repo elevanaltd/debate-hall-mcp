@@ -46,9 +46,11 @@ from debate_hall_mcp.events import EventType, append_event, build_turn_added_pay
 from debate_hall_mcp.prompts import (
     RACI_ACCOUNTABLE_PROMPT,
     RACI_CONSULTED_PROMPT,
+    RACI_INFORMED_PROMPT,
     RACI_RESPONSIBLE_PROMPT,
     format_door_user_prompt,
     format_raci_advice_prompt,
+    format_raci_observation_prompt,
     format_raci_proposal_prompt,
     format_raci_rebuttal_prompt,
     format_raci_verdict_prompt,
@@ -1294,7 +1296,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
         full identity; we just need the governance role context.
 
         Args:
-            turn_type: The TurnType value (proposal, advice, rebuttal, verdict)
+            turn_type: The TurnType value (proposal, advice, rebuttal, verdict, observation)
 
         Returns:
             RACI turn instruction string
@@ -1323,6 +1325,12 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 "Include your reasoning, any blockers identified, "
                 "and required changes if conditional."
             ),
+            TurnType.OBSERVATION.value: (
+                "In this RACI review, you are INFORMED. "
+                "The verdict has been rendered and is final. "
+                "Analyze the implications of this decision for your domain. "
+                "Do not challenge the verdict — produce an impact statement."
+            ),
         }
         return instructions.get(turn_type, instructions[TurnType.PROPOSAL.value])
 
@@ -1338,7 +1346,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
         files while still knowing their governance role in the debate.
 
         Args:
-            turn_type: The TurnType value (proposal, advice, rebuttal, verdict)
+            turn_type: The TurnType value (proposal, advice, rebuttal, verdict, observation)
             role_name: The role name to resolve (e.g., "critical-engineer")
 
         Returns:
@@ -1360,6 +1368,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
             TurnType.ADVICE.value: RACI_CONSULTED_PROMPT,
             TurnType.REBUTTAL.value: RACI_RESPONSIBLE_PROMPT,
             TurnType.VERDICT.value: RACI_ACCOUNTABLE_PROMPT,
+            TurnType.OBSERVATION.value: RACI_INFORMED_PROMPT,
         }
         return prompts.get(turn_type, RACI_RESPONSIBLE_PROMPT)
 
@@ -1455,8 +1464,9 @@ Respond with your refined synthesis using the OCTAVE response format."""
         Uses the Turn Manifest Compiler to compile a governance topology into
         a TurnManifest, then executes each turn in sequence.
 
-        Sequence: R(proposal) -> C*(advice) -> R(rebuttal) -> A(verdict)
-        If no C agents: R(proposal) -> A(verdict)
+        Sequence: R(proposal) -> C*(advice) -> R(rebuttal) -> A(verdict) -> I*(observation)
+        If no C agents: R(proposal) -> A(verdict) -> I*(observation)
+        If no I agents: R(proposal) -> C*(advice) -> R(rebuttal) -> A(verdict)
 
         Key characteristics:
         - No consensus loop (A-verdict IS the decision)
@@ -1529,6 +1539,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
             # 3. Execute each turn in manifest sequence
             last_response: ProviderResponse | None = None
+            verdict_content: str = ""
             for spec in manifest.specs:
                 # Get the appropriate user prompt based on turn type
                 if spec.turn_type == TurnType.PROPOSAL:
@@ -1539,6 +1550,8 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     user_prompt = format_raci_rebuttal_prompt(topic, thread_id)
                 elif spec.turn_type == TurnType.VERDICT:
                     user_prompt = format_raci_verdict_prompt(topic, thread_id)
+                elif spec.turn_type == TurnType.OBSERVATION:
+                    user_prompt = format_raci_observation_prompt(topic, thread_id, spec.role)
                 else:
                     user_prompt = format_raci_proposal_prompt(topic, thread_id)
 
@@ -1554,8 +1567,14 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     timeout=timeout,
                 )
 
+                # Capture verdict content (the A-verdict IS the decision)
+                if spec.turn_type == TurnType.VERDICT:
+                    verdict_content = last_response.content
+
             # 4. Close debate with A's verdict as synthesis
-            verdict_content = last_response.content if last_response else ""
+            # The verdict is the decision; I-turns are supplementary observations
+            if not verdict_content:
+                verdict_content = last_response.content if last_response else ""
             debate_close(
                 thread_id=thread_id,
                 synthesis=verdict_content,
@@ -1638,6 +1657,15 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
             # Execute remaining turns from manifest
             last_response: ProviderResponse | None = None
+            verdict_content: str = ""
+
+            # Check if verdict was already recorded in prior turns
+            for prior_i in range(turn_count):
+                prior_spec = manifest.specs[prior_i]
+                if prior_spec.turn_type == TurnType.VERDICT and turn_count > prior_i:
+                    # Verdict turn was already recorded; extract from room turns
+                    verdict_content = room.turns[prior_i].content
+
             for i in range(turn_count, len(manifest.specs)):
                 spec = manifest.specs[i]
 
@@ -1650,6 +1678,8 @@ Respond with your refined synthesis using the OCTAVE response format."""
                     user_prompt = format_raci_rebuttal_prompt(topic, thread_id)
                 elif spec.turn_type == TurnType.VERDICT:
                     user_prompt = format_raci_verdict_prompt(topic, thread_id)
+                elif spec.turn_type == TurnType.OBSERVATION:
+                    user_prompt = format_raci_observation_prompt(topic, thread_id, spec.role)
                 else:
                     user_prompt = format_raci_proposal_prompt(topic, thread_id)
 
@@ -1665,8 +1695,13 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 )
                 turn_count += 1
 
-            # Close with verdict
-            verdict_content = last_response.content if last_response else ""
+                # Capture verdict content
+                if spec.turn_type == TurnType.VERDICT:
+                    verdict_content = last_response.content
+
+            # Close with verdict (not last I-turn)
+            if not verdict_content:
+                verdict_content = last_response.content if last_response else ""
             debate_close(
                 thread_id=thread_id,
                 synthesis=verdict_content,

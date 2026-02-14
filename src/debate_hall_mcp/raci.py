@@ -5,11 +5,15 @@ RACI mode is a factory at debate_init that compiles a governance topology into a
 immutable TurnManifest. The engine then executes the manifest as a simple
 index-based sequence.
 
-Sequence: R(proposal) -> C1(advice) -> C2(advice) -> ... -> R(rebuttal) -> A(verdict)
-If no consulted agents: R(proposal) -> A(verdict)
+Sequence: R(proposal) -> C*(advice) -> R(rebuttal) -> A(verdict) -> I*(observation)
+If no consulted agents: R(proposal) -> A(verdict) -> I*(observation)
+If no informed agents: R(proposal) -> C*(advice) -> R(rebuttal) -> A(verdict)
 
 Architecture Decision: The Turn Manifest Compiler emerged from two independent
 Wind/Wall/Door debates (standard and premium tier both converged on this design).
+The I-agent OBSERVATION turns were added via a premium-tier debate that converged
+on transforming Informed agents from ceremonial metadata into active post-verdict
+participants providing domain-specific impact analysis.
 """
 
 from pydantic import BaseModel, Field, model_validator
@@ -18,6 +22,9 @@ from debate_hall_mcp.state import TurnManifest, TurnSpec, TurnType
 
 # Maximum number of consulted agents (bounded governance)
 MAX_CONSULTED = 5
+
+# Maximum number of informed agents (prevents cost explosions from I-turn LLM calls)
+MAX_INFORMED = 3
 
 
 class RACIConfig(BaseModel):
@@ -75,6 +82,13 @@ class RACIConfig(BaseModel):
                     f"consulted entry at index {i} is empty: all role names must be non-empty"
                 )
 
+        # Informed max 3 entries (prevents cost explosions from I-turn LLM calls)
+        if len(self.informed) > MAX_INFORMED:
+            raise ValueError(
+                f"informed list exceeds maximum of {MAX_INFORMED} entries: "
+                f"got {len(self.informed)}"
+            )
+
         # All informed entries must be non-empty
         for i, inf in enumerate(self.informed):
             if not inf or not inf.strip():
@@ -91,11 +105,14 @@ def compile_raci_manifest(config: RACIConfig) -> TurnManifest:
     Produces an immutable execution plan that the orchestrator follows as a
     simple index-based sequence.
 
-    Sequence with consulted agents:
-        R(proposal) -> C1(advice) -> C2(advice) -> ... -> R(rebuttal) -> A(verdict)
+    Sequence with consulted and informed agents:
+        R(proposal) -> C*(advice) -> R(rebuttal) -> A(verdict) -> I*(observation)
 
     Sequence without consulted agents:
-        R(proposal) -> A(verdict)
+        R(proposal) -> A(verdict) -> I*(observation)
+
+    Sequence without informed agents:
+        R(proposal) -> C*(advice) -> R(rebuttal) -> A(verdict)
 
     Args:
         config: Validated RACIConfig with R, A, C, I assignments
@@ -142,6 +159,16 @@ def compile_raci_manifest(config: RACIConfig) -> TurnManifest:
             raci_designation="A",
         )
     )
+
+    # 5. I*: Each Informed agent provides post-verdict observation
+    for informed_agent in config.informed:
+        specs.append(
+            TurnSpec(
+                role=informed_agent,
+                turn_type=TurnType.OBSERVATION,
+                raci_designation="I",
+            )
+        )
 
     return TurnManifest(
         specs=specs,

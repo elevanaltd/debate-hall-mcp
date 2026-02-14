@@ -122,7 +122,7 @@ class TestRunRACIBasic:
         temp_state_dir: Path,
         simple_raci_config: RACIConfig,
     ) -> None:
-        """RACI should complete in exactly manifest.specs turns (R+C+R+A = 4)."""
+        """RACI should complete in exactly manifest.specs turns (R+C+R+A+I = 5)."""
         mock_provider = AsyncMock()
         mock_provider.complete.return_value = create_mock_provider_response("Response")
 
@@ -137,8 +137,8 @@ class TestRunRACIBasic:
             raci_config=simple_raci_config,
         )
 
-        # R(proposal) + C(advice) + R(rebuttal) + A(verdict) = 4 turns
-        assert result.turn_count == 4
+        # R(proposal) + C(advice) + R(rebuttal) + A(verdict) + I(observation) = 5 turns
+        assert result.turn_count == 5
         assert result.status == "synthesis"
 
     @pytest.mark.anyio
@@ -240,8 +240,9 @@ class TestRunRACIBasic:
         )
 
         # Should complete in exactly manifest turns, no extra consensus calls
-        assert result.turn_count == 4  # R + C + R(rebuttal) + A
-        assert mock_provider.complete.call_count == 4
+        # R + C + R(rebuttal) + A + I(observation) = 5
+        assert result.turn_count == 5
+        assert mock_provider.complete.call_count == 5
 
     @pytest.mark.anyio
     async def test_run_raci_with_custom_thread_id(
@@ -530,3 +531,197 @@ class TestRACIManifestAutoMaxTurns:
         room = load_debate_state(result.thread_id, temp_state_dir)
         # R + C1 + C2 + C3 + R(rebuttal) + A = 6
         assert room.max_turns == 6
+
+
+class TestRACIObservationTurns:
+    """Tests for RACI Informed agent OBSERVATION turns."""
+
+    @pytest.mark.anyio
+    async def test_run_raci_with_informed_agents_gets_observation_turns(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """RACI with informed agents should execute OBSERVATION turns after verdict."""
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            informed=["ops", "security"],
+        )
+
+        call_order: list[str] = []
+
+        def mock_complete(
+            system_prompt: str,  # noqa: ARG001
+            user_prompt: str,
+            **kwargs: Any,  # noqa: ARG001
+        ) -> ProviderResponse:
+            # Detect based on "Your Role:" line in user prompt
+            if "Your Role: Informed Observer" in user_prompt:
+                call_order.append("I-observation")
+            elif "Your Role: Accountable" in user_prompt:
+                call_order.append("A-verdict")
+            elif "Your Role: Responsible" in user_prompt:
+                call_order.append("R-proposal")
+            else:
+                call_order.append("unknown")
+            return create_mock_provider_response("Response")
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = mock_complete
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run_raci(topic="Observation test", raci_config=config)
+
+        # R(proposal) + A(verdict) + I1(observation) + I2(observation) = 4
+        assert result.turn_count == 4
+        assert call_order == ["R-proposal", "A-verdict", "I-observation", "I-observation"]
+
+    @pytest.mark.anyio
+    async def test_verdict_used_as_synthesis_not_last_observation(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """Debate synthesis should be the A-verdict, not the last I-observation."""
+        call_count = 0
+
+        def mock_complete(
+            system_prompt: str,  # noqa: ARG001
+            user_prompt: str,  # noqa: ARG001
+            **kwargs: Any,  # noqa: ARG001
+        ) -> ProviderResponse:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return create_mock_provider_response("PROPOSAL: Deploy API")
+            elif call_count == 2:
+                return create_mock_provider_response("## VERDICT: GO\nDecision is GO. Proceed.")
+            else:
+                return create_mock_provider_response("OBSERVATION: Impact on my domain noted.")
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = mock_complete
+
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            informed=["pm"],
+        )
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run_raci(topic="Synthesis test", raci_config=config)
+
+        # Synthesis should be the verdict, not the observation
+        assert result.synthesis is not None
+        assert "VERDICT" in result.synthesis
+        assert "OBSERVATION" not in result.synthesis
+
+    @pytest.mark.anyio
+    async def test_max_turns_includes_observation_turns(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """max_turns should include I-observation turns in count."""
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            consulted=["reviewer"],
+            informed=["pm", "ops"],
+        )
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response("Response")
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run_raci(topic="Max turns I test", raci_config=config)
+
+        room = load_debate_state(result.thread_id, temp_state_dir)
+        # R + C + R(rebuttal) + A + I1 + I2 = 6
+        assert room.max_turns == 6
+        assert result.turn_count == 6
+
+    @pytest.mark.anyio
+    async def test_resume_raci_with_observation_turns(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """Resuming a paused RACI debate should complete remaining I-observation turns."""
+        from debate_hall_mcp.raci import compile_raci_manifest
+        from debate_hall_mcp.tools.init import debate_init
+
+        raci_config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            informed=["pm"],
+        )
+        manifest = compile_raci_manifest(raci_config)
+
+        # Create RACI debate, add R-proposal and A-verdict, then pause before I-observation
+        thread_id = "2026-02-14-resume-observation-test"
+        debate_init(
+            thread_id=thread_id,
+            topic="Resume observation test",
+            mode="raci",
+            state_dir=temp_state_dir,
+        )
+
+        room = load_debate_state(thread_id, temp_state_dir)
+        room.turn_manifest = manifest
+        room.max_turns = len(manifest.specs)
+
+        # Add R and A turns
+        r_turn = Turn(
+            role="dev",
+            content="PROPOSAL: Deploy now.",
+            timestamp=datetime.now(UTC),
+            previous_hash=None,
+        )
+        room.turns.append(r_turn)
+        a_turn = Turn(
+            role="lead",
+            content="VERDICT: GO. Proceed with deployment.",
+            timestamp=datetime.now(UTC),
+            previous_hash=r_turn.hash,
+        )
+        room.turns.append(a_turn)
+        room.status = DebateStatus.PAUSED
+        save_debate_state(room, temp_state_dir)
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.return_value = create_mock_provider_response(
+            "OBSERVATION: Impact noted for PM domain."
+        )
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.resume(thread_id)
+
+        # 2 existing + 1 new I-observation = 3 total
+        assert result.turn_count == 3
+        assert result.status == "synthesis"
+        # Provider called once for the remaining I-observation turn
+        assert mock_provider.complete.call_count == 1
+        # Synthesis should be the verdict, not the observation
+        assert "VERDICT" in result.synthesis or "GO" in result.synthesis
