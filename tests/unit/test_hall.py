@@ -270,3 +270,213 @@ class TestRaciMatrix:
                 responsible="r", accountable="a",
                 consulted=["c1", "c1"],
             )
+
+
+# ── P1T03: HallEvent + HallState Models ───────────────────────────────
+
+
+class TestHallEvent:
+    """Test HallEvent model with ULID and timestamp handling."""
+
+    def test_hall_event_creation(self) -> None:
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallEvent, HallEventType
+
+        now = datetime.now(UTC)
+        ev = HallEvent(
+            event_id="01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            hall_id="test-hall",
+            event_type=HallEventType.HALL_OPENED,
+            timestamp=now,
+            data={"topic": "Test"},
+        )
+        assert ev.event_id == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        assert ev.hall_id == "test-hall"
+        assert ev.event_type == HallEventType.HALL_OPENED
+        assert ev.data == {"topic": "Test"}
+
+    def test_hall_event_timestamp_from_iso_string(self) -> None:
+        from debate_hall_mcp.hall import HallEvent, HallEventType
+
+        ev = HallEvent(
+            event_id="01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            hall_id="h1",
+            event_type=HallEventType.HALL_OPENED,
+            timestamp="2026-01-15T10:30:00+00:00",
+        )
+        assert ev.timestamp.tzinfo is not None
+
+    def test_hall_event_timestamp_naive_becomes_utc(self) -> None:
+        from datetime import datetime
+
+        from debate_hall_mcp.hall import HallEvent, HallEventType
+
+        naive_dt = datetime(2026, 1, 15, 10, 30, 0)  # noqa: DTZ001
+        ev = HallEvent(
+            event_id="01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            hall_id="h1",
+            event_type=HallEventType.HALL_OPENED,
+            timestamp=naive_dt,
+        )
+        assert ev.timestamp.tzinfo is not None
+
+    def test_hall_event_serialization_roundtrip(self) -> None:
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallEvent, HallEventType
+
+        ev = HallEvent(
+            event_id="01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            hall_id="h1",
+            event_type=HallEventType.HALL_OPENED,
+            timestamp=datetime.now(UTC),
+            data={"key": "value"},
+        )
+        json_str = ev.model_dump_json()
+        ev2 = HallEvent.model_validate_json(json_str)
+        assert ev2.event_id == ev.event_id
+        assert ev2.event_type == ev.event_type
+
+
+class TestHallState:
+    """Test HallState model with validators for H-001 and M-001."""
+
+    def test_hall_state_creation_with_defaults(self) -> None:
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState, HallStatus
+
+        now = datetime.now(UTC)
+        state = HallState(
+            hall_id="test-hall",
+            topic="Test topic",
+            created_at=now,
+            updated_at=now,
+        )
+        assert state.hall_id == "test-hall"
+        assert state.status == HallStatus.OPEN
+        assert state.max_depth == 3
+        assert state.max_context_tokens == 4096
+        assert state.max_debates == 20
+        assert state.participants == {}
+        assert state.active_debates == []
+        assert state.completed_debates == []
+        assert state.compressed_log == ""
+
+    def test_hall_id_rejects_invalid_chars_m001(self) -> None:
+        """M-001: Strict regex for hall_id."""
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState
+
+        now = datetime.now(UTC)
+        with pytest.raises(ValueError, match="invalid characters"):
+            HallState(
+                hall_id="bad/hall", topic="T", created_at=now, updated_at=now,
+            )
+
+    def test_hall_id_rejects_spaces_m001(self) -> None:
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState
+
+        now = datetime.now(UTC)
+        with pytest.raises(ValueError, match="invalid characters"):
+            HallState(
+                hall_id="bad hall", topic="T", created_at=now, updated_at=now,
+            )
+
+    def test_hall_id_rejects_empty_m001(self) -> None:
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState
+
+        now = datetime.now(UTC)
+        with pytest.raises(ValueError, match="must be non-empty"):
+            HallState(
+                hall_id="", topic="T", created_at=now, updated_at=now,
+            )
+
+    def test_hall_id_accepts_valid_m001(self) -> None:
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState
+
+        now = datetime.now(UTC)
+        state = HallState(
+            hall_id="hall-2026-01-15-my_topic", topic="T",
+            created_at=now, updated_at=now,
+        )
+        assert state.hall_id == "hall-2026-01-15-my_topic"
+
+    def test_context_files_max_count_h001(self) -> None:
+        """H-001: Max 10 context files."""
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState
+
+        now = datetime.now(UTC)
+        with pytest.raises(ValueError, match="exceeds maximum of 10"):
+            HallState(
+                hall_id="h1", topic="T", created_at=now, updated_at=now,
+                context_files=[f"/tmp/f{i}" for i in range(11)],  # noqa: S108
+            )
+
+    def test_context_files_rejects_relative_paths_h001(self) -> None:
+        """H-001: All paths must be absolute."""
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState
+
+        now = datetime.now(UTC)
+        with pytest.raises(ValueError, match="must be absolute"):
+            HallState(
+                hall_id="h1", topic="T", created_at=now, updated_at=now,
+                context_files=["relative/path.py"],
+            )
+
+    def test_context_files_rejects_traversal_h001(self) -> None:
+        """H-001: Reject path traversal."""
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState
+
+        now = datetime.now(UTC)
+        with pytest.raises(ValueError, match="traversal"):
+            HallState(
+                hall_id="h1", topic="T", created_at=now, updated_at=now,
+                context_files=["/home/user/../etc/passwd"],
+            )
+
+    def test_context_files_rejects_sensitive_dirs_h001(self) -> None:
+        """H-001: Block sensitive directories."""
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState
+
+        now = datetime.now(UTC)
+        with pytest.raises(ValueError, match="restricted directory"):
+            HallState(
+                hall_id="h1", topic="T", created_at=now, updated_at=now,
+                context_files=["/etc/passwd"],
+            )
+
+    def test_context_files_accepts_valid_paths_h001(self) -> None:
+        """H-001: Valid absolute paths accepted."""
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import HallState
+
+        now = datetime.now(UTC)
+        state = HallState(
+            hall_id="h1", topic="T", created_at=now, updated_at=now,
+            context_files=["/tmp/valid.py"],  # noqa: S108
+        )
+        assert state.context_files == ["/tmp/valid.py"]
+
+    def test_hall_state_max_constants(self) -> None:
+        from debate_hall_mcp.hall import HallState
+
+        assert HallState.MAX_CONTEXT_FILES == 10
+        assert HallState.MAX_CONTEXT_FILE_SIZE == 65536

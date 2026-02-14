@@ -23,10 +23,11 @@ Immutables Compliance:
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -256,3 +257,169 @@ class RaciMatrix(BaseModel):
         if len(all_ids) != len(set(all_ids)):
             raise ValueError("each participant must have exactly one RACI designation")
         return self
+
+
+# ── S1.6: HallEvent Model ────────────────────────────────────────────
+
+
+class HallEvent(BaseModel):
+    """A hall-level event with ULID-based monotonic ordering.
+
+    Reuses the same patterns as DebateEvent (events.py):
+    - ULID for monotonic ordering
+    - UTC timestamp
+    - Flexible payload dict
+    """
+
+    event_id: str = Field(..., description="ULID for monotonic ordering")
+    hall_id: str = Field(..., description="Hall identifier")
+    event_type: HallEventType = Field(..., description="Type of hall event")
+    timestamp: datetime = Field(..., description="UTC timestamp")
+    data: dict[str, Any] = Field(default_factory=dict, description="Event-specific data")
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def ensure_timezone_aware(cls, v: datetime | str) -> datetime:
+        """Ensure timestamp is timezone-aware (UTC)."""
+        if isinstance(v, str):
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=UTC)
+        return v
+
+
+# ── S1.7: HallState Model ────────────────────────────────────────────
+
+
+class HallState(BaseModel):
+    """Persistent state of a Hall (Hydrated Snapshot Pattern).
+
+    This is the CHECKPOINT, not the source of truth. The source of truth is
+    the event ledger at {state_dir}/halls/{hall_id}.events.jsonl.
+
+    The snapshot is materialized from events via apply_hall_event() reducer
+    and cached at {state_dir}/halls/{hall_id}.json for fast reads.
+    """
+
+    hall_id: str = Field(..., description="Unique hall identifier")
+    topic: str = Field(..., min_length=1, description="Hall topic / purpose")
+    status: HallStatus = Field(default=HallStatus.OPEN, description="Lifecycle status")
+    participants: dict[str, Participant] = Field(
+        default_factory=dict,
+        description="Participant registry (I6)",
+    )
+    raci_matrix: RaciMatrix | None = Field(
+        default=None,
+        description="Current RACI assignment for active debate",
+    )
+    active_debates: list[str] = Field(
+        default_factory=list,
+        description="Thread IDs of running child debates",
+    )
+    completed_debates: list[str] = Field(
+        default_factory=list,
+        description="Thread IDs of finished child debates",
+    )
+    compressed_log: str = Field(
+        default="",
+        description="OCTAVE-compressed hall context (I7)",
+    )
+    max_depth: int = Field(default=3, ge=1, le=10, description="Max nesting depth (I8)")
+    max_context_tokens: int = Field(
+        default=4096, ge=256, le=32768, description="Token budget for compressed_log (I7)"
+    )
+    max_debates: int = Field(
+        default=20, ge=1, le=100, description="Max total debates in hall (I3 at hall level)"
+    )
+    context_files: list[str] = Field(
+        default_factory=list,
+        description="Shared codebase context file paths (validated for path safety)",
+    )
+    # H-001 AMENDMENT: Maximum file count and size limits for context_files
+    MAX_CONTEXT_FILES: ClassVar[int] = 10
+    MAX_CONTEXT_FILE_SIZE: ClassVar[int] = 65536  # 64KB per file
+
+    tier_name: str = Field(
+        default="standard",
+        description="Tier config name for provider creation",
+    )
+    last_event_id: str = Field(
+        default="",
+        description="ULID of last applied event (snapshot version)",
+    )
+    created_at: datetime = Field(..., description="UTC creation timestamp")
+    updated_at: datetime = Field(..., description="UTC last update timestamp")
+
+    @field_validator("hall_id")
+    @classmethod
+    def validate_hall_id(cls, v: str) -> str:
+        """Validate hall_id is filesystem-safe (M-001)."""
+        if not v or not v.strip():
+            raise ValueError("hall_id must be non-empty")
+        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError(
+                f"hall_id '{v}' contains invalid characters: "
+                "only alphanumeric, hyphens, and underscores allowed"
+            )
+        return v
+
+    @field_validator("context_files")
+    @classmethod
+    def validate_context_files(cls, v: list[str]) -> list[str]:
+        """Validate context_files paths for safety (H-001 AMENDMENT).
+
+        Security controls:
+        1. Maximum file count (10) to prevent prompt injection volume
+        2. All paths must be absolute (no relative paths)
+        3. All paths must resolve without '..' traversal after resolution
+        4. Paths must not point to sensitive directories
+        """
+        if len(v) > 10:
+            raise ValueError(f"context_files exceeds maximum of 10 files: got {len(v)}")
+
+        sensitive_prefixes = (
+            "/etc/",
+            "/root/",
+            "/proc/",
+            "/sys/",
+            "/dev/",
+        )
+        sensitive_home_dirs = (
+            ".ssh",
+            ".gnupg",
+            ".config/secrets",
+            ".env",
+            ".aws",
+            ".docker",
+            ".kube",
+        )
+
+        for fpath in v:
+            # Must be absolute
+            if not os.path.isabs(fpath):
+                raise ValueError(f"context_files path must be absolute: '{fpath}'")
+
+            # Resolve and check for traversal
+            resolved = os.path.realpath(fpath)
+            if ".." in fpath:
+                raise ValueError(f"context_files path contains traversal: '{fpath}'")
+
+            # Block sensitive directories (check both original and resolved
+            # to handle symlinks like /etc -> /private/etc on macOS)
+            for prefix in sensitive_prefixes:
+                if fpath.startswith(prefix) or resolved.startswith(prefix):
+                    raise ValueError(
+                        f"context_files path '{fpath}' points to " f"restricted directory: {prefix}"
+                    )
+
+            # Block sensitive home subdirectories
+            home_dir = os.path.expanduser("~")
+            for sensitive_dir in sensitive_home_dirs:
+                sensitive_path = os.path.join(home_dir, sensitive_dir)
+                if resolved.startswith(sensitive_path):
+                    raise ValueError(
+                        f"context_files path '{fpath}' points to "
+                        f"sensitive home directory: ~/{sensitive_dir}"
+                    )
+
+        return v
