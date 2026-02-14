@@ -229,3 +229,65 @@ class TestDebateRoomManifestPersistence:
         loaded = load_debate_state("2026-02-13-no-manifest-persist-test", state_dir)
 
         assert loaded.turn_manifest is None
+
+
+class TestTurnTypeObservation:
+    """Tests for TurnType.OBSERVATION serialization."""
+
+    def test_observation_turnspec_creation(self) -> None:
+        """TurnSpec with OBSERVATION type should be valid."""
+        spec = TurnSpec(
+            role="solution-steward",
+            turn_type=TurnType.OBSERVATION,
+            raci_designation="I",
+        )
+        assert spec.role == "solution-steward"
+        assert spec.turn_type == TurnType.OBSERVATION
+        assert spec.raci_designation == "I"
+
+    def test_observation_turnspec_serialization(self) -> None:
+        """TurnSpec with OBSERVATION should serialize to and from JSON."""
+        spec = TurnSpec(
+            role="ops-team",
+            turn_type=TurnType.OBSERVATION,
+            raci_designation="I",
+        )
+        json_str = spec.model_dump_json()
+        restored = TurnSpec.model_validate_json(json_str)
+
+        assert restored.role == "ops-team"
+        assert restored.turn_type == TurnType.OBSERVATION
+        assert restored.raci_designation == "I"
+
+    def test_manifest_with_observation_persistence(self, tmp_path: Path) -> None:
+        """Manifest with OBSERVATION turns should survive save/load."""
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir()
+
+        specs = [
+            TurnSpec(role="dev", turn_type=TurnType.PROPOSAL, raci_designation="R"),
+            TurnSpec(role="lead", turn_type=TurnType.VERDICT, raci_designation="A"),
+            TurnSpec(role="pm", turn_type=TurnType.OBSERVATION, raci_designation="I"),
+        ]
+        manifest = TurnManifest(
+            specs=specs,
+            responsible="dev",
+            accountable="lead",
+            consulted=[],
+            informed=["pm"],
+        )
+        room = DebateRoom(
+            thread_id="2026-02-14-observation-persist-test",
+            topic="Observation persistence",
+            mode=DebateMode.RACI,
+            turn_manifest=manifest,
+        )
+
+        save_debate_state(room, state_dir)
+        loaded = load_debate_state("2026-02-14-observation-persist-test", state_dir)
+
+        assert loaded.turn_manifest is not None
+        assert len(loaded.turn_manifest.specs) == 3
+        assert loaded.turn_manifest.specs[2].turn_type == TurnType.OBSERVATION
+        assert loaded.turn_manifest.specs[2].role == "pm"
+        assert loaded.turn_manifest.specs[2].raci_designation == "I"

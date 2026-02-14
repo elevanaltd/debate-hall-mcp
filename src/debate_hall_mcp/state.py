@@ -217,6 +217,7 @@ class TurnType(StrEnum):
     ADVICE = "advice"  # C: Consulted provides feedback
     REBUTTAL = "rebuttal"  # R: Responsible synthesizes C feedback
     VERDICT = "verdict"  # A: Accountable renders GO/NO-GO
+    OBSERVATION = "observation"  # I: Informed provides post-verdict impact analysis
 
 
 class TurnSpec(BaseModel):
@@ -234,7 +235,10 @@ class TurnManifest(BaseModel):
     responsible: str = Field(..., description="Responsible role name")
     accountable: str = Field(..., description="Accountable role name")
     consulted: list[str] = Field(default_factory=list, description="Consulted role names")
-    informed: list[str] = Field(default_factory=list, description="Informed role names (no turns)")
+    informed: list[str] = Field(
+        default_factory=list,
+        description="Informed role names (OBSERVATION turns after verdict)",
+    )
 
 
 class GitHubTargetType(StrEnum):

@@ -23,8 +23,10 @@ from debate_hall_mcp.orchestrator import DebateOrchestrator
 from debate_hall_mcp.prompts import (
     RACI_ACCOUNTABLE_PROMPT,
     RACI_CONSULTED_PROMPT,
+    RACI_INFORMED_PROMPT,
     RACI_RESPONSIBLE_PROMPT,
     format_raci_advice_prompt,
+    format_raci_observation_prompt,
     format_raci_proposal_prompt,
     format_raci_rebuttal_prompt,
     format_raci_verdict_prompt,
@@ -357,3 +359,119 @@ class TestGetRACITurnInstruction:
         """Unknown turn type should default to responsible instruction."""
         instruction = orchestrator._get_raci_turn_instruction("unknown")
         assert "RESPONSIBLE" in instruction
+
+    def test_observation_instruction_mentions_informed(
+        self, orchestrator: DebateOrchestrator
+    ) -> None:
+        """Observation instruction should mention INFORMED role."""
+        instruction = orchestrator._get_raci_turn_instruction("observation")
+        assert "INFORMED" in instruction
+
+    def test_observation_instruction_mentions_verdict_final(
+        self, orchestrator: DebateOrchestrator
+    ) -> None:
+        """Observation instruction should state the verdict is final."""
+        instruction = orchestrator._get_raci_turn_instruction("observation")
+        assert "final" in instruction.lower()
+
+    def test_observation_instruction_forbids_challenging_verdict(
+        self, orchestrator: DebateOrchestrator
+    ) -> None:
+        """Observation instruction should forbid challenging the verdict."""
+        instruction = orchestrator._get_raci_turn_instruction("observation")
+        assert "not challenge" in instruction.lower() or "do not challenge" in instruction.lower()
+
+    def test_observation_instruction_requests_impact_statement(
+        self, orchestrator: DebateOrchestrator
+    ) -> None:
+        """Observation instruction should request an impact statement."""
+        instruction = orchestrator._get_raci_turn_instruction("observation")
+        assert "impact" in instruction.lower()
+
+
+class TestRACIInformedPrompt:
+    """Tests for RACI_INFORMED_PROMPT system prompt constant."""
+
+    def test_informed_prompt_exists(self) -> None:
+        """RACI Informed system prompt should exist."""
+        assert RACI_INFORMED_PROMPT is not None
+        assert len(RACI_INFORMED_PROMPT) > 0
+
+    def test_informed_prompt_contains_observer_identity(self) -> None:
+        """Informed prompt should reference the observer/informed role."""
+        assert "Informed" in RACI_INFORMED_PROMPT or "Observer" in RACI_INFORMED_PROMPT
+
+    def test_informed_prompt_forbids_challenging_verdict(self) -> None:
+        """Informed prompt must explicitly forbid challenging the verdict."""
+        prompt_lower = RACI_INFORMED_PROMPT.lower()
+        assert "challenge" in prompt_lower or "argue against" in prompt_lower
+
+    def test_informed_prompt_requires_impact_analysis(self) -> None:
+        """Informed prompt should require impact analysis."""
+        prompt_lower = RACI_INFORMED_PROMPT.lower()
+        assert "impact" in prompt_lower
+
+    def test_informed_prompt_forbids_relitigating(self) -> None:
+        """Informed prompt should forbid re-litigating settled points."""
+        prompt_lower = RACI_INFORMED_PROMPT.lower()
+        assert "re-litigate" in prompt_lower or "relitigate" in prompt_lower
+
+
+class TestFormatRACIObservationPrompt:
+    """Tests for format_raci_observation_prompt."""
+
+    def test_includes_topic(self) -> None:
+        """Observation prompt should include the topic."""
+        prompt = format_raci_observation_prompt("Deploy API", "2026-02-14-test", "pm")
+        assert "Deploy API" in prompt
+
+    def test_includes_thread_id(self) -> None:
+        """Observation prompt should include the thread_id."""
+        prompt = format_raci_observation_prompt("Deploy API", "2026-02-14-test", "pm")
+        assert "2026-02-14-test" in prompt
+
+    def test_includes_role_name(self) -> None:
+        """Observation prompt should include the informed agent's name."""
+        prompt = format_raci_observation_prompt("Deploy API", "2026-02-14-test", "ops-team")
+        assert "ops-team" in prompt
+
+    def test_indicates_informed_role(self) -> None:
+        """Observation prompt should indicate Informed role."""
+        prompt = format_raci_observation_prompt("Test", "2026-02-14-test", "pm")
+        prompt_lower = prompt.lower()
+        assert "informed" in prompt_lower or "observer" in prompt_lower
+
+    def test_forbids_challenging_verdict(self) -> None:
+        """Observation prompt must forbid challenging the verdict."""
+        prompt = format_raci_observation_prompt("Test", "2026-02-14-test", "pm")
+        prompt_lower = prompt.lower()
+        assert "cannot be changed" in prompt_lower or "must not" in prompt_lower
+
+    def test_references_debate_state(self) -> None:
+        """Observation prompt should reference DEBATE_STATE tags."""
+        prompt = format_raci_observation_prompt("Test", "2026-02-14-test", "pm")
+        assert "DEBATE_STATE" in prompt
+
+
+class TestGetRACIPromptObservation:
+    """Tests for _get_raci_prompt() handling OBSERVATION turn type."""
+
+    @patch("debate_hall_mcp.orchestrator.get_agent_prompt")
+    def test_returns_agent_prompt_with_observation_instruction(
+        self, mock_get_agent: MagicMock, orchestrator: DebateOrchestrator
+    ) -> None:
+        """When agent file exists, observation turn returns agent + INFORMED instruction."""
+        mock_get_agent.return_value = "===AGENT::solution-steward==="
+        result = orchestrator._get_raci_prompt("observation", "solution-steward")
+        assert "===AGENT::solution-steward===" in result
+        assert "INFORMED" in result
+        mock_get_agent.assert_called_once_with("solution-steward")
+
+    @patch("debate_hall_mcp.orchestrator.get_agent_prompt")
+    def test_falls_back_to_informed_prompt_when_no_agent(
+        self, mock_get_agent: MagicMock, orchestrator: DebateOrchestrator
+    ) -> None:
+        """When no agent file, observation falls back to RACI_INFORMED_PROMPT."""
+        mock_get_agent.return_value = None
+        result = orchestrator._get_raci_prompt("observation", "unknown-observer")
+        assert result == RACI_INFORMED_PROMPT
