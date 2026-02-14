@@ -39,8 +39,18 @@ class RACIConfig(BaseModel):
     Validation rules:
     - responsible and accountable must not be empty strings
     - consulted list max 5 entries (bounded governance)
-    - responsible != accountable (separation of concerns)
+    - informed list max 3 entries (prevents cost explosions)
+    - responsible != accountable (separation of concerns, case-insensitive)
     - All role names must be non-empty strings
+
+    Disjointness rules (all comparisons are case-insensitive):
+    - No duplicate entries within informed list (V1)
+    - No duplicate entries within consulted list (V2)
+    - Informed must be disjoint from Responsible (V3)
+    - Informed must be disjoint from Accountable (V4)
+    - Informed must be disjoint from Consulted (V5)
+
+    Each role must have exactly one RACI designation.
     """
 
     responsible: str = Field(..., description="Role name for Responsible agent")
@@ -61,8 +71,8 @@ class RACIConfig(BaseModel):
         if not self.accountable or not self.accountable.strip():
             raise ValueError("accountable must be a non-empty string")
 
-        # Separation of concerns: R != A
-        if self.responsible == self.accountable:
+        # Separation of concerns: R != A (case-insensitive)
+        if self.responsible.lower().strip() == self.accountable.lower().strip():
             raise ValueError(
                 f"responsible and accountable must differ (separation of concerns): "
                 f"both are '{self.responsible}'"
@@ -94,6 +104,58 @@ class RACIConfig(BaseModel):
             if not inf or not inf.strip():
                 raise ValueError(
                     f"informed entry at index {i} is empty: all role names must be non-empty"
+                )
+
+        # --- Disjointness validation (V1-V5) ---
+        # Normalize role names for comparison (lowercase + strip)
+        norm_r = self.responsible.lower().strip()
+        norm_a = self.accountable.lower().strip()
+        norm_consulted = [c.lower().strip() for c in self.consulted]
+        norm_informed = [inf.lower().strip() for inf in self.informed]
+
+        # V1: No duplicate informed entries
+        seen_informed: set[str] = set()
+        for idx, norm_inf in enumerate(norm_informed):
+            if norm_inf in seen_informed:
+                raise ValueError(
+                    f"duplicate in informed list: role '{self.informed[idx]}' appears "
+                    f"more than once — each role must have exactly one RACI designation"
+                )
+            seen_informed.add(norm_inf)
+
+        # V2: No duplicate consulted entries
+        seen_consulted: set[str] = set()
+        for idx, norm_c in enumerate(norm_consulted):
+            if norm_c in seen_consulted:
+                raise ValueError(
+                    f"duplicate in consulted list: role '{self.consulted[idx]}' appears "
+                    f"more than once — each role must have exactly one RACI designation"
+                )
+            seen_consulted.add(norm_c)
+
+        # V3: Informed must be disjoint from Responsible
+        for idx, norm_inf in enumerate(norm_informed):
+            if norm_inf == norm_r:
+                raise ValueError(
+                    f"role '{self.informed[idx]}' appears in both responsible and "
+                    f"informed — each role must have exactly one RACI designation"
+                )
+
+        # V4: Informed must be disjoint from Accountable
+        for idx, norm_inf in enumerate(norm_informed):
+            if norm_inf == norm_a:
+                raise ValueError(
+                    f"role '{self.informed[idx]}' appears in both accountable and "
+                    f"informed — each role must have exactly one RACI designation"
+                )
+
+        # V5: Informed must be disjoint from Consulted
+        consulted_set = set(norm_consulted)
+        for idx, norm_inf in enumerate(norm_informed):
+            if norm_inf in consulted_set:
+                raise ValueError(
+                    f"role '{self.informed[idx]}' appears in both consulted and "
+                    f"informed — each role must have exactly one RACI designation"
                 )
 
         return self

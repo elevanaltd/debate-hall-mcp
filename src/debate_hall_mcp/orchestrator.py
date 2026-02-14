@@ -28,6 +28,7 @@ Phase 4: Consensus Loop
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,6 +76,8 @@ from debate_hall_mcp.tools.get import debate_get
 from debate_hall_mcp.tools.init import debate_init
 from debate_hall_mcp.tools.turn import debate_turn
 from debate_hall_mcp.utils.primers import load_primer
+
+logger = logging.getLogger(__name__)
 
 # Default provider timeout in seconds (M1: CE Review)
 # Increased from 120 to 300 to accommodate slower CLI providers
@@ -1540,6 +1543,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
             # 3. Execute each turn in manifest sequence
             last_response: ProviderResponse | None = None
             verdict_content: str = ""
+            i_failures: list[str] = []
             for spec in manifest.specs:
                 # Get the appropriate user prompt based on turn type
                 if spec.turn_type == TurnType.PROPOSAL:
@@ -1558,18 +1562,70 @@ Respond with your refined synthesis using the OCTAVE response format."""
                 # Get the appropriate system prompt (with agent file resolution)
                 system_prompt = self._get_raci_prompt(spec.turn_type.value, spec.role)
 
-                last_response = await self._execute_raci_role_turn(
-                    role=spec.role,
-                    provider=provider,
-                    thread_id=thread_id,
-                    user_prompt=user_prompt,
-                    system_prompt=system_prompt,
-                    timeout=timeout,
-                )
+                # W2: Graceful I-turn failure degradation — only OBSERVATION turns
+                # get try/except; R/C/A turns still fail-fast (current behavior).
+                if spec.raci_designation == "I":
+                    try:
+                        last_response = await self._execute_raci_role_turn(
+                            role=spec.role,
+                            provider=provider,
+                            thread_id=thread_id,
+                            user_prompt=user_prompt,
+                            system_prompt=system_prompt,
+                            timeout=timeout,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "RACI I-turn failed for role '%s' in thread '%s': %s",
+                            spec.role,
+                            thread_id,
+                            str(e),
+                        )
+                        # Record sentinel turn so the hash chain remains gapless (I4)
+                        sentinel_content = (
+                            f"[OBSERVATION FAILED] Role '{spec.role}' was unable to "
+                            f"provide impact analysis: {type(e).__name__}"
+                        )
+                        debate_turn(
+                            thread_id=thread_id,
+                            role=spec.role,
+                            content=sentinel_content,
+                            model="system",
+                            state_dir=self.state_dir,
+                        )
+                        i_failures.append(spec.role)
+                        continue
+                else:
+                    last_response = await self._execute_raci_role_turn(
+                        role=spec.role,
+                        provider=provider,
+                        thread_id=thread_id,
+                        user_prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        timeout=timeout,
+                    )
 
                 # Capture verdict content (the A-verdict IS the decision)
                 if spec.turn_type == TurnType.VERDICT:
                     verdict_content = last_response.content
+
+            # Log if ALL I-agents failed
+            informed_count = len([s for s in manifest.specs if s.raci_designation == "I"])
+            if i_failures and len(i_failures) == informed_count:
+                logger.error(
+                    "All %d RACI I-turn(s) failed in thread '%s': %s",
+                    informed_count,
+                    thread_id,
+                    i_failures,
+                )
+            elif i_failures:
+                logger.warning(
+                    "%d of %d RACI I-turn(s) failed in thread '%s': %s",
+                    len(i_failures),
+                    informed_count,
+                    thread_id,
+                    i_failures,
+                )
 
             # 4. Close debate with A's verdict as synthesis
             # The verdict is the decision; I-turns are supplementary observations
@@ -1583,14 +1639,17 @@ Respond with your refined synthesis using the OCTAVE response format."""
             )
 
             # Emit debate_closed event
+            closed_payload: dict[str, Any] = {
+                "status": "synthesis",
+                "synthesis_preview": verdict_content[:100],
+                "mode": "raci",
+            }
+            if i_failures:
+                closed_payload["i_turn_failures"] = i_failures
             append_event(
                 thread_id=thread_id,
                 event_type=EventType.DEBATE_CLOSED,
-                payload={
-                    "status": "synthesis",
-                    "synthesis_preview": verdict_content[:100],
-                    "mode": "raci",
-                },
+                payload=closed_payload,
                 state_dir=self.state_dir,
             )
 
@@ -1658,6 +1717,7 @@ Respond with your refined synthesis using the OCTAVE response format."""
             # Execute remaining turns from manifest
             last_response: ProviderResponse | None = None
             verdict_content: str = ""
+            i_failures: list[str] = []
 
             # Check if verdict was already recorded in prior turns
             for prior_i in range(turn_count):
@@ -1685,19 +1745,71 @@ Respond with your refined synthesis using the OCTAVE response format."""
 
                 system_prompt = self._get_raci_prompt(spec.turn_type.value, spec.role)
 
-                last_response = await self._execute_raci_role_turn(
-                    role=spec.role,
-                    provider=provider,
-                    thread_id=thread_id,
-                    user_prompt=user_prompt,
-                    system_prompt=system_prompt,
-                    timeout=timeout,
-                )
-                turn_count += 1
+                # W2: Graceful I-turn failure degradation (same as run_raci)
+                if spec.raci_designation == "I":
+                    try:
+                        last_response = await self._execute_raci_role_turn(
+                            role=spec.role,
+                            provider=provider,
+                            thread_id=thread_id,
+                            user_prompt=user_prompt,
+                            system_prompt=system_prompt,
+                            timeout=timeout,
+                        )
+                        turn_count += 1
+                    except Exception as e:
+                        logger.warning(
+                            "RACI I-turn failed for role '%s' in thread '%s': %s",
+                            spec.role,
+                            thread_id,
+                            str(e),
+                        )
+                        sentinel_content = (
+                            f"[OBSERVATION FAILED] Role '{spec.role}' was unable to "
+                            f"provide impact analysis: {type(e).__name__}"
+                        )
+                        debate_turn(
+                            thread_id=thread_id,
+                            role=spec.role,
+                            content=sentinel_content,
+                            model="system",
+                            state_dir=self.state_dir,
+                        )
+                        turn_count += 1
+                        i_failures.append(spec.role)
+                        continue
+                else:
+                    last_response = await self._execute_raci_role_turn(
+                        role=spec.role,
+                        provider=provider,
+                        thread_id=thread_id,
+                        user_prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        timeout=timeout,
+                    )
+                    turn_count += 1
 
                 # Capture verdict content
                 if spec.turn_type == TurnType.VERDICT:
                     verdict_content = last_response.content
+
+            # Log if ALL I-agents failed
+            informed_count = len([s for s in manifest.specs if s.raci_designation == "I"])
+            if i_failures and len(i_failures) == informed_count:
+                logger.error(
+                    "All %d RACI I-turn(s) failed in thread '%s': %s",
+                    informed_count,
+                    thread_id,
+                    i_failures,
+                )
+            elif i_failures:
+                logger.warning(
+                    "%d of %d RACI I-turn(s) failed in thread '%s': %s",
+                    len(i_failures),
+                    informed_count,
+                    thread_id,
+                    i_failures,
+                )
 
             # Close with verdict (not last I-turn)
             if not verdict_content:
@@ -1710,14 +1822,17 @@ Respond with your refined synthesis using the OCTAVE response format."""
             )
 
             # Emit debate_closed event
+            closed_payload: dict[str, Any] = {
+                "status": "synthesis",
+                "synthesis_preview": verdict_content[:100],
+                "mode": "raci",
+            }
+            if i_failures:
+                closed_payload["i_turn_failures"] = i_failures
             append_event(
                 thread_id=thread_id,
                 event_type=EventType.DEBATE_CLOSED,
-                payload={
-                    "status": "synthesis",
-                    "synthesis_preview": verdict_content[:100],
-                    "mode": "raci",
-                },
+                payload=closed_payload,
                 state_dir=self.state_dir,
             )
 

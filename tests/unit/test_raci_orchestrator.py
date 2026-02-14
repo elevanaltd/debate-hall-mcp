@@ -725,3 +725,345 @@ class TestRACIObservationTurns:
         assert mock_provider.complete.call_count == 1
         # Synthesis should be the verdict, not the observation
         assert "VERDICT" in result.synthesis or "GO" in result.synthesis
+
+
+class TestITurnFailureDegradation:
+    """Tests for W2: Graceful I-turn failure degradation.
+
+    When an Informed agent's OBSERVATION turn fails, the debate should:
+    1. Record a sentinel turn in the transcript (gapless hash chain - I4)
+    2. Log the failure
+    3. Continue executing other I-turns
+    4. Close the debate normally with the verdict as synthesis
+    """
+
+    @pytest.mark.anyio
+    async def test_i_turn_failure_records_sentinel_content(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """Failed I-turn should record sentinel content in transcript."""
+        call_count = 0
+
+        def mock_complete(
+            system_prompt: str,  # noqa: ARG001
+            user_prompt: str,  # noqa: ARG001
+            **kwargs: Any,  # noqa: ARG001
+        ) -> ProviderResponse:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return create_mock_provider_response("PROPOSAL: Deploy API")
+            elif call_count == 2:
+                return create_mock_provider_response("VERDICT: GO")
+            else:
+                # I-turn fails
+                raise RuntimeError("Provider timeout")
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = mock_complete
+
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            informed=["ops"],
+        )
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run_raci(topic="Sentinel test", raci_config=config)
+
+        # Debate should still close successfully
+        assert result.status == "synthesis"
+
+        # Verify sentinel turn was recorded
+        room = load_debate_state(result.thread_id, temp_state_dir)
+        sentinel_turns = [t for t in room.turns if "[OBSERVATION FAILED]" in t.content]
+        assert len(sentinel_turns) == 1
+        assert "ops" in sentinel_turns[0].content
+        assert "RuntimeError" in sentinel_turns[0].content
+
+    @pytest.mark.anyio
+    async def test_i_turn_failure_does_not_prevent_debate_closure(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """Failed I-turn should not prevent debate from closing with verdict."""
+        call_count = 0
+
+        def mock_complete(
+            system_prompt: str,  # noqa: ARG001
+            user_prompt: str,  # noqa: ARG001
+            **kwargs: Any,  # noqa: ARG001
+        ) -> ProviderResponse:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return create_mock_provider_response("PROPOSAL: Deploy API")
+            elif call_count == 2:
+                return create_mock_provider_response("VERDICT: GO. Approved.")
+            else:
+                raise RuntimeError("I-turn failure")
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = mock_complete
+
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            informed=["pm"],
+        )
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run_raci(topic="Closure test", raci_config=config)
+
+        assert result.status == "synthesis"
+        assert "VERDICT" in result.synthesis
+        assert "GO" in result.synthesis
+
+    @pytest.mark.anyio
+    async def test_multiple_i_turns_partial_failure(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """Multiple I-turns where one fails but others succeed."""
+        call_count = 0
+
+        def mock_complete(
+            system_prompt: str,  # noqa: ARG001
+            user_prompt: str,  # noqa: ARG001
+            **kwargs: Any,  # noqa: ARG001
+        ) -> ProviderResponse:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return create_mock_provider_response("PROPOSAL: Deploy")
+            elif call_count == 2:
+                return create_mock_provider_response("VERDICT: GO")
+            elif call_count == 3:
+                # First I-turn (ops) succeeds
+                return create_mock_provider_response("OBSERVATION: Ops impact noted.")
+            elif call_count == 4:
+                # Second I-turn (security) fails
+                raise RuntimeError("Security provider down")
+            else:
+                return create_mock_provider_response("OBSERVATION: PM impact noted.")
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = mock_complete
+
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            informed=["ops", "security", "pm"],
+        )
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run_raci(topic="Partial failure test", raci_config=config)
+
+        assert result.status == "synthesis"
+
+        # Load transcript
+        room = load_debate_state(result.thread_id, temp_state_dir)
+        # Should have 5 turns: R + A + I(ok) + I(sentinel) + I(ok)
+        assert len(room.turns) == 5
+
+        # One sentinel turn
+        sentinel_turns = [t for t in room.turns if "[OBSERVATION FAILED]" in t.content]
+        assert len(sentinel_turns) == 1
+        assert "security" in sentinel_turns[0].content
+
+        # Two successful observation turns
+        obs_turns = [
+            t
+            for t in room.turns
+            if "OBSERVATION:" in t.content and "[OBSERVATION FAILED]" not in t.content
+        ]
+        assert len(obs_turns) == 2
+
+    @pytest.mark.anyio
+    async def test_all_i_turns_fail_debate_still_closes(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """All I-turns fail -- debate still closes with verdict as synthesis."""
+        call_count = 0
+
+        def mock_complete(
+            system_prompt: str,  # noqa: ARG001
+            user_prompt: str,  # noqa: ARG001
+            **kwargs: Any,  # noqa: ARG001
+        ) -> ProviderResponse:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return create_mock_provider_response("PROPOSAL: Deploy")
+            elif call_count == 2:
+                return create_mock_provider_response("VERDICT: GO. Approved.")
+            else:
+                # All I-turns fail
+                raise RuntimeError("All providers down")
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = mock_complete
+
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            informed=["ops", "pm"],
+        )
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.run_raci(topic="All fail test", raci_config=config)
+
+        # Debate still closes successfully
+        assert result.status == "synthesis"
+        assert "VERDICT" in result.synthesis
+        assert "GO" in result.synthesis
+
+        # Both I-turns should have sentinel content
+        room = load_debate_state(result.thread_id, temp_state_dir)
+        sentinel_turns = [t for t in room.turns if "[OBSERVATION FAILED]" in t.content]
+        assert len(sentinel_turns) == 2
+
+    @pytest.mark.anyio
+    async def test_r_a_turn_failure_still_pauses(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """R/C/A turn failure should still cause PAUSED state (unchanged behavior)."""
+        import os
+
+        call_count = 0
+
+        def mock_complete(
+            system_prompt: str,  # noqa: ARG001
+            user_prompt: str,  # noqa: ARG001
+            **kwargs: Any,  # noqa: ARG001
+        ) -> ProviderResponse:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return create_mock_provider_response("PROPOSAL: Deploy")
+            else:
+                # A-turn (verdict) fails -- this should NOT be gracefully degraded
+                raise RuntimeError("Accountable provider failed")
+
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = mock_complete
+
+        config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            informed=["pm"],
+        )
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        with pytest.raises(RuntimeError, match="Accountable provider failed"):
+            await orchestrator.run_raci(topic="A-fail test", raci_config=config)
+
+        # Debate should be PAUSED (not closed)
+        state_files = [f for f in os.listdir(temp_state_dir) if f.endswith(".json")]
+        assert len(state_files) == 1
+        thread_id = state_files[0].replace(".json", "")
+        room = load_debate_state(thread_id, temp_state_dir)
+        assert room.status == DebateStatus.PAUSED
+
+    @pytest.mark.anyio
+    async def test_resume_raci_i_turn_failure_degradation(
+        self,
+        raci_tier_config: TierConfig,
+        temp_state_dir: Path,
+    ) -> None:
+        """Resumed RACI debate should also gracefully degrade I-turn failures."""
+        from debate_hall_mcp.raci import compile_raci_manifest
+        from debate_hall_mcp.tools.init import debate_init
+
+        raci_config = RACIConfig(
+            responsible="dev",
+            accountable="lead",
+            informed=["ops"],
+        )
+        manifest = compile_raci_manifest(raci_config)
+
+        # Set up paused debate with R + A turns already done
+        thread_id = "2026-02-14-resume-i-fail-test"
+        debate_init(
+            thread_id=thread_id,
+            topic="Resume I-fail test",
+            mode="raci",
+            state_dir=temp_state_dir,
+        )
+
+        room = load_debate_state(thread_id, temp_state_dir)
+        room.turn_manifest = manifest
+        room.max_turns = len(manifest.specs)
+
+        # Add R and A turns
+        r_turn = Turn(
+            role="dev",
+            content="PROPOSAL: Deploy now.",
+            timestamp=datetime.now(UTC),
+            previous_hash=None,
+        )
+        room.turns.append(r_turn)
+        a_turn = Turn(
+            role="lead",
+            content="VERDICT: GO.",
+            timestamp=datetime.now(UTC),
+            previous_hash=r_turn.hash,
+        )
+        room.turns.append(a_turn)
+        room.status = DebateStatus.PAUSED
+        save_debate_state(room, temp_state_dir)
+
+        # Mock provider that fails for I-turn
+        mock_provider = AsyncMock()
+        mock_provider.complete.side_effect = RuntimeError("Provider down")
+
+        orchestrator = DebateOrchestrator(
+            raci_tier_config,
+            temp_state_dir,
+            provider_factory=create_mock_provider_factory(mock_provider),
+        )
+
+        result = await orchestrator.resume(thread_id)
+
+        # Debate should still close successfully
+        assert result.status == "synthesis"
+        assert "VERDICT" in result.synthesis or "GO" in result.synthesis
+
+        # Sentinel turn should be recorded
+        room = load_debate_state(thread_id, temp_state_dir)
+        sentinel_turns = [t for t in room.turns if "[OBSERVATION FAILED]" in t.content]
+        assert len(sentinel_turns) == 1
+        assert "ops" in sentinel_turns[0].content
