@@ -1298,7 +1298,7 @@ class TestCorruptEventPolicy:
         state = load_hall(hall_id, tmp_path)
 
         # Manually corrupt an event line in the ledger
-        events_file = tmp_path / "halls" / f"hall_{hall_id}_events.jsonl"
+        events_file = tmp_path / "halls" / f"{hall_id}.events.jsonl"
         with open(events_file, "a") as f:
             f.write("CORRUPT_JSON_LINE\n")
 
