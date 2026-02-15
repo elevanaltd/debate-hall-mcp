@@ -128,6 +128,12 @@ class ParticipantNotFoundError(ValueError):
         self.participant_id = participant_id
 
 
+class HallCorruptionError(RuntimeError):
+    """Raised when hall ledger contains corrupt events that prevent safe operations."""
+
+    pass
+
+
 class ParticipantActiveError(ValueError):
     """Raised when trying to unregister an active participant."""
 
@@ -849,6 +855,21 @@ def save_hall(
     lock = _get_hall_lock(state.hall_id, state_dir)
 
     with lock:
+        # CE-B1 (write-path): Check for existing corruption before allowing writes
+        # that would advance the snapshot past corrupt events
+        _, corrupt_count = _load_hall_events_unlocked(state.hall_id, state_dir)
+        if corrupt_count > 0:
+            logger.warning(
+                "Hall '%s': Cannot save - %d corrupt event(s) in ledger. "
+                "Manual remediation required before writes can resume.",
+                state.hall_id,
+                corrupt_count,
+            )
+            raise HallCorruptionError(
+                f"Hall '{state.hall_id}' has {corrupt_count} corrupt events. "
+                f"Cannot advance snapshot until ledger is repaired."
+            )
+
         # Step 1: Create and append event
         event = HallEvent(
             event_id=str(ULID()),

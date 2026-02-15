@@ -1277,6 +1277,43 @@ class TestCorruptEventPolicy:
         snap_data = json.loads(snapshot_file.read_text())
         assert "bob" in snap_data["participants"]
 
+    def test_save_hall_blocks_with_corrupt_events(self, tmp_path: Path) -> None:
+        """CE-B1 write-path: save_hall should refuse to write when corruption exists."""
+        from debate_hall_mcp.hall import (
+            HallCorruptionError,
+            HallEventType,
+            append_hall_event,
+            load_hall,
+            save_hall,
+        )
+
+        hall_id = "test-write-corruption"
+
+        # Create hall using append_hall_event
+        append_hall_event(
+            hall_id, HallEventType.HALL_OPENED, {"topic": "Write Corruption Test"}, tmp_path
+        )
+
+        # Load the hall state
+        state = load_hall(hall_id, tmp_path)
+
+        # Manually corrupt an event line in the ledger
+        events_file = tmp_path / "halls" / f"hall_{hall_id}_events.jsonl"
+        with open(events_file, "a") as f:
+            f.write("CORRUPT_JSON_LINE\n")
+
+        # Attempt to save should raise HallCorruptionError
+        with pytest.raises(HallCorruptionError) as exc:
+            save_hall(
+                state,
+                HallEventType.PARTICIPANT_REGISTERED,
+                {"participant_id": "bob", "role": "Wind"},
+                tmp_path,
+            )
+
+        assert "corrupt events" in str(exc.value)
+        assert "Cannot advance snapshot" in str(exc.value)
+
 
 # ── W-001: Events-Only Reconstruction Validation ───────────────────────
 
