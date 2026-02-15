@@ -72,11 +72,12 @@ class TestHallEventTypeEnum:
         assert HallEventType.CONTEXT_COMPRESSED == "context_compressed"
         assert HallEventType.HALL_CLOSED == "hall_closed"
         assert HallEventType.HALL_FORCE_CLOSED == "hall_force_closed"
+        assert HallEventType.CHECKPOINT_RESTORED == "checkpoint_restored"
 
     def test_hall_event_type_count(self) -> None:
         from debate_hall_mcp.hall import HallEventType
 
-        assert len(HallEventType) == 10
+        assert len(HallEventType) == 11  # Phase 2 added CHECKPOINT_RESTORED
 
 
 class TestCustomExceptions:
@@ -1468,3 +1469,346 @@ class TestG1Benchmark:
         load_hall("bench-200", tmp_path)
         elapsed_ms = (time.monotonic() - start) * 1000
         assert elapsed_ms < 200, f"200 events took {elapsed_ms:.1f}ms (limit: 200ms)"
+
+
+# ── P2T01: Checkpoint/Restore Lifecycle (Phase 2) ────────────────────
+
+
+class TestCheckpointMetadata:
+    """Test CheckpointMetadata model."""
+
+    def test_checkpoint_metadata_creation(self) -> None:
+        from datetime import UTC, datetime
+
+        from debate_hall_mcp.hall import CheckpointMetadata
+
+        now = datetime.now(UTC)
+        metadata = CheckpointMetadata(
+            checkpoint_id="01HN1234567890ABCDEFGHJ",
+            hall_id="test-hall",
+            timestamp=now,
+            description="Test checkpoint",
+            event_count=5,
+            state_hash="abc123def456",
+        )
+
+        assert metadata.checkpoint_id == "01HN1234567890ABCDEFGHJ"
+        assert metadata.hall_id == "test-hall"
+        assert metadata.timestamp == now
+        assert metadata.description == "Test checkpoint"
+        assert metadata.event_count == 5
+        assert metadata.state_hash == "abc123def456"
+
+
+class TestCreateCheckpoint:
+    """Test create_checkpoint function."""
+
+    def test_create_checkpoint_success(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            append_hall_event,
+            create_checkpoint,
+        )
+
+        # Setup: Create a hall with some events
+        hall_id = "cp-test-1"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test Hall", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+        append_hall_event(
+            hall_id,
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "p1", "name": "Participant 1", "kind": "agent"},
+            tmp_path,
+        )
+
+        # Action: Create checkpoint
+        checkpoint_id = create_checkpoint(hall_id, "Before debate start", tmp_path)
+
+        # Assert: Checkpoint ID is a ULID
+        assert len(checkpoint_id) == 26
+        assert checkpoint_id.startswith("01")
+
+        # Assert: Checkpoint file exists
+        checkpoints_dir = tmp_path / "halls" / hall_id / ".checkpoints"
+        checkpoint_file = checkpoints_dir / f"checkpoint_{checkpoint_id}.json"
+        assert checkpoint_file.exists()
+
+    def test_create_checkpoint_stores_metadata(self, tmp_path: Path) -> None:
+        import json
+
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            append_hall_event,
+            create_checkpoint,
+        )
+
+        # Setup
+        hall_id = "cp-test-2"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+
+        # Action
+        checkpoint_id = create_checkpoint(hall_id, "Test checkpoint", tmp_path)
+
+        # Assert: Read checkpoint file and verify metadata
+        checkpoints_dir = tmp_path / "halls" / hall_id / ".checkpoints"
+        checkpoint_file = checkpoints_dir / f"checkpoint_{checkpoint_id}.json"
+        with open(checkpoint_file) as f:
+            data = json.load(f)
+
+        assert data["checkpoint_id"] == checkpoint_id
+        assert data["hall_id"] == hall_id
+        assert data["description"] == "Test checkpoint"
+        assert "timestamp" in data
+        assert "event_count" in data
+        assert "state_hash" in data
+        assert "state" in data
+
+    def test_create_checkpoint_nonexistent_hall(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import create_checkpoint
+
+        with pytest.raises(FileNotFoundError):
+            create_checkpoint("nonexistent-hall", "Test", tmp_path)
+
+
+class TestListCheckpoints:
+    """Test list_checkpoints function."""
+
+    def test_list_checkpoints_empty(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            append_hall_event,
+            list_checkpoints,
+        )
+
+        # Setup: Create hall with no checkpoints
+        hall_id = "lc-test-1"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+
+        # Action
+        checkpoints = list_checkpoints(hall_id, tmp_path)
+
+        # Assert
+        assert checkpoints == []
+
+    def test_list_checkpoints_multiple(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            append_hall_event,
+            create_checkpoint,
+            list_checkpoints,
+        )
+
+        # Setup
+        hall_id = "lc-test-2"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+
+        # Create multiple checkpoints
+        cp1 = create_checkpoint(hall_id, "First checkpoint", tmp_path)
+        append_hall_event(
+            hall_id,
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "p1", "name": "P1", "kind": "agent"},
+            tmp_path,
+        )
+        cp2 = create_checkpoint(hall_id, "Second checkpoint", tmp_path)
+
+        # Action
+        checkpoints = list_checkpoints(hall_id, tmp_path)
+
+        # Assert: Returns sorted list (most recent first)
+        assert len(checkpoints) == 2
+        assert checkpoints[0].checkpoint_id == cp2
+        assert checkpoints[0].description == "Second checkpoint"
+        assert checkpoints[1].checkpoint_id == cp1
+        assert checkpoints[1].description == "First checkpoint"
+
+
+class TestRestoreFromCheckpoint:
+    """Test restore_from_checkpoint function."""
+
+    def test_restore_from_checkpoint_success(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            append_hall_event,
+            create_checkpoint,
+            load_hall,
+            restore_from_checkpoint,
+        )
+
+        # Setup: Create hall, add events, checkpoint, add more events
+        hall_id = "restore-test-1"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+        append_hall_event(
+            hall_id,
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "p1", "name": "P1", "kind": "agent"},
+            tmp_path,
+        )
+
+        # Create checkpoint
+        checkpoint_id = create_checkpoint(hall_id, "Before p2", tmp_path)
+
+        # Add more events after checkpoint
+        append_hall_event(
+            hall_id,
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "p2", "name": "P2", "kind": "agent"},
+            tmp_path,
+        )
+
+        # Verify current state has both participants
+        current = load_hall(hall_id, tmp_path)
+        assert len(current.participants) == 2
+
+        # Action: Restore from checkpoint
+        restored = restore_from_checkpoint(hall_id, checkpoint_id, tmp_path)
+
+        # Assert: Restored state has only first participant
+        assert len(restored.participants) == 1
+        assert "p1" in restored.participants
+        assert "p2" not in restored.participants
+
+    def test_restore_creates_checkpoint_restored_event(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            append_hall_event,
+            create_checkpoint,
+            load_hall_events,
+            restore_from_checkpoint,
+        )
+
+        # Setup
+        hall_id = "restore-test-2"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+        checkpoint_id = create_checkpoint(hall_id, "Test", tmp_path)
+        append_hall_event(
+            hall_id,
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "p1", "name": "P1", "kind": "agent"},
+            tmp_path,
+        )
+
+        # Action: Restore
+        restore_from_checkpoint(hall_id, checkpoint_id, tmp_path)
+
+        # Assert: Check event ledger contains CHECKPOINT_RESTORED event
+        events, _ = load_hall_events(hall_id, tmp_path)
+        restored_events = [e for e in events if e.event_type == HallEventType.CHECKPOINT_RESTORED]
+        assert len(restored_events) == 1
+        assert restored_events[0].data["checkpoint_id"] == checkpoint_id
+
+    def test_restore_preserves_append_only_ledger(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            append_hall_event,
+            create_checkpoint,
+            load_hall_events,
+            restore_from_checkpoint,
+        )
+
+        # Setup
+        hall_id = "restore-test-3"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+        checkpoint_id = create_checkpoint(hall_id, "Test", tmp_path)
+        append_hall_event(
+            hall_id,
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "p1", "name": "P1", "kind": "agent"},
+            tmp_path,
+        )
+
+        # Record event count before restore
+        events_before, _ = load_hall_events(hall_id, tmp_path)
+        count_before = len(events_before)
+
+        # Action: Restore
+        restore_from_checkpoint(hall_id, checkpoint_id, tmp_path)
+
+        # Assert: Events after checkpoint are NOT deleted (append-only I4)
+        events_after, _ = load_hall_events(hall_id, tmp_path)
+        # Should have original events + CHECKPOINT_RESTORED event
+        assert len(events_after) > count_before
+
+    def test_restore_nonexistent_checkpoint(self, tmp_path: Path) -> None:
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            append_hall_event,
+            restore_from_checkpoint,
+        )
+
+        hall_id = "restore-test-4"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+
+        with pytest.raises(FileNotFoundError):
+            restore_from_checkpoint(hall_id, "01HN1234567890FAKE", tmp_path)
+
+
+class TestCheckpointHashVerification:
+    """Test checkpoint hash verification for integrity."""
+
+    def test_checkpoint_includes_state_hash(self, tmp_path: Path) -> None:
+        import json
+
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            append_hall_event,
+            create_checkpoint,
+        )
+
+        hall_id = "hash-test-1"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+
+        checkpoint_id = create_checkpoint(hall_id, "Test", tmp_path)
+
+        # Read checkpoint and verify hash field exists
+        checkpoints_dir = tmp_path / "halls" / hall_id / ".checkpoints"
+        checkpoint_file = checkpoints_dir / f"checkpoint_{checkpoint_id}.json"
+        with open(checkpoint_file) as f:
+            data = json.load(f)
+
+        assert "state_hash" in data
+        assert len(data["state_hash"]) == 64  # SHA-256 hex digest

@@ -24,6 +24,7 @@ Immutables Compliance:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -94,6 +95,7 @@ class HallEventType(StrEnum):
     CONTEXT_COMPRESSED = "context_compressed"
     HALL_CLOSED = "hall_closed"
     HALL_FORCE_CLOSED = "hall_force_closed"
+    CHECKPOINT_RESTORED = "checkpoint_restored"
 
 
 # ── S14: Error Taxonomy ──────────────────────────────────────────────
@@ -437,6 +439,42 @@ class HallState(BaseModel):
                         f"sensitive home directory: ~/{sensitive_dir}"
                     )
 
+        return v
+
+
+# ── S1.8: CheckpointMetadata Model (Phase 2) ─────────────────────────
+
+
+class CheckpointMetadata(BaseModel):
+    """Metadata for a hall checkpoint (Phase 2: Checkpoint/Restore).
+
+    Checkpoints are immutable snapshots of hall state at a point in time,
+    stored in {state_dir}/halls/{hall_id}/.checkpoints/ directory.
+
+    Fields:
+    - checkpoint_id: ULID for monotonic ordering
+    - hall_id: Hall identifier
+    - timestamp: UTC timestamp when checkpoint was created
+    - description: Human-readable checkpoint description
+    - event_count: Number of events in ledger at checkpoint time
+    - state_hash: SHA-256 hash of the full checkpoint data for integrity
+    """
+
+    checkpoint_id: str = Field(..., description="ULID for monotonic ordering")
+    hall_id: str = Field(..., description="Hall identifier")
+    timestamp: datetime = Field(..., description="UTC timestamp of checkpoint")
+    description: str = Field(..., description="Human-readable description")
+    event_count: int = Field(..., description="Number of events at checkpoint time")
+    state_hash: str = Field(..., description="SHA-256 hash for integrity verification")
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def ensure_timezone_aware(cls, v: datetime | str) -> datetime:
+        """Ensure timestamp is timezone-aware (UTC)."""
+        if isinstance(v, str):
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        if isinstance(v, datetime) and v.tzinfo is None:
+            return v.replace(tzinfo=UTC)
         return v
 
 
@@ -926,3 +964,191 @@ def _save_hall_snapshot_unlocked(state: HallState, state_dir: Path) -> None:
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
         raise
+
+
+# ── Phase 2: Checkpoint/Restore Operations ───────────────────────────
+
+
+def _get_checkpoints_dir(hall_id: str, state_dir: Path) -> Path:
+    """Get checkpoints directory for a hall, creating if needed."""
+    checkpoints_dir = _get_halls_dir(state_dir) / hall_id / ".checkpoints"
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+    return checkpoints_dir
+
+
+def create_checkpoint(hall_id: str, description: str, state_dir: Path) -> str:
+    """Create a checkpoint of current hall state.
+
+    Checkpoints provide explicit save points for hall state, enabling
+    rollback via restore_from_checkpoint(). The checkpoint captures:
+    - Full HallState at the current moment
+    - Metadata (timestamp, description, event count)
+    - SHA-256 hash for integrity verification
+
+    Storage: {state_dir}/halls/{hall_id}/.checkpoints/checkpoint_{ULID}.json
+
+    Args:
+        hall_id: Hall identifier
+        description: Human-readable checkpoint description
+        state_dir: State directory
+
+    Returns:
+        checkpoint_id: ULID of the created checkpoint
+
+    Raises:
+        FileNotFoundError: If hall does not exist
+    """
+    _validate_hall_id_for_filesystem(hall_id)
+
+    # Load current hall state
+    state = load_hall(hall_id, state_dir)
+
+    # Count events in ledger
+    events, _ = load_hall_events(hall_id, state_dir)
+    event_count = len(events)
+
+    # Generate checkpoint ID
+    checkpoint_id = str(ULID())
+    now = datetime.now(UTC)
+
+    # Serialize state using Pydantic (handles datetime objects)
+    state_dict = json.loads(
+        state.model_dump_json(exclude={"participants": {"__all__": {"provider_config"}}})
+    )
+
+    # Build checkpoint data
+    checkpoint_data = {
+        "checkpoint_id": checkpoint_id,
+        "hall_id": hall_id,
+        "timestamp": now.isoformat(),
+        "description": description,
+        "event_count": event_count,
+        "state": state_dict,
+    }
+
+    # Compute hash of checkpoint data for integrity
+    checkpoint_json = json.dumps(checkpoint_data, sort_keys=True)
+    state_hash = hashlib.sha256(checkpoint_json.encode()).hexdigest()
+    checkpoint_data["state_hash"] = state_hash
+
+    # Write checkpoint atomically
+    checkpoints_dir = _get_checkpoints_dir(hall_id, state_dir)
+    checkpoint_file = checkpoints_dir / f"checkpoint_{checkpoint_id}.json"
+
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(checkpoints_dir),
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(checkpoint_data, indent=2))
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, str(checkpoint_file))
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+    return checkpoint_id
+
+
+def list_checkpoints(hall_id: str, state_dir: Path) -> list[CheckpointMetadata]:
+    """List all checkpoints for a hall, sorted by timestamp (most recent first).
+
+    Args:
+        hall_id: Hall identifier
+        state_dir: State directory
+
+    Returns:
+        List of CheckpointMetadata objects, sorted newest first
+    """
+    _validate_hall_id_for_filesystem(hall_id)
+
+    checkpoints_dir = _get_checkpoints_dir(hall_id, state_dir)
+    if not checkpoints_dir.exists():
+        return []
+
+    checkpoints: list[CheckpointMetadata] = []
+
+    for checkpoint_file in checkpoints_dir.glob("checkpoint_*.json"):
+        try:
+            with open(checkpoint_file) as f:
+                data = json.load(f)
+
+            metadata = CheckpointMetadata(
+                checkpoint_id=data["checkpoint_id"],
+                hall_id=data["hall_id"],
+                timestamp=data["timestamp"],
+                description=data["description"],
+                event_count=data["event_count"],
+                state_hash=data["state_hash"],
+            )
+            checkpoints.append(metadata)
+        except (KeyError, ValueError, json.JSONDecodeError):
+            # Skip corrupt checkpoint files
+            logger.warning("Skipping corrupt checkpoint file: %s", checkpoint_file.name)
+            continue
+
+    # Sort by checkpoint_id (ULID) descending for most recent first
+    checkpoints.sort(key=lambda c: c.checkpoint_id, reverse=True)
+    return checkpoints
+
+
+def restore_from_checkpoint(hall_id: str, checkpoint_id: str, state_dir: Path) -> HallState:
+    """Restore hall state from a checkpoint.
+
+    This operation:
+    1. Loads the checkpointed state from file
+    2. Appends a CHECKPOINT_RESTORED event to the ledger (maintaining I4)
+    3. Writes the restored state as the current snapshot
+
+    IMPORTANT: This does NOT delete events after the checkpoint. The event
+    ledger remains append-only (I4 compliance). Instead, we add a
+    CHECKPOINT_RESTORED event that marks the rollback point.
+
+    Args:
+        hall_id: Hall identifier
+        checkpoint_id: ULID of checkpoint to restore
+        state_dir: State directory
+
+    Returns:
+        The restored HallState
+
+    Raises:
+        FileNotFoundError: If hall or checkpoint does not exist
+    """
+    _validate_hall_id_for_filesystem(hall_id)
+
+    # Load checkpoint file
+    checkpoints_dir = _get_checkpoints_dir(hall_id, state_dir)
+    checkpoint_file = checkpoints_dir / f"checkpoint_{checkpoint_id}.json"
+
+    if not checkpoint_file.exists():
+        raise FileNotFoundError(f"Checkpoint '{checkpoint_id}' not found for hall '{hall_id}'")
+
+    with open(checkpoint_file) as f:
+        checkpoint_data = json.load(f)
+
+    # Reconstruct HallState from checkpoint
+    restored_state = HallState.model_validate(checkpoint_data["state"])
+
+    # Append CHECKPOINT_RESTORED event to maintain append-only ledger (I4)
+    append_hall_event(
+        hall_id,
+        HallEventType.CHECKPOINT_RESTORED,
+        {
+            "checkpoint_id": checkpoint_id,
+            "description": checkpoint_data["description"],
+            "restored_at": datetime.now(UTC).isoformat(),
+        },
+        state_dir,
+    )
+
+    # Write restored state as current snapshot
+    lock = _get_hall_lock(hall_id, state_dir)
+    with lock:
+        _save_hall_snapshot_unlocked(restored_state, state_dir)
+
+    return restored_state
