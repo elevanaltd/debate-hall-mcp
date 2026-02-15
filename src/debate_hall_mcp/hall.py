@@ -1101,8 +1101,10 @@ def restore_from_checkpoint(hall_id: str, checkpoint_id: str, state_dir: Path) -
 
     This operation:
     1. Loads the checkpointed state from file
-    2. Appends a CHECKPOINT_RESTORED event to the ledger (maintaining I4)
-    3. Writes the restored state as the current snapshot
+    2. Verifies checkpoint integrity via SHA-256 hash (Security)
+    3. Checks ledger for corruption (CE-B1 gate)
+    4. Appends a CHECKPOINT_RESTORED event to the ledger (maintaining I4)
+    5. Writes the restored state as the current snapshot
 
     IMPORTANT: This does NOT delete events after the checkpoint. The event
     ledger remains append-only (I4 compliance). Instead, we add a
@@ -1118,6 +1120,7 @@ def restore_from_checkpoint(hall_id: str, checkpoint_id: str, state_dir: Path) -
 
     Raises:
         FileNotFoundError: If hall or checkpoint does not exist
+        HallCorruptionError: If checkpoint hash verification fails or ledger is corrupted
     """
     _validate_hall_id_for_filesystem(hall_id)
 
@@ -1130,6 +1133,24 @@ def restore_from_checkpoint(hall_id: str, checkpoint_id: str, state_dir: Path) -
 
     with open(checkpoint_file) as f:
         checkpoint_data = json.load(f)
+
+    # Security Fix #1: Verify checkpoint hash integrity (CRS blocking finding)
+    # Compute hash of state data (excluding the hash field itself)
+    checkpoint_json = json.dumps(
+        {k: v for k, v in checkpoint_data.items() if k != "state_hash"},
+        sort_keys=True,
+    )
+    computed_hash = hashlib.sha256(checkpoint_json.encode()).hexdigest()
+
+    if computed_hash != checkpoint_data["state_hash"]:
+        raise HallCorruptionError(
+            f"Checkpoint {checkpoint_id} integrity check failed: hash mismatch"
+        )
+
+    # Security Fix #2: Check for corrupted ledger before restore (CE-B1 gate)
+    _, corrupt_count = _load_hall_events_unlocked(hall_id, state_dir)
+    if corrupt_count > 0:
+        raise HallCorruptionError(f"Cannot restore: {corrupt_count} corrupt events in ledger")
 
     # Reconstruct HallState from checkpoint
     restored_state = HallState.model_validate(checkpoint_data["state"])

@@ -1812,3 +1812,133 @@ class TestCheckpointHashVerification:
 
         assert "state_hash" in data
         assert len(data["state_hash"]) == 64  # SHA-256 hex digest
+
+    def test_restore_detects_tampered_checkpoint(self, tmp_path: Path) -> None:
+        """Test that restore detects and rejects tampered checkpoint data.
+
+        Security requirement: CRS blocking finding #1
+        Verify that restore_from_checkpoint validates the state_hash
+        and raises HallCorruptionError when hash doesn't match.
+        """
+        import json
+
+        from debate_hall_mcp.hall import (
+            HallCorruptionError,
+            HallEventType,
+            append_hall_event,
+            create_checkpoint,
+            restore_from_checkpoint,
+        )
+
+        hall_id = "tamper-test"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+
+        # Create checkpoint
+        checkpoint_id = create_checkpoint(hall_id, "Before tampering", tmp_path)
+
+        # Tamper with checkpoint by modifying state data
+        checkpoints_dir = tmp_path / "halls" / hall_id / ".checkpoints"
+        checkpoint_file = checkpoints_dir / f"checkpoint_{checkpoint_id}.json"
+
+        with open(checkpoint_file) as f:
+            data = json.load(f)
+
+        # Tamper: Change state data without updating hash
+        # Modify description field which won't trigger validation error
+        data["state"]["description"] = "TAMPERED DATA"
+
+        with open(checkpoint_file, "w") as f:
+            json.dump(data, f)
+
+        # Attempt restore - should detect hash mismatch
+        with pytest.raises(HallCorruptionError, match="integrity check failed"):
+            restore_from_checkpoint(hall_id, checkpoint_id, tmp_path)
+
+    def test_restore_blocks_with_corrupted_ledger(self, tmp_path: Path) -> None:
+        """Test that restore blocks when event ledger has corrupt events.
+
+        Security requirement: CE blocking finding #2 (CE-B1 gate bypass)
+        Verify that restore_from_checkpoint checks for ledger corruption
+        before restoring and raises HallCorruptionError.
+        """
+        from debate_hall_mcp.hall import (
+            HallCorruptionError,
+            HallEventType,
+            append_hall_event,
+            create_checkpoint,
+            restore_from_checkpoint,
+        )
+
+        hall_id = "corrupt-ledger-test"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+
+        # Create checkpoint
+        checkpoint_id = create_checkpoint(hall_id, "Before corruption", tmp_path)
+
+        # Corrupt the event ledger by writing invalid JSON
+        events_file = tmp_path / "halls" / f"{hall_id}.events.jsonl"
+        with open(events_file, "a") as f:
+            f.write('{"invalid": "json" missing brace\n')
+
+        # Attempt restore - should detect corruption and block
+        with pytest.raises(HallCorruptionError, match="corrupt events in ledger"):
+            restore_from_checkpoint(hall_id, checkpoint_id, tmp_path)
+
+    def test_checkpoint_hash_mismatch_raises_error(self, tmp_path: Path) -> None:
+        """Test that hash validation logic correctly detects mismatches.
+
+        Security requirement: CRS blocking finding #1
+        Verify the hash verification algorithm itself works correctly
+        by manually creating a checkpoint with wrong hash.
+        """
+        import json
+
+        from debate_hall_mcp.hall import (
+            HallCorruptionError,
+            HallEventType,
+            append_hall_event,
+            restore_from_checkpoint,
+        )
+
+        hall_id = "hash-mismatch-test"
+        append_hall_event(
+            hall_id,
+            HallEventType.HALL_OPENED,
+            {"topic": "Test", "max_depth": 3, "tier_name": "standard"},
+            tmp_path,
+        )
+
+        # Manually create a checkpoint with incorrect hash
+        from ulid import ULID
+
+        from debate_hall_mcp.hall import _get_checkpoints_dir, load_hall
+
+        checkpoint_id = str(ULID())
+        checkpoints_dir = _get_checkpoints_dir(hall_id, tmp_path)
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+        state = load_hall(hall_id, tmp_path)
+        checkpoint_data = {
+            "checkpoint_id": checkpoint_id,
+            "description": "Fake checkpoint",
+            "state": state.model_dump(mode="json"),
+            "state_hash": "0" * 64,  # Wrong hash
+        }
+
+        checkpoint_file = checkpoints_dir / f"checkpoint_{checkpoint_id}.json"
+        with open(checkpoint_file, "w") as f:
+            json.dump(checkpoint_data, f)
+
+        # Attempt restore - should detect hash mismatch
+        with pytest.raises(HallCorruptionError, match="integrity check failed"):
+            restore_from_checkpoint(hall_id, checkpoint_id, tmp_path)
