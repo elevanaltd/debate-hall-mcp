@@ -1,15 +1,10 @@
-#!/usr/bin/env sh
-# Local pre-commit hook - delegates to global ~/.githooks/pre-commit
-# This project uses local .githooks/ for venv bootstrapping (post-checkout/post-merge)
-# but pre-commit logic lives in the global hook to avoid duplication.
-set -eu
+#!/usr/bin/env bash
+# Pre-commit hook — runs CI-equivalent lint checks before commit.
+# Install: git config core.hooksPath .githooks
+#   (or run: ./scripts/install-git-hooks.sh)
+set -euo pipefail
 
-GLOBAL_HOOK="$HOME/.githooks/pre-commit"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [ -x "$GLOBAL_HOOK" ]; then
-  exec "$GLOBAL_HOOK"
-fi
-
-echo "WARNING: Global pre-commit hook not found at $GLOBAL_HOOK"
-echo "Skipping pre-commit checks..."
-exit 0
+# Run the same checks CI runs
+exec "$ROOT/scripts/ci-lint.sh"
