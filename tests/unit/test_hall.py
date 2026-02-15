@@ -850,8 +850,9 @@ class TestLoadHallEvents:
             {"id": "alice", "name": "Alice", "kind": "agent"},
             tmp_path,
         )
-        events = load_hall_events("h1", tmp_path)
+        events, corrupt_count = load_hall_events("h1", tmp_path)
         assert len(events) == 2
+        assert corrupt_count == 0
         assert events[0].event_type == HallEventType.HALL_OPENED
         assert events[1].event_type == HallEventType.PARTICIPANT_REGISTERED
 
@@ -865,16 +866,18 @@ class TestLoadHallEvents:
             {"id": "alice", "name": "Alice", "kind": "agent"},
             tmp_path,
         )
-        events = load_hall_events("h1", tmp_path, after=e1.event_id)
+        events, corrupt_count = load_hall_events("h1", tmp_path, after=e1.event_id)
         assert len(events) == 1
+        assert corrupt_count == 0
         assert events[0].event_type == HallEventType.PARTICIPANT_REGISTERED
 
     def test_load_events_empty_file_returns_empty(self, tmp_path: Path) -> None:
         from debate_hall_mcp.hall import load_hall_events
 
         # No events file -> empty list
-        events = load_hall_events("nonexistent", tmp_path)
+        events, corrupt_count = load_hall_events("nonexistent", tmp_path)
         assert events == []
+        assert corrupt_count == 0
 
     def test_load_events_corrupt_line_skipped(self, tmp_path: Path) -> None:
         from debate_hall_mcp.hall import HallEventType, append_hall_event, load_hall_events
@@ -890,9 +893,11 @@ class TestLoadHallEvents:
             {"id": "bob", "name": "Bob", "kind": "agent"},
             tmp_path,
         )
-        events = load_hall_events("h1", tmp_path)
+        events, corrupt_count = load_hall_events("h1", tmp_path)
         # Should have 2 valid events, corrupt line skipped
         assert len(events) == 2
+        # CE-B1: corrupt_count should report the corrupt line
+        assert corrupt_count == 1
 
 
 # ── P1T06: Smart Loader + Save Hall ────────────────────────────────────
@@ -1056,6 +1061,277 @@ class TestSaveHall:
         snapshot = _get_hall_state_file("test-hall", tmp_path)
         mode = stat.S_IMODE(snapshot.stat().st_mode)
         assert mode == 0o600
+
+
+# ── B-001: Concurrent Debate Reducer Logic ──────────────────────────────
+
+
+class TestConcurrentDebateReducer:
+    """B-001: Verify participants in other active debates are not reset."""
+
+    def test_completing_one_debate_preserves_other_debate_participants(self) -> None:
+        """Two debates active, complete one: participants in the other stay active."""
+        from debate_hall_mcp.hall import (
+            Participant,
+            ParticipantKind,
+            RaciMatrix,
+            apply_hall_event,
+        )
+
+        state = _make_hall_state(status="active")
+        # Register participants
+        state.participants["alice"] = Participant(
+            id="alice",
+            name="Alice",
+            kind=ParticipantKind.AGENT,
+            status="active",
+            raci_designation="R",
+        )
+        state.participants["bob"] = Participant(
+            id="bob",
+            name="Bob",
+            kind=ParticipantKind.AGENT,
+            status="active",
+            raci_designation="A",
+        )
+        state.participants["charlie"] = Participant(
+            id="charlie",
+            name="Charlie",
+            kind=ParticipantKind.AGENT,
+            status="active",
+            raci_designation="C",
+        )
+        # Two active debates
+        state.active_debates = ["debate-1", "debate-2"]
+        state.raci_matrix = RaciMatrix(
+            responsible="alice",
+            accountable="bob",
+            consulted=["charlie"],
+        )
+
+        # Complete debate-1, with alice and charlie as participants
+        event = _make_event(
+            "debate_completed",
+            {
+                "thread_id": "debate-1",
+                "participant_ids": ["alice", "charlie"],
+            },
+        )
+        result = apply_hall_event(state, event)
+
+        # debate-1 moved to completed, debate-2 still active
+        assert "debate-1" not in result.active_debates
+        assert "debate-1" in result.completed_debates
+        assert "debate-2" in result.active_debates
+
+        # B-001: Participants should STILL be active because debate-2 is running
+        assert result.participants["alice"].status == "active"
+        assert result.participants["alice"].raci_designation == "R"
+        assert result.participants["bob"].status == "active"
+        assert result.participants["charlie"].status == "active"
+
+        # B-001: RACI matrix should be preserved while debates are active
+        assert result.raci_matrix is not None
+
+        # Status should remain ACTIVE (not REVIEWING)
+        from debate_hall_mcp.hall import HallStatus
+
+        assert result.status == HallStatus.ACTIVE
+
+    def test_completing_last_debate_resets_participants_and_raci(self) -> None:
+        """When the last debate completes, participants and RACI are reset."""
+        from debate_hall_mcp.hall import (
+            HallStatus,
+            Participant,
+            ParticipantKind,
+            RaciMatrix,
+            apply_hall_event,
+        )
+
+        state = _make_hall_state(status="active")
+        state.participants["alice"] = Participant(
+            id="alice",
+            name="Alice",
+            kind=ParticipantKind.AGENT,
+            status="active",
+            raci_designation="R",
+        )
+        state.participants["bob"] = Participant(
+            id="bob",
+            name="Bob",
+            kind=ParticipantKind.AGENT,
+            status="active",
+            raci_designation="A",
+        )
+        state.active_debates = ["debate-only"]
+        state.raci_matrix = RaciMatrix(responsible="alice", accountable="bob")
+
+        event = _make_event(
+            "debate_completed",
+            {
+                "thread_id": "debate-only",
+                "participant_ids": ["alice", "bob"],
+            },
+        )
+        result = apply_hall_event(state, event)
+
+        # All debates done: participants reset, RACI cleared
+        assert result.participants["alice"].status == "on_call"
+        assert result.participants["alice"].raci_designation is None
+        assert result.participants["bob"].status == "on_call"
+        assert result.participants["bob"].raci_designation is None
+        assert result.raci_matrix is None
+        assert result.status == HallStatus.REVIEWING
+
+
+# ── CE-B1: Corrupt Event Silent Skip Policy ────────────────────────────
+
+
+class TestCorruptEventPolicy:
+    """CE-B1: Corrupt events must not cause silent snapshot advancement."""
+
+    def test_corrupt_event_prevents_snapshot_update(self, tmp_path: Path) -> None:
+        """Load with corrupt events succeeds but does NOT update snapshot."""
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            _get_hall_state_file,
+            append_hall_event,
+            load_hall,
+        )
+
+        # Create hall and build initial snapshot
+        _seed_hall(tmp_path, hall_id="corrupt-test")
+        load_hall("corrupt-test", tmp_path)
+        snapshot_file = _get_hall_state_file("corrupt-test", tmp_path)
+        assert snapshot_file.exists()
+        snapshot_mtime_before = snapshot_file.stat().st_mtime
+
+        # Add a valid event after snapshot
+        append_hall_event(
+            "corrupt-test",
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "alice", "name": "Alice", "kind": "agent"},
+            tmp_path,
+        )
+        # Inject a corrupt line into the events file
+        events_file = tmp_path / "halls" / "corrupt-test.events.jsonl"
+        with open(events_file, "a") as f:
+            f.write("CORRUPT LINE HERE\n")
+
+        # Load should succeed (availability)
+        state2 = load_hall("corrupt-test", tmp_path)
+        assert "alice" in state2.participants
+
+        # CE-B1: Snapshot should NOT have been updated
+        # (mtime should be unchanged because we didn't re-save)
+        snapshot_mtime_after = snapshot_file.stat().st_mtime
+        assert snapshot_mtime_after == snapshot_mtime_before
+
+    def test_corrupt_event_count_returned_by_load_hall_events(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """load_hall_events returns accurate corrupt count."""
+        from debate_hall_mcp.hall import HallEventType, append_hall_event, load_hall_events
+
+        append_hall_event("h-corrupt", HallEventType.HALL_OPENED, {}, tmp_path)
+        events_file = tmp_path / "halls" / "h-corrupt.events.jsonl"
+        with open(events_file, "a") as f:
+            f.write("BAD LINE 1\n")
+            f.write("BAD LINE 2\n")
+        append_hall_event(
+            "h-corrupt",
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "x", "name": "X", "kind": "agent"},
+            tmp_path,
+        )
+        events, corrupt_count = load_hall_events("h-corrupt", tmp_path)
+        assert len(events) == 2
+        assert corrupt_count == 2
+
+    def test_clean_events_still_update_snapshot(self, tmp_path: Path) -> None:
+        """When there are no corrupt events, snapshot IS updated normally."""
+        import json
+
+        from debate_hall_mcp.hall import (
+            HallEventType,
+            _get_hall_state_file,
+            append_hall_event,
+            load_hall,
+        )
+
+        _seed_hall(tmp_path, hall_id="clean-test")
+        load_hall("clean-test", tmp_path)  # Creates initial snapshot
+
+        append_hall_event(
+            "clean-test",
+            HallEventType.PARTICIPANT_REGISTERED,
+            {"id": "bob", "name": "Bob", "kind": "agent"},
+            tmp_path,
+        )
+        state = load_hall("clean-test", tmp_path)
+        assert "bob" in state.participants
+
+        # Snapshot should be updated (contains bob)
+        snapshot_file = _get_hall_state_file("clean-test", tmp_path)
+        snap_data = json.loads(snapshot_file.read_text())
+        assert "bob" in snap_data["participants"]
+
+
+# ── W-001: Events-Only Reconstruction Validation ───────────────────────
+
+
+class TestEventsOnlyValidation:
+    """W-001: Validate first event type during events-only reconstruction."""
+
+    def test_non_hall_opened_first_event_uses_defaults(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """If first event is not HALL_OPENED, use default init values."""
+        from datetime import UTC, datetime
+
+        from ulid import ULID
+
+        from debate_hall_mcp.hall import (
+            HallEvent,
+            HallEventType,
+            _get_hall_events_file,
+            _get_halls_dir,
+            load_hall,
+        )
+
+        # Manually write an events file where first event is NOT HALL_OPENED
+        _get_halls_dir(tmp_path)  # ensure dir exists
+        events_file = _get_hall_events_file("bad-start", tmp_path)
+
+        event = HallEvent(
+            event_id=str(ULID()),
+            hall_id="bad-start",
+            event_type=HallEventType.PARTICIPANT_REGISTERED,
+            timestamp=datetime.now(UTC),
+            data={"id": "alice", "name": "Alice", "kind": "agent"},
+        )
+        with open(events_file, "w") as f:
+            f.write(event.model_dump_json() + "\n")
+
+        # Should load successfully with defaults (not crash)
+        state = load_hall("bad-start", tmp_path)
+        assert state.hall_id == "bad-start"
+        assert state.topic == "(unknown)"  # Default, not from event data
+        assert state.max_depth == 3  # Default
+        # The participant event was still applied by the reducer
+        assert "alice" in state.participants
+
+    def test_hall_opened_first_event_uses_its_data(self, tmp_path: Path) -> None:
+        """Normal case: HALL_OPENED first event provides init data."""
+        from debate_hall_mcp.hall import load_hall
+
+        _seed_hall(tmp_path, hall_id="good-start")
+        state = load_hall("good-start", tmp_path)
+        assert state.topic == "Test Topic"
+        assert state.max_depth == 3
+        assert state.max_context_tokens == 4096
 
 
 # ── P1T07: DebateRoom Extension + G1 Benchmark ─────────────────────────

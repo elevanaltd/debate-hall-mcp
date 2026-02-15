@@ -502,11 +502,15 @@ def apply_hall_event(state: HallState, event: HallEvent) -> HallState:
                     state.completed_debates.append(thread_id)
                 if "compressed_log" in event.data:
                     state.compressed_log = event.data["compressed_log"]
-                for pid in event.data.get("participant_ids", []):
-                    if pid in state.participants:
-                        state.participants[pid].status = "on_call"
-                        state.participants[pid].raci_designation = None
-                state.raci_matrix = None
+                # B-001: Only reset participants and RACI matrix when NO
+                # active debates remain, to avoid clobbering state for
+                # participants still involved in other concurrent debates.
+                if not state.active_debates:
+                    for pid in event.data.get("participant_ids", []):
+                        if pid in state.participants:
+                            state.participants[pid].status = "on_call"
+                            state.participants[pid].raci_designation = None
+                    state.raci_matrix = None
                 if not state.active_debates and state.status == HallStatus.ACTIVE:
                     state.status = HallStatus.REVIEWING
 
@@ -623,8 +627,12 @@ def load_hall_events(
     hall_id: str,
     state_dir: Path,
     after: str | None = None,
-) -> list[HallEvent]:
+) -> tuple[list[HallEvent], int]:
     """Load events from hall event ledger.
+
+    CE-B1: Returns both events and a count of corrupt lines detected.
+    Corrupt lines are still skipped (availability) but the count allows
+    callers to decide whether to trust the replayed state (correctness).
 
     Args:
         hall_id: Hall identifier
@@ -632,16 +640,19 @@ def load_hall_events(
         after: Only return events with event_id > this ULID (for delta replay)
 
     Returns:
-        List of HallEvent objects, ordered by ULID.
-        Empty list if events file does not exist.
+        Tuple of (events, corrupt_count):
+        - events: List of HallEvent objects, ordered by ULID.
+        - corrupt_count: Number of corrupt/unparseable lines skipped.
+        Empty list and 0 if events file does not exist.
     """
     _validate_hall_id_for_filesystem(hall_id)
     events_file = _get_hall_events_file(hall_id, state_dir)
 
     if not events_file.exists():
-        return []
+        return [], 0
 
     events: list[HallEvent] = []
+    corrupt_count = 0
     lock = _get_hall_lock(hall_id, state_dir)
 
     with lock, open(events_file) as f:
@@ -657,6 +668,7 @@ def load_hall_events(
                     line_num,
                     events_file.name,
                 )
+                corrupt_count += 1
                 continue
 
             if after is not None and event.event_id <= after:
@@ -664,20 +676,24 @@ def load_hall_events(
 
             events.append(event)
 
-    return events
+    return events, corrupt_count
 
 
 def _load_hall_events_unlocked(
     hall_id: str,
     state_dir: Path,
     after: str | None = None,
-) -> list[HallEvent]:
-    """Load hall events WITHOUT acquiring lock (caller holds lock)."""
+) -> tuple[list[HallEvent], int]:
+    """Load hall events WITHOUT acquiring lock (caller holds lock).
+
+    CE-B1: Returns (events, corrupt_count) like load_hall_events.
+    """
     events_file = _get_hall_events_file(hall_id, state_dir)
     if not events_file.exists():
-        return []
+        return [], 0
 
     events: list[HallEvent] = []
+    corrupt_count = 0
     with open(events_file) as f:
         for line_num, line in enumerate(f, start=1):
             line = line.strip()
@@ -691,12 +707,13 @@ def _load_hall_events_unlocked(
                     line_num,
                     hall_id,
                 )
+                corrupt_count += 1
                 continue
             if after is not None and event.event_id <= after:
                 continue
             events.append(event)
 
-    return events
+    return events, corrupt_count
 
 
 # ── S2.4: Smart Loader (Read Path) ──────────────────────────────────
@@ -750,8 +767,17 @@ def load_hall(hall_id: str, state_dir: Path) -> HallState:
                 state = None
 
         # Step 2: Load delta events (after snapshot version)
+        # CE-B1: Also track corrupt event count for snapshot safety
         after = state.last_event_id if state else None
-        delta_events = _load_hall_events_unlocked(hall_id, state_dir, after=after)
+        delta_events, corrupt_count = _load_hall_events_unlocked(hall_id, state_dir, after=after)
+
+        if corrupt_count > 0:
+            logger.warning(
+                "Hall '%s': %d corrupt event(s) detected in ledger; "
+                "snapshot will NOT be updated to preserve ledger integrity (I4)",
+                hall_id,
+                corrupt_count,
+            )
 
         # Step 3: If no snapshot and no events, hall doesn't exist
         if state is None and not delta_events:
@@ -760,14 +786,25 @@ def load_hall(hall_id: str, state_dir: Path) -> HallState:
         # Step 4: If no snapshot but events exist, create initial state
         if state is None and delta_events:
             first = delta_events[0]
+            # W-001: Validate that the first event is HALL_OPENED before
+            # using its data for initialization. If not, log a warning
+            # and use safe defaults.
+            if first.event_type != HallEventType.HALL_OPENED:
+                logger.warning(
+                    "Hall '%s': first event is %s, expected HALL_OPENED; "
+                    "using default initialization values",
+                    hall_id,
+                    first.event_type,
+                )
+            init_data = first.data if first.event_type == HallEventType.HALL_OPENED else {}
             state = HallState(
                 hall_id=hall_id,
-                topic=first.data.get("topic", ""),
-                max_depth=first.data.get("max_depth", 3),
-                max_context_tokens=first.data.get("max_context_tokens", 4096),
-                max_debates=first.data.get("max_debates", 20),
-                context_files=first.data.get("context_files", []),
-                tier_name=first.data.get("tier_name", "standard"),
+                topic=init_data.get("topic", "(unknown)"),
+                max_depth=init_data.get("max_depth", 3),
+                max_context_tokens=init_data.get("max_context_tokens", 4096),
+                max_debates=init_data.get("max_debates", 20),
+                context_files=init_data.get("context_files", []),
+                tier_name=init_data.get("tier_name", "standard"),
                 created_at=first.timestamp,
                 updated_at=first.timestamp,
             )
@@ -778,7 +815,11 @@ def load_hall(hall_id: str, state_dir: Path) -> HallState:
                 state = apply_hall_event(state, event)
 
             # Step 6: Flush updated snapshot (read-repair)
-            _save_hall_snapshot_unlocked(state, state_dir)
+            # CE-B1: Only save snapshot if zero corrupt events were found.
+            # This preserves the corrupt events in the ledger for manual
+            # investigation and prevents the snapshot from advancing past them.
+            if corrupt_count == 0:
+                _save_hall_snapshot_unlocked(state, state_dir)
 
         assert state is not None  # Guaranteed by steps 3-4
         return state
