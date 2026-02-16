@@ -370,7 +370,7 @@ requires-dist = [
     { name = "inline-snapshot", marker = "extra == 'dev'", specifier = ">=0.15.0" },
     { name = "mcp", specifier = ">=1.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
-    { name = "octave-mcp", specifier = ">=1.0.0" },
+    { name = "octave-mcp", specifier = ">=1.2.1" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
@@ -675,7 +675,7 @@ wheels = [
 
 [[package]]
 name = "octave-mcp"
-version = "1.0.0"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -684,9 +684,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d1/98/c570de58c99b800425f300beb3422ce37137a18de5f52a031e30029b93c9/octave_mcp-1.0.0.tar.gz", hash = "sha256:cdc3d8613605aa3a48f084ce6ea19ff8ca9721e925f9b985c90b00110ea46fdf", size = 188904, upload-time = "2026-01-30T15:48:59.007Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/b9/3e9bff18da3ba2e6423877266dd9467369068308a83078a6ea7bb61d1e6b/octave_mcp-1.2.1.tar.gz", hash = "sha256:788820f1ef7a86c36ada0c441c9633860ed6505ed51a8fd09ea8dbb051226c22", size = 194858, upload-time = "2026-02-15T13:16:07.478Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/e1/6ed7de04eae5818ec3e94a32d68286031d46e6d829bc1d6798665f223140/octave_mcp-1.0.0-py3-none-any.whl", hash = "sha256:d15cb73e0bde4d59fe3f52ca36e41ae0ab130018b66b076470c838ce865226e7", size = 211617, upload-time = "2026-01-30T15:48:57.528Z" },
+    { url = "https://files.pythonhosted.org/packages/49/bb/854e7f5c00af02b8cda6d0dbc71f0f0a5e24926e6340e0feb98fbe73024a/octave_mcp-1.2.1-py3-none-any.whl", hash = "sha256:840f43092289a58ceeefa4bbc01e00676d42c740a2c76dc85f94387c9d7640a4", size = 218022, upload-time = "2026-02-15T13:16:05.951Z" },
 ]
 
 [[package]]
