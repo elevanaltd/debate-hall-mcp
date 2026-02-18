@@ -30,6 +30,7 @@ from debate_hall_mcp.state import (
     DebateRoom,
     DebateStatus,
     InjectedContext,
+    _validate_thread_id_for_filesystem,
     get_state_dir,
 )
 
@@ -39,23 +40,6 @@ ROLE_TO_INJECTION_TYPE = {
     "Wall": "ethos",
     "Door": "logos",
 }
-
-
-# Security: Patterns that indicate path traversal or directory injection
-PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
-
-
-def _validate_thread_id_for_filesystem(thread_id: str) -> None:
-    """Validate thread_id is safe for filesystem operations.
-
-    Security: Rejects path traversal sequences and directory separators.
-
-    Raises:
-        ValueError: If thread_id contains path-unsafe characters
-    """
-    for pattern in PATH_UNSAFE_PATTERNS:
-        if pattern in thread_id:
-            raise ValueError(f"Invalid thread_id '{thread_id}': contains path-unsafe characters")
 
 
 def _get_interject_lock(lock_file: Path) -> FileLock:

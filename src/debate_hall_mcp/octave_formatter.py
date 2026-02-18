@@ -11,7 +11,6 @@ New in octave-mcp v1.0.0:
 """
 
 from enum import Enum
-from typing import TypeVar
 
 from debate_hall_mcp.state import DebateRoom
 
@@ -31,14 +30,6 @@ except ImportError as e:
         "octave-mcp package is required. Install with: pip install octave-mcp>=1.0.0"
     ) from e
 
-# Custom type variables
-T = TypeVar("T")
-
-# Define more precise types for section key handling
-SectionKeyType = str | object | None
-SectionKey = str | object
-SectionKeyList = list[str | object]
-
 
 class OutputMode(Enum):
     """Output mode for OCTAVE content formatting.
@@ -49,6 +40,27 @@ class OutputMode(Enum):
 
     FULL = "full"
     SUMMARY = "summary"
+
+
+def _escape_octave_string(value: str) -> str:
+    """Escape special characters for safe embedding in OCTAVE format strings.
+
+    Order matters: backslash must be escaped first to avoid double-escaping,
+    and quotes last to avoid interfering with other escape sequences.
+
+    Args:
+        value: Raw string to escape
+
+    Returns:
+        Escaped string safe for OCTAVE format embedding
+    """
+    return (
+        value.replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace('"', '\\"')
+    )
 
 
 def _compress_content(
@@ -99,21 +111,8 @@ def format_debate_as_octave(
 
     # META section - escape special characters
     lines.append("META:")
-    # Escape all special characters for OCTAVE format (order matters: \ first, quotes last)
-    thread_id = (
-        room.thread_id.replace("\\", "\\\\")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-        .replace('"', '\\"')
-    )
-    topic = (
-        room.topic.replace("\\", "\\\\")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-        .replace('"', '\\"')
-    )
+    thread_id = _escape_octave_string(room.thread_id)
+    topic = _escape_octave_string(room.topic)
     lines.append(f'  THREAD_ID::"{thread_id}"')
     lines.append(f'  TOPIC::"{topic}"')
     lines.append(f"  MODE::{room.mode.value}")
@@ -134,14 +133,7 @@ def format_debate_as_octave(
         for i, turn in enumerate(room.turns, 1):
             # Compress content based on mode
             content = _compress_content(turn.content, mode=output_mode)
-            # Escape special characters (order matters: \ first, quotes last)
-            content = (
-                content.replace("\\", "\\\\")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t")
-                .replace('"', '\\"')
-            )
+            content = _escape_octave_string(content)
             cognition = turn.cognition or "UNKNOWN"
             # Format turn with proper escaping
             lines.append(f'  T{i}::{turn.role}[{cognition}]::"{content}",')
@@ -152,14 +144,7 @@ def format_debate_as_octave(
 
     # SYNTHESIS section
     if room.synthesis:
-        # Escape special characters (order matters: \ first, quotes last)
-        synthesis = (
-            room.synthesis.replace("\\", "\\\\")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-            .replace('"', '\\"')
-        )
+        synthesis = _escape_octave_string(room.synthesis)
         lines.append(f'SYNTHESIS::"{synthesis}"')
     else:
         lines.append("SYNTHESIS::null")
@@ -178,9 +163,16 @@ def format_debate_as_octave(
         octave_mcp.parse(doc_str)
         # Parse succeeded - our format is valid
         return doc_str
-    except Exception:
-        # If parse fails, something is wrong with our escaping
-        # Return the string anyway but this indicates a bug
+    except Exception as e:
+        # If parse fails, something is wrong with our escaping.
+        # Log the error for debugging but return the string for resilience.
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "OCTAVE format validation failed for thread %s: %s",
+            room.thread_id,
+            str(e),
+        )
         return doc_str
 
 
@@ -213,22 +205,16 @@ def validate_debate_octave(content: str) -> tuple[bool, list[str]]:
             errors.append("Missing META section")
 
         # Check for required sections in assignments
-        section_keys: SectionKeyList = []
+        section_keys: list[str] = []
         for section in doc.sections:
-            # Safely extract key, allowing for different key types
-            raw_key: SectionKeyType = getattr(section, "key", None)
-
-            # Append key if it's a string
+            raw_key = getattr(section, "key", None)
             if isinstance(raw_key, str):
                 section_keys.append(raw_key)
 
-        # Convert required_sections to prevent type issues
         required_sections = ["PARTICIPANTS", "TURNS", "SYNTHESIS"]
         for section_name in required_sections:
-            # Use a local variable and type hint to satisfy mypy
-            section_name_str: str = str(section_name)
-            if section_name_str not in section_keys:
-                errors.append(f"Missing required section: {section_name_str}")
+            if section_name not in section_keys:
+                errors.append(f"Missing required section: {section_name}")
 
         return (len(errors) == 0, errors)
 

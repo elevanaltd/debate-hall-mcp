@@ -23,6 +23,7 @@ use the event file line position as a secondary sort key.
 """
 
 import logging
+import os
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -219,6 +220,8 @@ def append_event(
     events_file = state_dir / f"{thread_id}.events.jsonl"
     with _get_event_file_lock(events_file), open(events_file, "a") as f:
         f.write(event.model_dump_json() + "\n")
+        f.flush()
+        os.fsync(f.fileno())
 
     return event
 
