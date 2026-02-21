@@ -52,7 +52,7 @@ def test_debate_pick_fixed_mode_rejected(tmp_path: Path) -> None:
 
 
 def test_debate_pick_invalid_role(tmp_path: Path) -> None:
-    """Test that invalid role is rejected."""
+    """Test that invalid role is rejected (Issue #174: empty/whitespace/non-ASCII)."""
     debate_init(
         thread_id="2025-01-01-test-thread-003",
         topic="Test topic",
@@ -60,10 +60,11 @@ def test_debate_pick_invalid_role(tmp_path: Path) -> None:
         state_dir=tmp_path,
     )
 
+    # Empty string is invalid
     with pytest.raises(ValueError, match="Invalid role"):
         debate_pick(
             thread_id="2025-01-01-test-thread-003",
-            role="InvalidRole",
+            role="",
             state_dir=tmp_path,
         )
 

@@ -10,6 +10,7 @@ In fixed mode, role sequence is automatic (Wind->Wall->Door).
 
 Issue #37: Now persists expected_next_role for enforcement in debate_turn.
 Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
+Issue #174: Accept arbitrary named roles in mediated mode (not just Wind/Wall/Door).
 """
 
 from pathlib import Path
@@ -23,8 +24,30 @@ from debate_hall_mcp.state import (
     save_debate_state,
 )
 
-# Use tuple for deterministic ordering in error messages (Issue #50)
-VALID_ROLES = ("Wind", "Wall", "Door")
+# Maximum length for role strings (Issue #174)
+MAX_ROLE_LENGTH = 128
+
+
+def _validate_role_string(role: str, field_name: str = "role") -> None:
+    """Validate role string: non-empty, non-whitespace, printable ASCII, max 128 chars.
+
+    Uses the same validation pattern as Turn.validate_identity_string (state.py).
+
+    Args:
+        role: Role string to validate
+        field_name: Name of the field for error messages (default: "role")
+
+    Raises:
+        ValueError: If role fails validation
+    """
+    if not role or role.strip() == "":
+        raise ValueError(f"Invalid {field_name}: must be a non-empty, non-whitespace string")
+    if len(role) > MAX_ROLE_LENGTH:
+        raise ValueError(
+            f"Invalid {field_name}: exceeds maximum length of {MAX_ROLE_LENGTH} characters"
+        )
+    if (not role.isascii()) or (not role.isprintable()):
+        raise ValueError(f"Invalid {field_name}: must be printable ASCII (no control characters)")
 
 
 def debate_pick(
@@ -36,7 +59,7 @@ def debate_pick(
 
     Args:
         thread_id: Thread identifier
-        role: Role to pick (Wind, Wall, Door)
+        role: Role to pick (any valid role string — non-empty, printable ASCII, max 128 chars)
         state_dir: Directory for state files (defaults to ./debates)
 
     Returns:
@@ -54,9 +77,8 @@ def debate_pick(
         debate_turn in mediated mode enforces this - wrong role is rejected.
         Calling pick again overwrites the expected role.
     """
-    # Validate role
-    if role not in VALID_ROLES:
-        raise ValueError(f"Invalid role: {role}. Must be one of {', '.join(VALID_ROLES)}")
+    # Validate role string (Issue #174: flexible roles)
+    _validate_role_string(role)
 
     # Default state directory (Issue #33: env var support)
     if state_dir is None:
