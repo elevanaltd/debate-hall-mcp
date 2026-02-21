@@ -210,6 +210,18 @@ class DebateMode(StrEnum):
     RACI = "raci"  # RACI governance mode: compiled turn manifest
 
 
+class SessionType(StrEnum):
+    """Type of session in a debate room (Issue #175).
+
+    Extends the debate model to support consultation and committee sessions
+    for the headless governance chat API.
+    """
+
+    DEBATE = "debate"
+    CONSULTATION = "consultation"
+    COMMITTEE = "committee"
+
+
 class TurnType(StrEnum):
     """Type of contribution expected for a turn in a RACI manifest."""
 
@@ -320,6 +332,76 @@ class ConsensusMetadata(BaseModel):
     max_refinements_reached: bool = Field(
         default=False, description="True if consensus loop hit max_refinement_loops"
     )
+
+
+class Participant(BaseModel):
+    """A registered participant in a debate session (Issue #175).
+
+    Tracks participant role and join time for consultation and committee sessions.
+
+    Fields:
+    - role: Participant role name (non-empty, printable ASCII, max 128 chars)
+    - joined_at: When the participant joined the session (UTC)
+
+    NOTE (R1): `authority` field (RACI designation) is intentionally deferred.
+    """
+
+    role: str = Field(..., description="Participant role name", max_length=128)
+    joined_at: datetime = Field(..., description="When the participant joined (UTC)")
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        """Validate role is non-empty, printable ASCII, max 128 chars.
+
+        Uses the same validation pattern as Turn.validate_identity_string.
+        """
+        if v.strip() == "":
+            raise ValueError("Participant role must not be empty or whitespace-only")
+        if (not v.isascii()) or (not v.isprintable()):
+            raise ValueError("Participant role must be printable ASCII (no control characters)")
+        return v
+
+
+class CommitteeMetadata(BaseModel):
+    """Metadata for committee-type sessions (Issue #175).
+
+    Tracks committee decision state including member roles, responses,
+    and final decision outcome.
+
+    NOTE: This is distinct from ConsensusMetadata which tracks Wind/Wall
+    consensus loop results for orchestrated debates.
+
+    Fields:
+    - decision_type: Type of committee decision ("go_nogo" | "vote" | "review")
+    - members: Expected member roles (at least 1)
+    - responses: Member responses collected so far (role -> content)
+    - awaiting: Members who haven't responded yet
+    - decision: Final decision when committee closes
+    """
+
+    decision_type: str = Field(..., description="Decision type: go_nogo | vote | review")
+    members: list[str] = Field(..., description="Expected member roles (min 1)")
+    responses: dict[str, str] = Field(default_factory=dict, description="Role -> response content")
+    awaiting: list[str] = Field(..., description="Members who haven't responded")
+    decision: str | None = Field(default=None, description="Final decision when closed")
+
+    @field_validator("decision_type")
+    @classmethod
+    def validate_decision_type(cls, v: str) -> str:
+        """Validate decision_type is one of the allowed values."""
+        valid_types = {"go_nogo", "vote", "review"}
+        if v not in valid_types:
+            raise ValueError(f"Invalid decision_type '{v}': must be one of {sorted(valid_types)}")
+        return v
+
+    @field_validator("members")
+    @classmethod
+    def validate_members_not_empty(cls, v: list[str]) -> list[str]:
+        """Validate members list has at least 1 entry."""
+        if len(v) < 1:
+            raise ValueError("Committee must have at least 1 member")
+        return v
 
 
 class GitHubBinding(BaseModel):
@@ -465,6 +547,18 @@ class DebateRoom(BaseModel):
     topic: str = Field(..., description="Debate topic")
     mode: DebateMode = Field(..., description="Orchestration mode")
     status: DebateStatus = Field(default=DebateStatus.ACTIVE, description="Current debate status")
+    session_type: SessionType = Field(
+        default=SessionType.DEBATE,
+        description="Session type: debate | consultation | committee (Issue #175)",
+    )
+    participants: list[Participant] | None = Field(
+        default=None,
+        description="Registered participant roles for consultation/committee sessions (Issue #175)",
+    )
+    committee_metadata: CommitteeMetadata | None = Field(
+        default=None,
+        description="Committee-specific tracking for committee sessions (Issue #175)",
+    )
     max_turns: int = Field(default=12, description="Maximum turns allowed (I3)")
     max_rounds: int = Field(default=4, description="Maximum rounds allowed (I3)")
     strict_cognition: bool = Field(

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.engine import get_next_speaker
-from debate_hall_mcp.state import DebateStatus, get_state_dir, load_debate_state
+from debate_hall_mcp.state import DebateStatus, SessionType, get_state_dir, load_debate_state
 from debate_hall_mcp.utils.primers import get_literacy_primer
 
 # View-layer only: never stored in DB, never affects hash chain
@@ -96,6 +96,18 @@ def debate_get(
         "next_role": next_role,
         "octave_mode": room.octave_mode,
     }
+
+    # Session type is always included (Issue #175)
+    result["session_type"] = room.session_type.value
+
+    # For non-debate sessions, include participants and committee_metadata
+    if room.session_type != SessionType.DEBATE:
+        if room.participants is not None:
+            result["participants"] = [
+                {"role": p.role, "joined_at": p.joined_at.isoformat()} for p in room.participants
+            ]
+        if room.committee_metadata is not None:
+            result["committee_metadata"] = room.committee_metadata.model_dump()
 
     if room.synthesis is not None:
         result["synthesis"] = room.synthesis
