@@ -8,14 +8,94 @@ TDD: Implements minimal functionality to pass tests.
 
 Issue #37: Enforces expected_next_role in mediated mode.
 Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
+Issue #178: Committee member tracking (awaiting/responses) post-turn hook.
 """
 
+import re
 from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.engine import DebateEngine, get_next_speaker
-from debate_hall_mcp.state import DebateMode, get_state_dir, load_debate_state, save_debate_state
+from debate_hall_mcp.state import (
+    DebateMode,
+    DebateRoom,
+    SessionType,
+    get_state_dir,
+    load_debate_state,
+    save_debate_state,
+)
 from debate_hall_mcp.validation import CognitionValidator
+
+# Pattern to match NO-GO/NOGO at start of content (Issue #178)
+_GO_NOGO_PATTERN = re.compile(
+    r"^(?:NO[-\s]?GO|NOGO)\b",
+    re.IGNORECASE,
+)
+# Pattern to match GO at start of content (Issue #178)
+_GO_PATTERN = re.compile(
+    r"^GO\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_go_nogo(content: str) -> str:
+    """Extract GO/NO-GO signal from turn content (Issue #178).
+
+    Attempts to identify GO or NO-GO from the start of content.
+    NO-GO is checked first (since "GO" is a substring of "NO-GO").
+
+    Args:
+        content: The turn content to parse
+
+    Returns:
+        "GO", "NO-GO", or the full content if extraction fails
+    """
+    stripped = content.strip()
+    if _GO_NOGO_PATTERN.match(stripped):
+        return "NO-GO"
+    if _GO_PATTERN.match(stripped):
+        return "GO"
+    return content
+
+
+def _update_committee_tracking(
+    room: DebateRoom,
+    role: str,
+    content: str,
+) -> None:
+    """Post-turn hook for committee member tracking (Issue #178).
+
+    When a turn is added to a committee session and the role is in
+    committee_metadata.awaiting:
+    - Remove the role from awaiting
+    - Add to responses dict (with GO/NO-GO extraction for go_nogo type)
+
+    This function mutates room state in-place. The caller is responsible
+    for saving the updated state.
+
+    Args:
+        room: The DebateRoom (mutated in-place)
+        role: The role that just spoke
+        content: The turn content
+    """
+    if room.session_type != SessionType.COMMITTEE:
+        return
+    if room.committee_metadata is None:
+        return
+    if role not in room.committee_metadata.awaiting:
+        return
+
+    # Remove from awaiting
+    room.committee_metadata.awaiting.remove(role)
+
+    # Determine response value
+    if room.committee_metadata.decision_type == "go_nogo":
+        response_value = _extract_go_nogo(content)
+    else:
+        response_value = content
+
+    # Record response
+    room.committee_metadata.responses[role] = response_value
 
 
 def debate_turn(
@@ -138,6 +218,10 @@ def debate_turn(
     # This requires a new pick before the next turn in mediated mode
     if room.mode == DebateMode.MEDIATED:
         room.expected_next_role = None
+
+    # Post-turn hook: committee member tracking (Issue #178)
+    # When a committee member adds a turn, update awaiting/responses
+    _update_committee_tracking(room, role, content)
 
     # Save updated state
     save_debate_state(room, state_dir)

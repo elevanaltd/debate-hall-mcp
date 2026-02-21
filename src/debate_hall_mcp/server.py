@@ -32,6 +32,8 @@ from debate_hall_mcp.github import is_github_tools_enabled
 from debate_hall_mcp.prompts import DOOR_PROMPT, WALL_PROMPT, WIND_PROMPT
 from debate_hall_mcp.tools.admin import debate_force_close, debate_tombstone
 from debate_hall_mcp.tools.close import debate_close
+from debate_hall_mcp.tools.consult import consult as consult_impl
+from debate_hall_mcp.tools.convene import convene as convene_impl
 from debate_hall_mcp.tools.decision import extract_decision_record as extract_decision_record_impl
 from debate_hall_mcp.tools.decision import resolve_question as resolve_question_impl
 from debate_hall_mcp.tools.get import debate_get
@@ -64,12 +66,12 @@ SERVER_VERSION = PACKAGE_VERSION
 def create_server() -> FastMCP:
     """Create debate-hall MCP server.
 
-    Tools (15):
+    Tools (17):
         init_debate, add_turn, get_debate, close_debate,
         pick_next_speaker, force_close_debate, tombstone_turn,
         github_sync_debate, ratify_rfc, human_interject, run_debate,
         resume_debate, extract_decision_record, resolve_question,
-        search_decisions
+        search_decisions, consult, convene
     """
     server = FastMCP(
         name=SERVER_NAME,
@@ -475,6 +477,85 @@ def create_server() -> FastMCP:
             query=query,
             limit=limit,
             min_score=min_score,
+        )
+
+    @server.tool()
+    def consult(
+        topic: str,
+        advisor_role: str,
+        question: str,
+        questioner_role: str = "Questioner",
+        thread_id: str | None = None,
+        context: str | None = None,
+        max_turns: int = 6,
+    ) -> dict[str, Any]:
+        """Create advisory consultation session. advisor answers questioner's question.
+
+        Creates a two-party mediated session where a questioner asks an advisor
+        for guidance. The question is recorded as the first turn.
+
+        Args:
+            topic: What the consultation is about
+            advisor_role: Who to consult (e.g. "TMG", "CE")
+            question: The specific question being asked
+            questioner_role: Who is asking (default: "Questioner")
+            thread_id: Custom thread ID (auto-generated if omitted)
+            context: Additional context for the advisor
+            max_turns: Consultation turn limit (default: 6)
+
+        Returns:
+            Dictionary with thread_id, status, session_type, question,
+            advisor_role, questioner_role, awaiting, turn_count
+        """
+        return consult_impl(
+            topic=topic,
+            advisor_role=advisor_role,
+            question=question,
+            questioner_role=questioner_role,
+            thread_id=thread_id,
+            context=context,
+            max_turns=max_turns,
+        )
+
+    @server.tool()
+    def convene(
+        topic: str,
+        members: list[str],
+        brief: str,
+        chair_role: str = "Chair",
+        decision_type: str = "review",
+        thread_id: str | None = None,
+        context: str | None = None,
+        max_turns: int = 12,
+    ) -> dict[str, Any]:
+        """Assemble committee for group decision. members respond, chair manages order.
+
+        Creates a mediated committee session where multiple agents deliberate.
+        Supports go_nogo (GO/NO-GO extraction), vote, and review decision types.
+
+        Args:
+            topic: What the committee is deciding
+            members: Committee member roles (e.g. ["CRS", "CE"])
+            brief: The brief/description for the committee
+            chair_role: Who chairs the committee (default: "Chair")
+            decision_type: "go_nogo" | "vote" | "review" (default: "review")
+            thread_id: Custom thread ID (auto-generated if omitted)
+            context: Additional context for the committee
+            max_turns: Committee turn limit (default: 12)
+
+        Returns:
+            Dictionary with thread_id, status, session_type, decision_type,
+            chair_role, members, awaiting, turn_count
+        """
+        return convene_impl(
+            topic=topic,
+            members=members,
+            brief=brief,
+            chair_role=chair_role,
+            decision_type=decision_type,
+            thread_id=thread_id,
+            context=context,
+            max_turns=max_turns,
         )
 
     return server
