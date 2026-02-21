@@ -27,31 +27,8 @@ from debate_hall_mcp.state import (
     save_debate_state,
 )
 from debate_hall_mcp.tools.init import debate_init
-from debate_hall_mcp.tools.pick import debate_pick
+from debate_hall_mcp.tools.pick import _validate_role_string, debate_pick
 from debate_hall_mcp.tools.turn import debate_turn
-
-# Maximum length for role strings (consistent with tools/pick.py)
-MAX_ROLE_LENGTH = 128
-
-
-def _validate_role_string(role: str, field_name: str) -> None:
-    """Validate a role string: non-empty, non-whitespace, printable ASCII, max 128 chars.
-
-    Args:
-        role: Role string to validate
-        field_name: Name of the field for error messages
-
-    Raises:
-        ValueError: If role fails validation
-    """
-    if not role or role.strip() == "":
-        raise ValueError(f"Invalid {field_name}: must be a non-empty, non-whitespace string")
-    if len(role) > MAX_ROLE_LENGTH:
-        raise ValueError(
-            f"Invalid {field_name}: exceeds maximum length of {MAX_ROLE_LENGTH} characters"
-        )
-    if (not role.isascii()) or (not role.isprintable()):
-        raise ValueError(f"Invalid {field_name}: must be printable ASCII (no control characters)")
 
 
 def _generate_consult_thread_id(topic: str) -> str:
