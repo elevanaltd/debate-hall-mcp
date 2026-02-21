@@ -62,9 +62,11 @@ class TestForceCloseOnGovernanceSessions:
         assert room.status == DebateStatus.FORCE_CLOSED
         assert room.session_type == SessionType.CONSULTATION
 
-        # Verify no more turns can be added
+        # Verify no more turns can be added — each call independently validated
         with pytest.raises((ValueError, RuntimeError)):
             debate_pick(thread_id=thread_id, role="TMG", state_dir=tmp_path)
+
+        with pytest.raises((ValueError, RuntimeError)):
             debate_turn(
                 thread_id=thread_id,
                 role="TMG",
@@ -229,6 +231,17 @@ class TestTombstoneOnGovernanceSessions:
         assert len(room.turns) == 2
         # Turn 0 is redacted but still has hash
         assert room.turns[0].hash is not None
+
+        # Verify actual hash chain linkage (I4: previous_hash == prior turn's hash)
+        for i in range(1, len(room.turns)):
+            prev_turn = room.turns[i - 1]
+            curr_turn = room.turns[i]
+            assert prev_turn.hash is not None, f"Turn {i - 1} hash must not be None"
+            assert curr_turn.previous_hash is not None, f"Turn {i} previous_hash must not be None"
+            assert curr_turn.previous_hash == prev_turn.hash, (
+                f"Turn {i} previous_hash ({curr_turn.previous_hash}) "
+                f"must equal turn {i - 1} hash ({prev_turn.hash})"
+            )
 
 
 # --- Edge Case: I3 Exhaustion on consultation/committee ---

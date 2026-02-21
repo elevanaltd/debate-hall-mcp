@@ -450,3 +450,176 @@ class TestConveneWithContext:
         assert "PR #491 modifies the authentication module." in first_turn.content
         assert "[/CONTEXT]" in first_turn.content
         assert "Review the PR for production readiness" in first_turn.content
+
+
+class TestConveneVoteLifecycle:
+    """Full vote committee lifecycle (decision_type='vote').
+
+    Contract: docs/173-governance-chat-api-contract.md:111 documents
+    decision_type="vote" but integration tests only exercised go_nogo
+    and review. This class fills that gap.
+    """
+
+    def test_vote_committee_full_lifecycle(self, tmp_path: Path) -> None:
+        """Vote committee: create, members vote, close with synthesis.
+
+        Flow:
+        1. convene(vote, members=[CRS, CE, PE]) creates a vote committee
+        2. Each member casts a vote via pick + turn
+        3. Verify committee_metadata reflects vote responses
+        4. close_debate() with synthesis
+        5. Verify final state
+        """
+        result = convene(
+            topic="ADR-042 naming convention vote",
+            members=["CRS", "CE", "PE"],
+            brief="Vote on proposed naming convention for ADR-042",
+            decision_type="vote",
+            state_dir=tmp_path,
+        )
+
+        assert result["status"] == "active"
+        assert result["session_type"] == "committee"
+        assert result["decision_type"] == "vote"
+        assert result["members"] == ["CRS", "CE", "PE"]
+        assert result["awaiting"] == ["CRS", "CE", "PE"]
+        thread_id = result["thread_id"]
+
+        # CRS votes
+        debate_pick(thread_id=thread_id, role="CRS", state_dir=tmp_path)
+        debate_turn(
+            thread_id=thread_id,
+            role="CRS",
+            content="APPROVE -- naming convention is clear and consistent",
+            state_dir=tmp_path,
+        )
+
+        room = load_debate_state(thread_id, tmp_path)
+        assert "CRS" not in room.committee_metadata.awaiting
+        assert "CE" in room.committee_metadata.awaiting
+        assert "PE" in room.committee_metadata.awaiting
+        # Vote type stores full content (not parsed like go_nogo)
+        assert "APPROVE" in room.committee_metadata.responses["CRS"]
+
+        # CE votes
+        debate_pick(thread_id=thread_id, role="CE", state_dir=tmp_path)
+        debate_turn(
+            thread_id=thread_id,
+            role="CE",
+            content="REJECT -- prefer snake_case over camelCase",
+            state_dir=tmp_path,
+        )
+
+        room = load_debate_state(thread_id, tmp_path)
+        assert "CE" not in room.committee_metadata.awaiting
+        assert "REJECT" in room.committee_metadata.responses["CE"]
+
+        # PE votes
+        debate_pick(thread_id=thread_id, role="PE", state_dir=tmp_path)
+        debate_turn(
+            thread_id=thread_id,
+            role="PE",
+            content="APPROVE -- aligns with long-term architecture goals",
+            state_dir=tmp_path,
+        )
+
+        room = load_debate_state(thread_id, tmp_path)
+        assert room.committee_metadata.awaiting == []
+        assert len(room.committee_metadata.responses) == 3
+
+        # Close with synthesis
+        close_result = debate_close(
+            thread_id=thread_id,
+            synthesis="Vote result: 2 APPROVE (CRS, PE), 1 REJECT (CE). "
+            "Motion carries by majority. ADR-042 naming convention adopted.",
+            state_dir=tmp_path,
+            output_format="json",
+        )
+        assert close_result["thread_id"] == thread_id
+
+        # Verify final state
+        room = load_debate_state(thread_id, tmp_path)
+        assert room.status.value == "synthesis"
+        assert room.session_type == SessionType.COMMITTEE
+        assert len(room.turns) == 4  # brief + 3 votes
+        assert room.committee_metadata.decision_type == "vote"
+        assert room.turns[0].role == "Chair"
+        assert room.turns[1].role == "CRS"
+        assert room.turns[2].role == "CE"
+        assert room.turns[3].role == "PE"
+
+    def test_vote_committee_unanimous(self, tmp_path: Path) -> None:
+        """Vote committee with unanimous approval."""
+        result = convene(
+            topic="Unanimous vote test",
+            members=["CRS", "CE"],
+            brief="Vote on simple proposal",
+            decision_type="vote",
+            state_dir=tmp_path,
+        )
+        thread_id = result["thread_id"]
+
+        debate_pick(thread_id=thread_id, role="CRS", state_dir=tmp_path)
+        debate_turn(
+            thread_id=thread_id,
+            role="CRS",
+            content="YES -- fully in favor",
+            state_dir=tmp_path,
+        )
+
+        debate_pick(thread_id=thread_id, role="CE", state_dir=tmp_path)
+        debate_turn(
+            thread_id=thread_id,
+            role="CE",
+            content="YES -- agreed",
+            state_dir=tmp_path,
+        )
+
+        room = load_debate_state(thread_id, tmp_path)
+        assert room.committee_metadata.awaiting == []
+        assert len(room.committee_metadata.responses) == 2
+        assert "YES" in room.committee_metadata.responses["CRS"]
+        assert "YES" in room.committee_metadata.responses["CE"]
+
+        debate_close(
+            thread_id=thread_id,
+            synthesis="Unanimous YES. Proposal adopted.",
+            state_dir=tmp_path,
+            output_format="json",
+        )
+
+        room = load_debate_state(thread_id, tmp_path)
+        assert room.status.value == "synthesis"
+
+    def test_vote_metadata_visible_via_get_debate(self, tmp_path: Path) -> None:
+        """get_debate() returns vote committee metadata correctly."""
+        result = convene(
+            topic="Vote get_debate test",
+            members=["CRS", "CE"],
+            brief="Vote visibility test",
+            decision_type="vote",
+            state_dir=tmp_path,
+        )
+        thread_id = result["thread_id"]
+
+        debate_info = debate_get(thread_id=thread_id, state_dir=tmp_path)
+
+        assert debate_info["session_type"] == "committee"
+        meta = debate_info["committee_metadata"]
+        assert meta["decision_type"] == "vote"
+        assert meta["members"] == ["CRS", "CE"]
+        assert meta["awaiting"] == ["CRS", "CE"]
+
+        # After one member votes
+        debate_pick(thread_id=thread_id, role="CRS", state_dir=tmp_path)
+        debate_turn(
+            thread_id=thread_id,
+            role="CRS",
+            content="ABSTAIN -- need more information",
+            state_dir=tmp_path,
+        )
+
+        debate_info = debate_get(thread_id=thread_id, state_dir=tmp_path)
+        meta = debate_info["committee_metadata"]
+        assert "CRS" not in meta["awaiting"]
+        assert "ABSTAIN" in meta["responses"]["CRS"]
