@@ -63,10 +63,10 @@ class TestForceCloseOnGovernanceSessions:
         assert room.session_type == SessionType.CONSULTATION
 
         # Verify no more turns can be added — each call independently validated
-        with pytest.raises((ValueError, RuntimeError)):
+        with pytest.raises(ValueError, match="Debate is not active"):
             debate_pick(thread_id=thread_id, role="TMG", state_dir=tmp_path)
 
-        with pytest.raises((ValueError, RuntimeError)):
+        with pytest.raises(ValueError, match="debate is not active"):
             debate_turn(
                 thread_id=thread_id,
                 role="TMG",
