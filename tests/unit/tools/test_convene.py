@@ -646,3 +646,42 @@ class TestThreeMemberFlow:
         assert room.committee_metadata.awaiting == []
         assert room.committee_metadata.responses["TMG"] == "GO"
         assert len(room.committee_metadata.responses) == 3
+
+
+class TestConveneSlugEdgeCases:
+    """Thread ID slug generation handles edge-case topics."""
+
+    def test_leading_whitespace_topic(self, tmp_path: Path) -> None:
+        """Topics with leading whitespace produce valid thread IDs."""
+        result = _convene(
+            topic="  hello world",
+            members=["CRS"],
+            brief="Review",
+            state_dir=tmp_path,
+        )
+        tid = result["thread_id"]
+        assert re.match(r"^\d{4}-\d{2}-\d{2}-[a-zA-Z0-9]", tid)
+
+    def test_emoji_only_topic(self, tmp_path: Path) -> None:
+        """Emoji-only topics fall back to 'committee' slug."""
+        result = _convene(
+            topic="\U0001f525\U0001f525",
+            members=["CRS"],
+            brief="Review",
+            state_dir=tmp_path,
+        )
+        tid = result["thread_id"]
+        assert "committee" in tid
+
+    def test_multiple_spaces_topic(self, tmp_path: Path) -> None:
+        """Topics with multiple spaces don't produce consecutive hyphens."""
+        result = _convene(
+            topic="hello   world",
+            members=["CRS"],
+            brief="Review",
+            state_dir=tmp_path,
+        )
+        tid = result["thread_id"]
+        # No double hyphens before the ULID suffix
+        parts = tid.rsplit("-", 1)  # Split off ULID
+        assert "--" not in parts[0]

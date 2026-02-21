@@ -535,3 +535,40 @@ class TestConsultValidation:
                 questioner_role="B" * 129,
                 state_dir=tmp_path,
             )
+
+
+class TestConsultSlugEdgeCases:
+    """Thread ID slug generation handles edge-case topics."""
+
+    def test_leading_whitespace_topic(self, tmp_path: Path) -> None:
+        """Topics with leading whitespace produce valid thread IDs."""
+        result = consult(
+            topic="  hello world",
+            advisor_role="TMG",
+            question="Question?",
+            state_dir=tmp_path,
+        )
+        tid = result["thread_id"]
+        assert re.match(r"^\d{4}-\d{2}-\d{2}-[a-zA-Z0-9]", tid)
+
+    def test_emoji_only_topic(self, tmp_path: Path) -> None:
+        """Emoji-only topics fall back to 'consult' slug."""
+        result = consult(
+            topic="\U0001f525\U0001f525",
+            advisor_role="TMG",
+            question="Question?",
+            state_dir=tmp_path,
+        )
+        tid = result["thread_id"]
+        assert re.match(r"^\d{4}-\d{2}-\d{2}-consult-consult-", tid)
+
+    def test_multiple_spaces_topic(self, tmp_path: Path) -> None:
+        """Topics with multiple spaces don't produce consecutive hyphens."""
+        result = consult(
+            topic="hello   world",
+            advisor_role="TMG",
+            question="Question?",
+            state_dir=tmp_path,
+        )
+        tid = result["thread_id"]
+        assert "--" not in tid.split("-consult-")[0]  # No double hyphens in subject

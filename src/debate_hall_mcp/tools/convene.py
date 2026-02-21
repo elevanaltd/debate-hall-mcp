@@ -13,6 +13,7 @@ Immutables Compliance:
 Contract: docs/173-governance-chat-api-contract.md — Tool 2: convene
 """
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -49,8 +50,13 @@ def _generate_thread_id(topic: str) -> str:
         Thread ID string in date-first format
     """
     today = datetime.now(UTC).strftime("%Y-%m-%d")
-    subject = topic.lower().replace(" ", "-")
-    safe_subject = "".join(c for c in subject if c.isalnum() or c == "-")[:30]
+    subject = topic.lower().strip().replace(" ", "-")
+    safe_subject = "".join(c for c in subject if c.isalnum() or c == "-")
+    # Strip leading/trailing hyphens, collapse multiple hyphens, limit length
+    safe_subject = re.sub(r"-+", "-", safe_subject).strip("-")[:30]
+    # Fallback if topic produces no valid slug chars (e.g. emoji-only)
+    if not safe_subject:
+        safe_subject = "committee"
     ulid_suffix = str(ULID())[:8].lower()
     return f"{today}-{safe_subject}-{ulid_suffix}"
 

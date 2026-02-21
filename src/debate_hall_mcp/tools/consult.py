@@ -12,6 +12,7 @@ Immutables Compliance:
 - I4 (VERIFIABLE_EVENT_LEDGER): Hash chain maintained via debate_turn
 """
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -69,9 +70,14 @@ def _generate_consult_thread_id(topic: str) -> str:
     """
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     # Create a safe subject from the topic (lowercase, replace spaces with hyphens)
-    subject = topic.lower().replace(" ", "-")
-    # Keep only alphanumeric and hyphens, limit length
-    safe_subject = "".join(c for c in subject if c.isalnum() or c == "-")[:30]
+    subject = topic.lower().strip().replace(" ", "-")
+    # Keep only alphanumeric and hyphens
+    safe_subject = "".join(c for c in subject if c.isalnum() or c == "-")
+    # Strip leading/trailing hyphens, collapse multiple hyphens, limit length
+    safe_subject = re.sub(r"-+", "-", safe_subject).strip("-")[:30]
+    # Fallback if topic produces no valid slug chars (e.g. emoji-only)
+    if not safe_subject:
+        safe_subject = "consult"
     # Add consult marker and ULID suffix for uniqueness
     ulid_suffix = str(ULID())[:8].lower()
     return f"{today}-{safe_subject}-consult-{ulid_suffix}"
