@@ -186,8 +186,11 @@ class TestConveneReviewLifecycle:
 
         room = load_debate_state(thread_id, tmp_path)
         assert room.committee_metadata.awaiting == ["CE", "PE"]
-        # For review type, full content stored
-        assert "error boundaries" in room.committee_metadata.responses["CRS"]
+        # For review type, full content stored — I4 exact preservation
+        assert (
+            room.committee_metadata.responses["CRS"]
+            == "Code structure looks clean. Suggest adding error boundaries."
+        )
 
         # CE reviews
         debate_pick(thread_id=thread_id, role="CE", state_dir=tmp_path)
@@ -498,8 +501,11 @@ class TestConveneVoteLifecycle:
         assert "CRS" not in room.committee_metadata.awaiting
         assert "CE" in room.committee_metadata.awaiting
         assert "PE" in room.committee_metadata.awaiting
-        # Vote type stores full content (not parsed like go_nogo)
-        assert "APPROVE" in room.committee_metadata.responses["CRS"]
+        # Vote type stores full content (not parsed like go_nogo) — I4 exact preservation
+        assert (
+            room.committee_metadata.responses["CRS"]
+            == "APPROVE -- naming convention is clear and consistent"
+        )
 
         # CE votes
         debate_pick(thread_id=thread_id, role="CE", state_dir=tmp_path)
@@ -512,7 +518,9 @@ class TestConveneVoteLifecycle:
 
         room = load_debate_state(thread_id, tmp_path)
         assert "CE" not in room.committee_metadata.awaiting
-        assert "REJECT" in room.committee_metadata.responses["CE"]
+        assert (
+            room.committee_metadata.responses["CE"] == "REJECT -- prefer snake_case over camelCase"
+        )
 
         # PE votes
         debate_pick(thread_id=thread_id, role="PE", state_dir=tmp_path)
@@ -578,8 +586,8 @@ class TestConveneVoteLifecycle:
         room = load_debate_state(thread_id, tmp_path)
         assert room.committee_metadata.awaiting == []
         assert len(room.committee_metadata.responses) == 2
-        assert "YES" in room.committee_metadata.responses["CRS"]
-        assert "YES" in room.committee_metadata.responses["CE"]
+        assert room.committee_metadata.responses["CRS"] == "YES -- fully in favor"
+        assert room.committee_metadata.responses["CE"] == "YES -- agreed"
 
         debate_close(
             thread_id=thread_id,
@@ -622,4 +630,4 @@ class TestConveneVoteLifecycle:
         debate_info = debate_get(thread_id=thread_id, state_dir=tmp_path)
         meta = debate_info["committee_metadata"]
         assert "CRS" not in meta["awaiting"]
-        assert "ABSTAIN" in meta["responses"]["CRS"]
+        assert meta["responses"]["CRS"] == "ABSTAIN -- need more information"
