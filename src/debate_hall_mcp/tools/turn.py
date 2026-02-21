@@ -84,12 +84,23 @@ def debate_turn(
             f"Expected role '{room.expected_next_role}' but got '{role}' in mediated mode"
         )
 
+    # Cognition validation conditional on Wind/Wall/Door roles (Issue #174)
+    # Non-triad roles skip cognition validation entirely — accept cognition as-is
+    _TRIAD_ROLES = {"Wind", "Wall", "Door"}
+    is_triad_role = role in _TRIAD_ROLES
+
     # Validate cognition before state modification (behavioral firewall)
     # Read strict_cognition from room configuration (prevents client bypass)
     validator = CognitionValidator()
-    validation_result = validator.validate(
-        role=role, content=content, cognition=cognition, strict=room.strict_cognition
-    )
+    if is_triad_role:
+        validation_result = validator.validate(
+            role=role, content=content, cognition=cognition, strict=room.strict_cognition
+        )
+    else:
+        # Non-triad roles: only enforce content length (DoS protection)
+        validation_result = validator.validate(
+            role=role, content=content, cognition=None, strict=False
+        )
 
     # Handle validation result
     if validation_result.level == "BLOCK":
@@ -107,13 +118,17 @@ def debate_turn(
             raise ValueError(error_msg)
 
     # Add turn via engine (validates active state and limits)
+    # For non-triad roles, strip cognition to None since Turn model only accepts
+    # PATHOS/ETHOS/LOGOS (Issue #174: non-triad roles skip cognition entirely)
+    effective_cognition = cognition if is_triad_role else None
+
     engine = DebateEngine(room)
     engine.add_turn(
         role=role,
         content=content,
         agent_role=agent_role,
         model=model,
-        cognition=cognition,
+        cognition=effective_cognition,
         token_input=token_input,
         token_output=token_output,
         token_total=token_total,
