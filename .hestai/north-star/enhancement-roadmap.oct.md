@@ -14,7 +14,7 @@ PURPOSE::"Prioritized enhancement plan for debate-hall-mcp synthesizing technica
 
 SOURCES::[
   TECH_REVIEW::"Technical architect review (fa44786) - 4 recommendations",
-  PROJECT_IDEAS::".hestai/context/project-ideas.oct.md - 4 validated features",
+  PROJECT_IDEAS::".hestai/state/context/project-ideas.oct.md - 4 validated features",
   GITHUB_ISSUES::"15 open issues across architecture, features, observability"
 ]
 

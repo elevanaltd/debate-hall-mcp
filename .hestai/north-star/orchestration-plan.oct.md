@@ -30,7 +30,7 @@ B0::WORKSPACE_SETUP[
     T2::pyproject.toml[mcp_sdk+pytest+ruff+black+mypy],
     T3::directory_structure[src/debate_hall_mcp/+tests/],
     T4::CI_config[.github/workflows/ci.yml],
-    T5::.hestai/context/PROJECT-CONTEXT.oct.md
+    T5::.hestai/state/context/PROJECT-CONTEXT.oct.md
   ],
   GATE::workspace_ready[can_run_pytest+can_run_ruff]
 ]

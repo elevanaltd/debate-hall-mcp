@@ -12,7 +12,7 @@ META:
 
 QUESTION::"Does the North Star (000-DEBATE-HALL-MCP-NORTH-STAR.oct.md) need updating for governance chat (consult/convene tools)?"
 
-NORTH_STAR_REF::.hestai/workflow/000-DEBATE-HALL-MCP-NORTH-STAR.oct.md
+NORTH_STAR_REF::.hestai/north-star/000-DEBATE-HALL-MCP-NORTH-STAR.oct.md
 
 §2::IDENTITY_CHECK
 
