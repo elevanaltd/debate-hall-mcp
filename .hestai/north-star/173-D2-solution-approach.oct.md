@@ -7,7 +7,7 @@ META:
   TITLE::"Governance Chat Headless API Surface — Solution Approach"
   DATE::"2026-02-21"
   AUTHOR::HO[session::831d8cfe]
-  D1_REF::.hestai/workflow/173-D1-north-star-assessment.oct.md
+  D1_REF::.hestai/north-star/173-D1-north-star-assessment.oct.md
 
 §1::PROBLEM_STATEMENT
 
