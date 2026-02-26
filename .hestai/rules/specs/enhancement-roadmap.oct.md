@@ -127,7 +127,7 @@ ITEMS::[
     source::"project-ideas.oct.md",
     priority::"HIGHEST",
     issue::138,
-    rationale::"98% token savings, 1 week effort, export to .hestai/context/decisions/",
+    rationale::\"98% token savings, 1 week effort, export to .hestai/state/context/\",
     effort::"1 week",
     token_savings::"98%",
     status::"COMPLETED",

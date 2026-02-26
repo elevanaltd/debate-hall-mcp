@@ -22,11 +22,10 @@ Delivered by the HestAI MCP server at session startup. Contains:
 ## Tier 2: Project Governance (`.hestai/`)
 
 Committed to the repository. Changes require a PR. Contains:
-
-- `north-star/` - Product North Star and phase artifacts (roadmap, orchestration plans)
+- `north-star/` - Canonical North Star documents only (`000-*-NORTH-STAR*`)
+- `rules/` - Project standards, methodology, workflow guidance, implementation specs
 - `issues/` - Project issue tracking documents
 - `octave-validation-tests/` - OCTAVE format test fixtures
-- `prompts/` - Orchestration and enforcement prompt templates
 - `README.md` - This file
 
 ## Tier 3: Working State (`.hestai/state/`)
