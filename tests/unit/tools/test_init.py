@@ -175,3 +175,54 @@ def test_debate_init_octave_preamble_explicit_true(tmp_path: Path) -> None:
     )
 
     assert result["octave_preamble"] is True
+
+
+class TestInitDebateTopicValidation:
+    """Tests for topic validation in debate_init (consistent with run_debate)."""
+
+    def test_raises_error_for_empty_topic(self, tmp_path: Path) -> None:
+        """debate_init should raise ValueError for empty topic."""
+        with pytest.raises(ValueError, match="Topic cannot be empty"):
+            debate_init(
+                thread_id="2025-01-01-empty-topic",
+                topic="",
+                state_dir=tmp_path,
+            )
+
+    def test_raises_error_for_whitespace_only_topic(self, tmp_path: Path) -> None:
+        """debate_init should raise ValueError for whitespace-only topic."""
+        with pytest.raises(ValueError, match="Topic cannot be empty"):
+            debate_init(
+                thread_id="2025-01-01-whitespace-topic",
+                topic="   ",
+                state_dir=tmp_path,
+            )
+
+    def test_raises_error_for_topic_exceeding_max_length(self, tmp_path: Path) -> None:
+        """debate_init should raise ValueError for topic exceeding 5000 chars."""
+        long_topic = "x" * 5001
+        with pytest.raises(ValueError, match="Topic exceeds maximum length"):
+            debate_init(
+                thread_id="2025-01-01-long-topic",
+                topic=long_topic,
+                state_dir=tmp_path,
+            )
+
+    def test_accepts_topic_at_max_length(self, tmp_path: Path) -> None:
+        """debate_init should accept a topic exactly at 5000 chars."""
+        topic_5000_chars = "x" * 5000
+        result = debate_init(
+            thread_id="2025-01-01-max-topic",
+            topic=topic_5000_chars,
+            state_dir=tmp_path,
+        )
+        assert result["thread_id"] == "2025-01-01-max-topic"
+
+    def test_accepts_valid_short_topic(self, tmp_path: Path) -> None:
+        """debate_init should accept a normal-length topic."""
+        result = debate_init(
+            thread_id="2025-01-01-normal-topic",
+            topic="A perfectly valid debate topic",
+            state_dir=tmp_path,
+        )
+        assert result["topic"] == "A perfectly valid debate topic"
