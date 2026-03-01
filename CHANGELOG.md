@@ -7,6 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+- Increased `MAX_TOPIC_LENGTH` from 1000 to 5000 characters for `run_debate` topics
+- Extracted topic validation into shared `topic_validation.py` module (DRY)
+
+### Added
+- Topic length validation for `init_debate` (previously unbounded — topics >5000 chars are now rejected)
+
 ## [0.5.0] - 2026-02-10
 
 ### Added
