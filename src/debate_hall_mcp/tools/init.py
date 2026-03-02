@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from debate_hall_mcp.state import DebateMode, DebateRoom, get_state_dir, save_debate_state
+from debate_hall_mcp.tools.topic_validation import validate_topic
 
 # Pattern for date-first thread_id: YYYY-MM-DD-subject
 # Subject must start with alphanumeric, followed by alphanumeric, hyphens, underscores, or single dots
@@ -119,6 +120,9 @@ def debate_init(
     """
     # Validate thread_id format (Issue #30: date-first convention)
     validate_thread_id(thread_id)
+
+    # Validate topic (M4: consistent with run_debate validation)
+    validate_topic(topic)
 
     # Validate mode
     if mode not in ("fixed", "mediated", "speed", "raci"):

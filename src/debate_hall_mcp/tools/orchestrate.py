@@ -39,15 +39,16 @@ from debate_hall_mcp.state import (
     get_state_dir,
     load_debate_state,
 )
+from debate_hall_mcp.tools.topic_validation import validate_topic
 
 logger = logging.getLogger(__name__)
-
-# M4: Maximum topic length (reasonable limit for debate topics)
-MAX_TOPIC_LENGTH = 1000
 
 
 def _validate_topic(topic: str) -> None:
     """Validate topic input (M4: CE Review mitigation).
+
+    Delegates to shared validate_topic for consistent validation
+    across init_debate and run_debate.
 
     Args:
         topic: The debate topic to validate
@@ -55,10 +56,7 @@ def _validate_topic(topic: str) -> None:
     Raises:
         ValueError: If topic is empty, whitespace-only, or too long
     """
-    if not topic or not topic.strip():
-        raise ValueError("Topic cannot be empty")
-    if len(topic) > MAX_TOPIC_LENGTH:
-        raise ValueError(f"Topic exceeds maximum length of {MAX_TOPIC_LENGTH} characters")
+    validate_topic(topic)
 
 
 # Default max characters per context file (to prevent prompt explosion)
@@ -290,7 +288,7 @@ async def run_debate(
     7. Returns the result
 
     Args:
-        topic: The debate topic to explore (1-1000 chars, non-empty)
+        topic: The debate topic to explore (1-5000 chars, non-empty)
         tier: Tier configuration name (default: "standard")
         thread_id: Optional thread ID (auto-generated if not provided)
         state_dir: Directory for state files (defaults to ./debates)
