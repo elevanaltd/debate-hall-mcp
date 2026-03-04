@@ -11,7 +11,7 @@ META:
 
 PRODUCT::debate-hall-mcp
 GOAL::"Production-grade MCP server for Wind/Wall/Door debate orchestration"
-NORTH_STAR_REF::000-DEBATE-HALL-MCP-NORTH-STAR.oct.md
+NORTH_STAR_REF::000-DEBATE-HALL-MCP-NORTH-STAR.md
 
 METHODOLOGY::[
   TDD::RED→GREEN→REFACTOR[git_evidence],
