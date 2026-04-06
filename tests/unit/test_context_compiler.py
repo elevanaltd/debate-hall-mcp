@@ -1,4 +1,4 @@
-"""Tests for Context Compiler - exporting decisions to .hestai/context/decisions/.
+"""Tests for Context Compiler - exporting decisions to .hestai/state/context/decisions/.
 
 Issue #138: Layer 3 Query Enhancements - Decision Indexing
 
@@ -434,8 +434,10 @@ class TestIntegrationWithDebateClose:
 
             assert "export_path" in result
             export_path = Path(result["export_path"])
-            # Should be in .hestai/context/decisions relative to project root
+            # Should be in .hestai/state/context/decisions relative to project root
+            # (Tier 3 three-tier architecture alignment)
             assert ".hestai" in str(export_path)
+            assert "state" in str(export_path)
             assert "decisions" in str(export_path)
         finally:
             os.chdir(old_cwd)
@@ -498,3 +500,49 @@ class TestDecisionIndex:
         assert decisions == []
         # Should have created the directory
         assert (context_dir / "decisions").exists()
+
+
+class TestGetContextDir:
+    """Test get_context_dir() path resolution for three-tier architecture."""
+
+    def test_get_context_dir_returns_tier3_state_path(self, tmp_path: Path) -> None:
+        """get_context_dir returns .hestai/state/context (Tier 3) by default."""
+        import os
+
+        from debate_hall_mcp.context_compiler import get_context_dir
+
+        # Set up a mock project root with .git marker
+        (tmp_path / ".git").mkdir()
+
+        old_cwd = os.getcwd()
+        # Clear env var if set
+        old_env = os.environ.pop("DEBATE_HALL_CONTEXT_DIR", None)
+        try:
+            os.chdir(tmp_path)
+            result = get_context_dir()
+
+            # Should resolve to .hestai/state/context (Tier 3)
+            assert result == tmp_path / ".hestai" / "state" / "context"
+        finally:
+            os.chdir(old_cwd)
+            if old_env is not None:
+                os.environ["DEBATE_HALL_CONTEXT_DIR"] = old_env
+
+    def test_get_context_dir_respects_env_var_override(self, tmp_path: Path) -> None:
+        """get_context_dir respects DEBATE_HALL_CONTEXT_DIR env var override."""
+        import os
+
+        from debate_hall_mcp.context_compiler import get_context_dir
+
+        custom_dir = tmp_path / "custom" / "context"
+        old_env = os.environ.get("DEBATE_HALL_CONTEXT_DIR")
+        try:
+            os.environ["DEBATE_HALL_CONTEXT_DIR"] = str(custom_dir)
+            result = get_context_dir()
+
+            assert result == custom_dir
+        finally:
+            if old_env is not None:
+                os.environ["DEBATE_HALL_CONTEXT_DIR"] = old_env
+            else:
+                os.environ.pop("DEBATE_HALL_CONTEXT_DIR", None)

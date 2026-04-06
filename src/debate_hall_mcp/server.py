@@ -168,7 +168,7 @@ def create_server() -> FastMCP:
             seal: Add cryptographic seal to OCTAVE output for tamper detection (v1.0.0)
             export_decision: Export DecisionRecord to context directory for
                 search indexing (Issue #138). Creates an OCTAVE file in
-                .hestai/context/decisions/ that search_decisions can find.
+                .hestai/state/context/decisions/ that search_decisions can find.
         """
         return debate_close(
             thread_id=thread_id,

@@ -1,4 +1,4 @@
-"""Context Compiler - Export decisions to .hestai/context/decisions/.
+"""Context Compiler - Export decisions to .hestai/state/context/decisions/.
 
 Issue #138: Layer 3 Query Enhancements - Decision Indexing
 
@@ -6,7 +6,7 @@ This module implements the "Context Compiler" feature that exports debate
 decisions as compiled OCTAVE files. These files can be read by future agents
 as part of their binding context, achieving 98% token savings vs re-debating.
 
-Exports to: .hestai/context/decisions/{YYYY-MM-DD}-{topic-slug}-{short_id}.oct.md
+Exports to: .hestai/state/context/decisions/{YYYY-MM-DD}-{topic-slug}-{short_id}.oct.md
 
 Note: The short_id suffix (extracted from thread_id) prevents filename
 collisions when multiple debates on the same topic occur on the same day.
@@ -271,8 +271,8 @@ def get_context_dir() -> Path:
 
     Resolution order:
     1. Environment variable DEBATE_HALL_CONTEXT_DIR
-    2. Project root / ".hestai" / "context" (auto-detected)
-    3. Current working directory / ".hestai" / "context" (fallback)
+    2. Project root / ".hestai" / "state" / "context" (auto-detected, Tier 3)
+    3. Current working directory / ".hestai" / "state" / "context" (fallback)
 
     Returns:
         Path to context directory
@@ -287,11 +287,15 @@ def get_context_dir() -> Path:
         return Path(env_value)
 
     # Priority 2: Project-relative detection
+    # Uses Tier 3 path (.hestai/state/context) per three-tier architecture:
+    # - Tier 1: .hestai-sys/ (MCP-managed, gitignored)
+    # - Tier 2: .hestai/ (project governance, committed)
+    # - Tier 3: .hestai/state/ (working state, gitignored)
     try:
         project_root = find_project_root()
-        return project_root / ".hestai" / "context"
+        return project_root / ".hestai" / "state" / "context"
     except Exception:
         pass
 
     # Priority 3: Current working directory fallback
-    return Path.cwd() / ".hestai" / "context"
+    return Path.cwd() / ".hestai" / "state" / "context"
