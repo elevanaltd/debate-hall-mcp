@@ -11,6 +11,8 @@ TDD Discipline: RED->GREEN->REFACTOR
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from debate_hall_mcp.decision import DecisionRecord
 
 
@@ -502,6 +504,91 @@ class TestDecisionIndex:
         assert (context_dir / "decisions").exists()
 
 
+class TestExtractShortIdValidation:
+    """Defense-in-depth validation for _extract_short_id (PR#191 CE finding).
+
+    Although thread_id is validated upstream at debate creation, a DecisionRecord
+    reaching _extract_short_id from another caller (e.g. import, external tool)
+    could carry path separators or traversal tokens. This validator must reject
+    such inputs at the boundary so the resulting filename suffix cannot break
+    out of the decisions/ directory.
+    """
+
+    def test_extract_short_id_rejects_forward_slash(self) -> None:
+        """Thread_id containing '/' must be rejected (path separator)."""
+        import pytest
+
+        from debate_hall_mcp.context_compiler import _extract_short_id
+
+        with pytest.raises(ValueError, match="invalid"):
+            _extract_short_id("2026-01-30-evil/segment")
+
+    def test_extract_short_id_rejects_backslash(self) -> None:
+        """Thread_id containing '\\' must be rejected (Windows path separator)."""
+        import pytest
+
+        from debate_hall_mcp.context_compiler import _extract_short_id
+
+        with pytest.raises(ValueError, match="invalid"):
+            _extract_short_id("2026-01-30-evil\\segment")
+
+    def test_extract_short_id_rejects_parent_traversal(self) -> None:
+        """Thread_id containing '..' must be rejected (path traversal)."""
+        import pytest
+
+        from debate_hall_mcp.context_compiler import _extract_short_id
+
+        with pytest.raises(ValueError, match="invalid"):
+            _extract_short_id("2026-01-30-..-escape")
+
+    def test_extract_short_id_rejects_null_byte(self) -> None:
+        """Thread_id containing NUL byte must be rejected (control char)."""
+        import pytest
+
+        from debate_hall_mcp.context_compiler import _extract_short_id
+
+        with pytest.raises(ValueError, match="invalid"):
+            _extract_short_id("2026-01-30-null\x00byte")
+
+    def test_extract_short_id_rejects_newline(self) -> None:
+        """Thread_id containing newline must be rejected (control char)."""
+        import pytest
+
+        from debate_hall_mcp.context_compiler import _extract_short_id
+
+        with pytest.raises(ValueError, match="invalid"):
+            _extract_short_id("2026-01-30-line\nbreak")
+
+    def test_extract_short_id_rejects_empty(self) -> None:
+        """Empty thread_id must be rejected."""
+        import pytest
+
+        from debate_hall_mcp.context_compiler import _extract_short_id
+
+        with pytest.raises(ValueError, match="invalid"):
+            _extract_short_id("")
+
+    def test_extract_short_id_accepts_valid_hyphenated(self) -> None:
+        """Valid hyphenated thread_id returns last segment."""
+        from debate_hall_mcp.context_compiler import _extract_short_id
+
+        assert _extract_short_id("2026-01-30-api-design-morning") == "morning"
+
+    def test_extract_short_id_accepts_valid_alphanumeric(self) -> None:
+        """Valid alphanumeric thread_id returns first 8 chars."""
+        from debate_hall_mcp.context_compiler import _extract_short_id
+
+        assert _extract_short_id("abc123def456") == "abc123de"
+
+    def test_extract_short_id_accepts_underscores(self) -> None:
+        """Underscores are permitted in thread_ids (valid filename char)."""
+        from debate_hall_mcp.context_compiler import _extract_short_id
+
+        # Underscore must not be rejected; treated as no-hyphen path
+        result = _extract_short_id("abc_def_ghi")
+        assert result == "abc_def_"
+
+
 class TestGetContextDir:
     """Test get_context_dir() path resolution for three-tier architecture."""
 
@@ -527,6 +614,38 @@ class TestGetContextDir:
             os.chdir(old_cwd)
             if old_env is not None:
                 os.environ["DEBATE_HALL_CONTEXT_DIR"] = old_env
+
+    def test_get_context_dir_falls_back_to_cwd_when_project_root_not_found(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When find_project_root() raises, fall back to Path.cwd()/.hestai/state/context.
+
+        TMG finding (PR#191): the fallback branch in get_context_dir was untested.
+        """
+        import os
+
+        from debate_hall_mcp import context_compiler
+
+        # Force find_project_root to raise (simulate no .git/no markers found)
+        def _raise(*_args: object, **_kwargs: object) -> "Path":
+            raise FileNotFoundError("project root not found")
+
+        monkeypatch.setattr(context_compiler, "find_project_root", _raise, raising=False)
+        # Also patch the import location since get_context_dir imports it locally
+        from debate_hall_mcp import state as state_module
+
+        monkeypatch.setattr(state_module, "find_project_root", _raise)
+
+        # Clear env var so we exercise the fallback rather than env override
+        monkeypatch.delenv("DEBATE_HALL_CONTEXT_DIR", raising=False)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = context_compiler.get_context_dir()
+            assert result == tmp_path / ".hestai" / "state" / "context"
+        finally:
+            os.chdir(old_cwd)
 
     def test_get_context_dir_respects_env_var_override(self, tmp_path: Path) -> None:
         """get_context_dir respects DEBATE_HALL_CONTEXT_DIR env var override."""
