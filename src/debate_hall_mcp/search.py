@@ -300,7 +300,7 @@ class DecisionSearchEngine:
         """Initialize search engine with context directory.
 
         Args:
-            context_dir: Path to .hestai/context directory
+            context_dir: Path to .hestai/state/context directory
         """
         self.context_dir = context_dir
         self._index_built = False
@@ -522,7 +522,7 @@ def find_precedent(
 
     Args:
         query: Natural language question about past decisions
-        context_dir: Path to .hestai/context directory
+        context_dir: Path to .hestai/state/context directory
         threshold: Minimum score threshold (default 0.85)
 
     Returns:

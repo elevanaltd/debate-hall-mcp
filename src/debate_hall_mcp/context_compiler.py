@@ -1,4 +1,4 @@
-"""Context Compiler - Export decisions to .hestai/context/decisions/.
+"""Context Compiler - Export decisions to .hestai/state/context/decisions/.
 
 Issue #138: Layer 3 Query Enhancements - Decision Indexing
 
@@ -6,7 +6,7 @@ This module implements the "Context Compiler" feature that exports debate
 decisions as compiled OCTAVE files. These files can be read by future agents
 as part of their binding context, achieving 98% token savings vs re-debating.
 
-Exports to: .hestai/context/decisions/{YYYY-MM-DD}-{topic-slug}-{short_id}.oct.md
+Exports to: .hestai/state/context/decisions/{YYYY-MM-DD}-{topic-slug}-{short_id}.oct.md
 
 Note: The short_id suffix (extracted from thread_id) prevents filename
 collisions when multiple debates on the same topic occur on the same day.
@@ -185,11 +185,22 @@ def _extract_short_id(thread_id: str) -> str:
     Takes the last hyphen-separated segment of the thread_id, or
     the first 8 characters if no hyphen is found.
 
+    Defense-in-depth: although thread_id is validated upstream at debate
+    creation, this helper revalidates because a DecisionRecord could reach
+    it from another caller (import, external tool). Inputs containing path
+    separators ('/', '\\'), parent traversal ('..'), or control characters
+    are rejected with ValueError to ensure the resulting filename suffix
+    cannot escape the decisions/ directory.
+
     Args:
         thread_id: Full thread identifier
 
     Returns:
         Short identifier suitable for filename suffix
+
+    Raises:
+        ValueError: If thread_id is empty, or contains '/', '\\', '..',
+            or any control character (\\x00–\\x1f, \\x7f).
 
     Examples:
         >>> _extract_short_id("2026-01-30-api-design-morning")
@@ -197,6 +208,15 @@ def _extract_short_id(thread_id: str) -> str:
         >>> _extract_short_id("abc123def456")
         'abc123de'
     """
+    if not thread_id:
+        raise ValueError("invalid thread_id: must be non-empty")
+    if "/" in thread_id or "\\" in thread_id:
+        raise ValueError("invalid thread_id: path separators ('/', '\\\\') are not allowed")
+    if ".." in thread_id:
+        raise ValueError("invalid thread_id: parent traversal ('..') is not allowed")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in thread_id):
+        raise ValueError("invalid thread_id: control characters are not allowed")
+
     if "-" in thread_id:
         return thread_id.split("-")[-1]
     return thread_id[:8]
@@ -217,7 +237,7 @@ def export_decision_to_context(
 
     Args:
         record: DecisionRecord to export
-        context_dir: Base context directory (.hestai/context)
+        context_dir: Base context directory (.hestai/state/context)
 
     Returns:
         Absolute path to the created file
@@ -246,7 +266,7 @@ def list_decisions(context_dir: Path) -> list[Path]:
     """List all exported decision files in the context directory.
 
     Args:
-        context_dir: Base context directory (.hestai/context)
+        context_dir: Base context directory (.hestai/state/context)
 
     Returns:
         List of paths to decision files, sorted by name (most recent first)
@@ -271,8 +291,8 @@ def get_context_dir() -> Path:
 
     Resolution order:
     1. Environment variable DEBATE_HALL_CONTEXT_DIR
-    2. Project root / ".hestai" / "context" (auto-detected)
-    3. Current working directory / ".hestai" / "context" (fallback)
+    2. Project root / ".hestai" / "state" / "context" (auto-detected, Tier 3)
+    3. Current working directory / ".hestai" / "state" / "context" (fallback)
 
     Returns:
         Path to context directory
@@ -287,11 +307,15 @@ def get_context_dir() -> Path:
         return Path(env_value)
 
     # Priority 2: Project-relative detection
+    # Uses Tier 3 path (.hestai/state/context) per three-tier architecture:
+    # - Tier 1: .hestai-sys/ (MCP-managed, gitignored)
+    # - Tier 2: .hestai/ (project governance, committed)
+    # - Tier 3: .hestai/state/ (working state, gitignored)
     try:
         project_root = find_project_root()
-        return project_root / ".hestai" / "context"
+        return project_root / ".hestai" / "state" / "context"
     except Exception:
         pass
 
     # Priority 3: Current working directory fallback
-    return Path.cwd() / ".hestai" / "context"
+    return Path.cwd() / ".hestai" / "state" / "context"

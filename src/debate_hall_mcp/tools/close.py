@@ -19,7 +19,7 @@ Issue #33: State directory configurable via DEBATE_HALL_STATE_DIR env var.
 
 Issue #138: Context Compiler integration
 - export_decision parameter: Export DecisionRecord to context directory
-- Exports to .hestai/context/decisions/{date}-{topic-slug}.oct.md
+- Exports to .hestai/state/context/decisions/{date}-{topic-slug}.oct.md
 """
 
 from pathlib import Path
@@ -67,9 +67,9 @@ def debate_close(
             The seal enables tamper detection - any modification to the transcript
             will invalidate the seal. Only applies to 'octave' and 'both' formats.
         export_decision: If True, export DecisionRecord to context directory
-            (Issue #138). Creates .hestai/context/decisions/{date}-{topic}.oct.md
+            (Issue #138). Creates .hestai/state/context/decisions/{date}-{topic}.oct.md
         context_dir: Directory for context exports. Defaults to project-relative
-            .hestai/context or DEBATE_HALL_CONTEXT_DIR env var.
+            .hestai/state/context or DEBATE_HALL_CONTEXT_DIR env var.
 
     Returns:
         Depends on output_format:

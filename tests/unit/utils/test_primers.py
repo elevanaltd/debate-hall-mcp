@@ -14,8 +14,8 @@ class TestLoadPrimer:
 
         assert "===OCTAVE_LITERACY_PRIMER===" in primer
         assert "===END===" in primer
-        # Should be relatively compact (~475 chars based on exploration)
-        assert len(primer) < 1000
+        # Should be relatively compact (~1000-1100 chars typical with octave-mcp >=1.9.2)
+        assert len(primer) < 1500
 
     def test_load_mastery_primer(self):
         """Test loading the advanced octave-mastery-primer."""
@@ -138,8 +138,9 @@ class TestPrimerContent:
 
         primer = get_literacy_primer()
 
-        # Should be under 1000 chars (~40 tokens mentioned in META)
-        assert len(primer) < 1000
-        # Rough estimate: 4 chars per token, ~40 tokens = ~160 chars min
-        # But with formatting could be up to ~500 chars
+        # Should be under 1500 chars (~1000-1100 chars typical with octave-mcp >=1.9.2)
+        # Threshold gives breathing room for future primer growth without being meaningless.
+        assert len(primer) < 1500
+        # Rough estimate: 4 chars per token; threshold remains compact enough for
+        # every-turn injection. Floor guard prevents accidentally-empty primer regression.
         assert len(primer) > 100  # At least some content
