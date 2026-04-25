@@ -46,16 +46,16 @@
 standard:
   wind:
     provider: openrouter
-    model: anthropic/claude-sonnet-4
-    role: wind-agent
+    model: anthropic/claude-opus-4.7
+    role: ideator
   wall:
     provider: openrouter
-    model: anthropic/claude-sonnet-4
-    role: wall-agent
+    model: google/gemini-3.1-pro-preview
+    role: validator
   door:
     provider: openrouter
-    model: anthropic/claude-sonnet-4
-    role: door-agent
+    model: openai/gpt-5.5
+    role: synthesizer
   settings:
     consensus_required: true
     max_turns: 12
@@ -65,23 +65,23 @@ standard:
     fallback:
       enabled: true
       provider: openrouter
-      model: anthropic/claude-haiku-4
+      model: anthropic/claude-sonnet-4.6
       timeout: 60
 
 fast:
   wind:
     provider: openrouter
-    model: anthropic/claude-haiku-4
+    model: anthropic/claude-haiku-4.5
     role: wind-agent
     timeout: 60
   wall:
     provider: openrouter
-    model: anthropic/claude-haiku-4
+    model: openai/gpt-5.4-mini
     role: wall-agent
     timeout: 60
   door:
     provider: openrouter
-    model: anthropic/claude-haiku-4
+    model: google/gemini-3-flash-preview
     role: door-agent
     timeout: 60
   settings:
@@ -96,16 +96,16 @@ fast:
 premium:
   wind:
     provider: openrouter
-    model: anthropic/claude-opus-4
-    role: wind-agent
+    model: ~anthropic/claude-opus-latest
+    role: edge-optimzer
   wall:
     provider: openrouter
-    model: anthropic/claude-opus-4
-    role: wall-agent
+    model: openai/gpt-5.5
+    role: critical-engineer
   door:
     provider: openrouter
-    model: anthropic/claude-opus-4
-    role: door-agent
+    model: google/gemini-3.1-pro-preview
+    role: technical-architect
   settings:
     consensus_required: true
     max_turns: 16
@@ -115,7 +115,7 @@ premium:
     fallback:
       enabled: true
       provider: openrouter
-      model: anthropic/claude-sonnet-4
+      model: anthropic/claude-sonnet-4.6
       timeout: 120
 
 # =============================================================================
@@ -146,7 +146,7 @@ premium:
 #     fallback:
 #       enabled: true
 #       provider: openrouter
-#       model: anthropic/claude-haiku-4
+#       model: anthropic/claude-haiku-4.5
 #       timeout: 60
 
 # =============================================================================
@@ -174,7 +174,7 @@ premium:
 #     fallback:
 #       enabled: true
 #       provider: openrouter
-#       model: anthropic/claude-haiku-4
+#       model: anthropic/claude-haiku-4.5
 #       timeout: 60
 
 # =============================================================================
@@ -190,15 +190,15 @@ premium:
 # security:
 #   wind:
 #     provider: openrouter
-#     model: anthropic/claude-sonnet-4
+#     model: anthropic/claude-sonnet-4.5
 #     prompt_file: security  # -> wind-security.oct.md
 #   wall:
 #     provider: openrouter
-#     model: anthropic/claude-sonnet-4
+#     model: anthropic/claude-sonnet-4.5
 #     prompt_file: security  # -> wall-security.oct.md
 #   door:
 #     provider: openrouter
-#     model: anthropic/claude-sonnet-4
+#     model: anthropic/claude-sonnet-4.5
 #     prompt_file: security  # -> door-security.oct.md
 #   settings:
 #     consensus_required: true
@@ -208,5 +208,5 @@ premium:
 #     fallback:
 #       enabled: true
 #       provider: openrouter
-#       model: anthropic/claude-haiku-4
+#       model: anthropic/claude-haiku-4.5
 #       timeout: 60
