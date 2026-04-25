@@ -97,7 +97,7 @@ premium:
   wind:
     provider: openrouter
     model: ~anthropic/claude-opus-latest
-    role: edge-optimzer
+    role: edge-optimizer
   wall:
     provider: openrouter
     model: openai/gpt-5.5
