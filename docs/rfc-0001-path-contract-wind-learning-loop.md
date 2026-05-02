@@ -195,11 +195,12 @@ Add:
 
 ## 6. Orchestrator changes
 
-Three:
+Four:
 
 1. **`PathContract` is part of the debate state**, persisted alongside transcripts. The `<DEBATE_STATE>` block in prompts includes a `<PATH_CONTRACTS>` sub-block with the **latest revision** per field plus revision counts (full history available in storage but not pushed into prompts on every turn).
 2. **Validation guard** in `_execute_consensus_loop` (`orchestrator.py:482-560`): when Wind votes (line 485), enforce the **required content rule** from §3.2 — every `HARD_fail` invariant must appear in either `diff.accepted` (with `terminal_rationale`) or `diff.reframed`. Violations → reject and retry once, then existing error path. Symmetrically, when Door's synthesis is produced, validate that every cited entry exists in the contract (no fabricated citations).
-3. **Validator failures recorded as events** via the existing `events.py` system. Failure types: empty/insufficient `diff` when HARD_fail exists, write from non-owning role (ownership rule §3.1), Door citation of non-existent contract entry, schema-shape violations. This makes the A/B "invalid contract rate" metric directly measurable.
+3. **Validator failures recorded as events** via the existing `events.py` system — extend `EventType` (`events.py:41`) with a new `VALIDATOR_FAILURE = "validator_failure"` value. Failure types: empty/insufficient `diff` when HARD_fail exists, write from non-owning role (ownership rule §3.1), Door citation of non-existent contract entry, schema-shape violations. This makes the A/B "invalid contract rate" metric directly measurable.
+4. **`features.is_enabled()` wrapper module** (`src/debate_hall_mcp/features.py`, new). All flag checks for path_contract behaviour go through `features.is_enabled("path_contract", context)`. Today the wrapper delegates to `TierSettings.path_contract_enabled`; when ADR-0003's Unified SDK lands, only the wrapper internals change. Each flag carries a `lifecycle_policy` dict (layer, owner, sunset_date, classification) so ADR-0003's future Policy Engine can route it to Layer 3 / Experimentation. Tracked in [#205](https://github.com/elevanaltd/debate-hall-mcp/issues/205); gates [#201](https://github.com/elevanaltd/debate-hall-mcp/issues/201).
 
 The consensus loop itself, `max_refinement_loops`, and the Wall re-approval invariant at line 507 are unchanged.
 
@@ -255,13 +256,17 @@ Otherwise iterate prompts or revert.
 
 ---
 
-## 8. Open questions for the user
+## 8. Decisions (locked, 2026-05-02)
 
-1. **`hard_invariants_touched` enum vs free-text?** Closed enum (proposed) is safer and lets Wall write structured verdicts; free-text is more expressive but risks Wall and Wind drifting in vocabulary. Recommend closed for v1.
-2. **Door's "cite ≥1 accepted/disputed/reframed" rule — prompt-enforced or post-hoc validator?** Prompt-only is cheaper but probabilistic; validator is more reliable but adds a fail-and-retry path. Recommend prompt for v1, add validator if Door cheats.
-3. **Token-budget ceiling for `path_contract`?** Each contract adds ~200–400 tokens per path on later turns. With 3 paths and 3 roles writing, worst case ~3.6k tokens of contract state. Acceptable on Premium tier; Fast tier may need a truncation policy.
-4. **A/B test corpus** — should we generate fresh topics or replay historical `debates/`? Replay gives baseline comparison; fresh avoids overfit. Recommend ~70/30 replay/fresh.
-5. **Feature flag mechanism** — add a `tier_config.settings.path_contract_enabled: bool`, or use existing stratified flag architecture from ADR-0003?
+All five originally-open questions are now decided.
+
+1. **`hard_invariants_touched`**: **closed enum** (no free-text invariant IDs anywhere). Locks Wall and Wind into a shared vocabulary; ownership rule §3.1 enforces it.
+2. **Door citation rule**: **prompt-only enforcement** for v1. The conditional rule in §5.4 (cite every non-empty category; reframe-or-terminal-accepted only when HARD_fail exists) goes in the prompt; the orchestrator's citation-existence check (§6) catches hallucinated citations as validator-failure events. If post-hoc telemetry shows Door cheating frequently, add a strict validator in v2.
+3. **Token-budget ceiling for `path_contract`**: **5–10k tokens per path** is acceptable. Current models run 200k–1M context; a worst-case ~30k tokens of contract state (3 paths × 10k) is a small fraction of context and a fair price for provenance. No truncation policy in v1.
+4. **A/B test corpus**: **~70/30 replay/fresh**, ~20–50 topics total (per RFC §7.2).
+5. **Feature flag mechanism**: **`TierSettings` flag PLUS thin `features.is_enabled()` wrapper module with ADR-0003-aligned lifecycle metadata.** This is the migration-compatible-shape interpretation: the flag lives in TierSettings today (cheap, fits existing infrastructure); call sites go through `features.is_enabled("path_contract", context)` (so when ADR-0003's Unified SDK ships, only the wrapper internals change); each flag carries `lifecycle_policy` metadata per ADR-0003's requirement (so the future Policy Engine can route it to Layer 3 / Experimentation). New issue [#205](https://github.com/elevanaltd/debate-hall-mcp/issues/205) tracks the wrapper.
+
+   ADR-0003 is itself unimplemented (`grep` confirmed no scaffolding present); building the full architecture is out of scope (~7 weeks per its own implementation path). The wrapper costs ~100 LOC and prevents call-site rework when ADR-0003 lands.
 
 ---
 
@@ -299,7 +304,7 @@ References:
 
 | # | Task | Issue |
 |---|---|---|
-| 0 | **No-code prompt simulation** — pick 5 historical debates from `debates/`. Manually inject the proposed `<PATH_CONTRACTS>` block and the new prompt text (§5) into a fresh debate run, no orchestrator changes. Read whether Wind's `diff` substantively engages Wall's verdict or just restates the originals. **Gate**: if 4/5 produce restatement, the prompt design is wrong — iterate prompts and re-run before opening any other sub-issue. | [#204](https://github.com/elevanaltd/debate-hall-mcp/issues/204) |
+| 0 | **No-code prompt simulation** — run on the 5 historical debates in `debates/` (3 in-repo: `2026-01-30-rundebate-reliability-analysis`, `2026-01-30-virtualprovider-vs-timebudget`, `2026-02-03-cognitive-notary-architecture`; plus 2 added 2026-05-02 from other projects: `2026-04-28-decision-governance-synthesis`, `2026-02-22-mythology-in-octave-assessment`). Manually inject the proposed `<PATH_CONTRACTS>` block and the new prompt text (§5) into a fresh debate run, no orchestrator changes. Read whether Wind's `diff` substantively engages Wall's verdict or just restates the originals. **Gate**: if 4/5 produce restatement, the prompt design is wrong — iterate prompts and re-run before opening any other sub-issue. | [#204](https://github.com/elevanaltd/debate-hall-mcp/issues/204) |
 
 ### 11.2 Build sub-issues
 
@@ -310,7 +315,8 @@ References:
 | 3 | Prompt updates — four templates in `prompts/__init__.py`; Door's citation rule is **conditional** per §5.4 (cite every non-empty category; require reframed-or-terminal-accepted only when HARD_fail exists) | [#198](https://github.com/elevanaltd/debate-hall-mcp/issues/198) |
 | 4 | Context compiler — inject `<PATH_CONTRACTS>` showing latest revision per field plus revision counts | [#199](https://github.com/elevanaltd/debate-hall-mcp/issues/199) |
 | 5 | Orchestrator guards — required-content rule for `diff` (§3.2); Door citation existence check; ownership-violation check; emit validator-failure events | [#200](https://github.com/elevanaltd/debate-hall-mcp/issues/200) |
-| 6 | Feature flag `tier_config.settings.path_contract_enabled` (default OFF; A/B treatment sets ON). **Rollout sequence**: flag-off in main → A/B run → review metrics → decision. No "broad ship" stage exists by design. | [#201](https://github.com/elevanaltd/debate-hall-mcp/issues/201) |
+| 6 | Feature flag `tier_config.settings.path_contract_enabled` (default OFF; A/B treatment sets ON), accessed via the new `features.is_enabled()` wrapper from #205. **Rollout sequence**: flag-off in main → A/B run → review metrics → decision. No "broad ship" stage exists by design. | [#201](https://github.com/elevanaltd/debate-hall-mcp/issues/201) |
+| 6.5 | **`features.is_enabled()` wrapper module** (`src/debate_hall_mcp/features.py`, new) with ADR-0003-aligned `lifecycle_policy` metadata per flag. Gates #201. | [#205](https://github.com/elevanaltd/debate-hall-mcp/issues/205) |
 | 7 | Tests — golden files; **flag-off byte-identical to control** (hard gate); required-content rule enforced; ownership rule enforced; Door citation existence enforced; round-trip serialization | [#202](https://github.com/elevanaltd/debate-hall-mcp/issues/202) |
 | 8 | A/B harness — script + operator guide for two-machine comparison; captures all metrics from §7.3 (incl. invalid contract rate, citation accuracy, originality preservation, bogus reframing) | [#203](https://github.com/elevanaltd/debate-hall-mcp/issues/203) |
 
