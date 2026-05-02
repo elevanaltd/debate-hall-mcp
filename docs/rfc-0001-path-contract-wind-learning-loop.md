@@ -48,7 +48,7 @@ The user wants the loop to demonstrate **constraint-as-catalyst**: ideas that ar
 
 ## 3. Proposed design (one-line summary)
 
-Add a single typed field, **`path_contract`**, attached to each Wind path. It is **mutated, not replaced** by each role as the path traverses Wind → Wall → (consensus-Wind) → Door. No new turn types, no new orchestrator phases.
+Add a single typed field, **`path_contract`**, attached to each Wind path. It is **append-only** — each role appends to its own field's revision history; no role may overwrite another's prior writes. No new turn types, no new orchestrator phases.
 
 ### 3.1 Schema
 
@@ -65,33 +65,69 @@ class PathFrame(TypedDict):
     assumed_problem: str
     success_criterion: str
     accepted_failure_mode: str
-    hard_invariants_touched: list[HardInvariant]
+    hard_invariants_touched: list[HardInvariant]   # closed enum only — no free-text invariant IDs
 
 class InvariantVerdict(TypedDict):
     status: Literal["HARD_pass", "HARD_fail", "SOFT_disputed"]
     rationale: str
 
 class PathDiff(TypedDict):
-    accepted: list[str]      # invariant keys Wind now accepts
-    disputed: list[str]      # SOFT keys Wind still pushes back on, with rationale
-    reframed: list[str]      # invariant keys whose reframing opens a new possibility
+    accepted: list[InvariantEntry]   # invariant keys Wind accepts (with terminal_rationale if HARD_fail)
+    disputed: list[InvariantEntry]   # SOFT keys Wind still pushes back on, with rationale
+    reframed: list[InvariantEntry]   # invariant keys whose reframing opens a new possibility
+
+class InvariantEntry(TypedDict):
+    invariant: HardInvariant
+    rationale: str
+
+# Append-only revision wrappers — written exactly once each, by the owning role
+class FrameRevision(TypedDict):
+    rev: int                                # 0, 1, 2 …
+    written_at: datetime
+    written_by: Literal["Wind"]             # only Wind may append
+    value: PathFrame
+
+class VerdictRevision(TypedDict):
+    rev: int
+    written_at: datetime
+    written_by: Literal["Wall"]             # only Wall may append
+    value: dict[HardInvariant, InvariantVerdict]
+
+class DiffRevision(TypedDict):
+    rev: int
+    written_at: datetime
+    written_by: Literal["Wind"]             # consensus-phase Wind
+    value: PathDiff
 
 class PathContract(TypedDict):
     path_id: str
-    frame: PathFrame                          # written by Wind (turn 1)
-    verdict: dict[str, InvariantVerdict]      # written by Wall (turn 2), keyed by invariant
-    diff: PathDiff | None                     # written by Wind in consensus phase
+    frame_history: list[FrameRevision]      # rev 0 written turn 1; further revs only on Wind reframe
+    verdict_history: list[VerdictRevision]  # one rev per Wall turn (initial + each consensus reject)
+    diff_history: list[DiffRevision]        # one rev per Wind consensus turn
 ```
+
+**Storage model**: append-only, immutable per revision. Provenance is reconstructible by reading `_history` lists in order.
+
+**Prompt-context view**: each role sees the *latest* revision per field plus the revision count (so an agent knows "this is Wall's 2nd verdict, after Wind's reframe"). Revision history details are stored but not blasted into every prompt — keeps tokens bounded.
+
+**Ownership rule** (validator-enforced):
+- Only Wind may append to `frame_history` or `diff_history`.
+- Only Wall may append to `verdict_history`.
+- Door reads only — never writes contract fields.
+- A write from a non-owning role is recorded as a validator-failure event and rejected.
 
 ### 3.2 Lifecycle
 
 | Stage | Role | Field written | Notes |
 |---|---|---|---|
-| 1 | Wind | `frame` per path | Includes `hard_invariants_touched` from a closed enum (safer; see §8 Q1) |
-| 2 | Wall | `verdict[invariant]` | Per path, every invariant Wind flagged is scored HARD_pass / HARD_fail / SOFT_disputed |
-| 3 | Door | (reads only) | Initial synthesis; can be skipped for A/B variant where Wind always re-engages |
-| 4+ | Wind (consensus) | `diff` | Must reference Wall's verdict entries by invariant key. **Empty `diff` is invalid** when any HARD_fail exists. |
-| 4+ | Door (refinement) | (reads full contract history) | Synthesis must cite ≥1 `accepted`, ≥1 `disputed`, ≥1 `reframed` entry across paths |
+| 1 | Wind | `frame_history.append(rev=0, …)` per path | Includes `hard_invariants_touched` from a closed enum |
+| 2 | Wall | `verdict_history.append(rev=0, …)` | Every invariant Wind flagged is scored HARD_pass / HARD_fail / SOFT_disputed |
+| 3 | Door | (reads only) | Initial synthesis |
+| 4+ | Wind (consensus) | `diff_history.append(rev=N, …)` | Must reference Wall's verdict entries by invariant key. **Required content rule** below. |
+| 4+ | Wall (re-approval after Door refines) | `verdict_history.append(rev=N+1, …)` | Wall re-validates against the refined synthesis; previous verdict revisions remain visible for provenance |
+| 4+ | Door (refinement) | (reads full contract history) | Synthesis citation rule per §5.4 |
+
+**Required content rule for `diff` revisions**: for every entry in the latest `verdict` revision with `status == HARD_fail`, the corresponding invariant must appear in `diff.accepted` (with a `terminal_rationale` explaining why no creative reframe is possible) **or** in `diff.reframed` (with the new possibility it opens). Silent omission is invalid.
 
 The state machine arc is unchanged; only the payload schema thickens.
 
@@ -151,16 +187,19 @@ With:
 
 Add:
 
-> Your synthesis must cite **at least one** `accepted` entry, **at least one** `disputed` entry, and **at least one** `reframed` entry across the paths' contracts. This forces genuine integration — averaging or compromise will fail validation.
+> Your synthesis must cite **every non-empty category** (`accepted` / `disputed` / `reframed`) across the paths' contracts. If a category is empty for all paths, do not invent entries — instead, briefly note its absence (e.g. "no constraints disputed; Wind accepted Wall's verdict in full").
+>
+> Additional rule: when any path has a `HARD_fail` verdict in Wall's output, your synthesis must cite, for that path, **either** a `reframed` entry that addresses the failure **or** an `accepted` entry whose `terminal_rationale` explains why the failure is unreframeable. Silent omission is invalid — this is the constraint-as-catalyst proof.
 
 ---
 
 ## 6. Orchestrator changes
 
-Minimal. Only two:
+Three:
 
-1. **`PathContract` is part of the debate state**, persisted alongside transcripts. The `<DEBATE_STATE>` block in prompts includes a `<PATH_CONTRACTS>` sub-block with the contracts to date.
-2. **Validation guard** in `_execute_consensus_loop` (`orchestrator.py:482-560`): when Wind votes (line 485), assert that for every path with `verdict` entries containing `HARD_fail`, the corresponding `diff` is non-empty. If empty → reject the Wind output and retry once before treating it as a malformed turn (existing error path).
+1. **`PathContract` is part of the debate state**, persisted alongside transcripts. The `<DEBATE_STATE>` block in prompts includes a `<PATH_CONTRACTS>` sub-block with the **latest revision** per field plus revision counts (full history available in storage but not pushed into prompts on every turn).
+2. **Validation guard** in `_execute_consensus_loop` (`orchestrator.py:482-560`): when Wind votes (line 485), enforce the **required content rule** from §3.2 — every `HARD_fail` invariant must appear in either `diff.accepted` (with `terminal_rationale`) or `diff.reframed`. Violations → reject and retry once, then existing error path. Symmetrically, when Door's synthesis is produced, validate that every cited entry exists in the contract (no fabricated citations).
+3. **Validator failures recorded as events** via the existing `events.py` system. Failure types: empty/insufficient `diff` when HARD_fail exists, write from non-owning role (ownership rule §3.1), Door citation of non-existent contract entry, schema-shape violations. This makes the A/B "invalid contract rate" metric directly measurable.
 
 The consensus loop itself, `max_refinement_loops`, and the Wall re-approval invariant at line 507 are unchanged.
 
@@ -188,15 +227,31 @@ Quantitative:
 - **Stalemate rate** over the corpus.
 - **Token cost** per debate (treatment will be higher; we want to know by how much).
 - **Wall reject rate** in consensus phase (treatment should fall — better-grounded ideas pass faster).
+- **Invalid contract rate** — % of treatment debates that fire any validator-failure event (empty diff under HARD_fail, ownership violation, citation of non-existent entry). High rate → prompt design is failing; build is regressed.
+- **Door citation accuracy** — % of Door-cited contract entries that actually exist. Treatment must be ≥99%; lower implies Door is hallucinating provenance.
 
 Qualitative (blind review by the user, ideally double-blind):
 - **Synthesis novelty** — does Door's output contain ideas not present verbatim in Wind's initial paths? (Treatment should win.)
 - **Constraint-as-catalyst evidence** — count of Door synthesis claims that cite a `reframed` path_contract entry.
 - **Provenance auditability** — can a reader trace each Door claim to a role contribution?
+- **Bogus reframing rate** — blind reviewer flags `reframed` entries that are not substantively novel vs. their corresponding `accepted` entries. Watches for Wind producing fake structure to satisfy the prompt.
+- **Wind originality preservation** — fraction of Wind's turn-1 *Heretical* path elements that survive into Door's final synthesis, control vs treatment. If treatment shows *lower* preservation, Wind is conforming to Wall's pressure rather than pushing further — exactly the failure mode Free-MAD warns about. This is the regression check.
 
 ### 7.4 Decision rule
 
-Ship treatment if: (a) qualitative novelty wins ≥60% of blind comparisons, (b) stalemate rate doesn't increase, (c) token cost increase <40%. Otherwise iterate or revert.
+**Hard gates** (must all pass before A/B is considered valid):
+- **Flag-off byte-identical**: with `path_contract_enabled = False`, treatment build produces byte-identical transcripts to control on the same seed/topic. Failure → block A/B and fix the off-mode regression.
+- **Door citation accuracy ≥99%** on treatment. Failure → reject; prompt or validator is broken.
+- **Invalid contract rate <5%** on treatment. Failure → reject; prompt design needs iteration before re-running A/B.
+
+**Ship rule** (after gates pass):
+- Qualitative novelty wins ≥60% of blind comparisons, AND
+- Stalemate rate does not increase, AND
+- Wind originality preservation does not decrease (no conformity regression), AND
+- Bogus reframing rate ≤10% per blind review, AND
+- Token cost increase <40%.
+
+Otherwise iterate prompts or revert.
 
 ---
 
@@ -240,23 +295,37 @@ References:
 
 ## 11. Implementation plan (if accepted)
 
+### 11.1 Pre-build gate (must pass before any code)
+
 | # | Task | Issue |
 |---|---|---|
-| 1 | Schema + types (`PathContract`, `PathFrame`, `InvariantVerdict`, `PathDiff`, `HardInvariant`) — default-empty so existing flows degrade gracefully | [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196) |
-| 2 | State serialization — extend `state.py` to persist contracts alongside transcripts | [#197](https://github.com/elevanaltd/debate-hall-mcp/issues/197) |
-| 3 | Prompt updates — four templates in `prompts/__init__.py` (Wind initial, Wall, Wind consensus, Door) | [#198](https://github.com/elevanaltd/debate-hall-mcp/issues/198) |
-| 4 | Context compiler — inject `<PATH_CONTRACTS>` sub-block into `<DEBATE_STATE>` | [#199](https://github.com/elevanaltd/debate-hall-mcp/issues/199) |
-| 5 | Orchestrator guard — validation in `_execute_consensus_loop` for non-empty `diff` when HARD_fail exists | [#200](https://github.com/elevanaltd/debate-hall-mcp/issues/200) |
-| 6 | Feature flag `tier_config.settings.path_contract_enabled` (default off; A/B treatment sets on) | [#201](https://github.com/elevanaltd/debate-hall-mcp/issues/201) |
-| 7 | Tests — golden files; flag-off byte-identity; HARD_fail forces non-empty diff; Door cites all three diff categories | [#202](https://github.com/elevanaltd/debate-hall-mcp/issues/202) |
-| 8 | A/B harness — script + operator guide for the two-machine comparison | [#203](https://github.com/elevanaltd/debate-hall-mcp/issues/203) |
+| 0 | **No-code prompt simulation** — pick 5 historical debates from `debates/`. Manually inject the proposed `<PATH_CONTRACTS>` block and the new prompt text (§5) into a fresh debate run, no orchestrator changes. Read whether Wind's `diff` substantively engages Wall's verdict or just restates the originals. **Gate**: if 4/5 produce restatement, the prompt design is wrong — iterate prompts and re-run before opening any other sub-issue. | [#204](https://github.com/elevanaltd/debate-hall-mcp/issues/204) |
+
+### 11.2 Build sub-issues
+
+| # | Task | Issue |
+|---|---|---|
+| 1 | Schema + types — append-only revision history per field; closed enum for invariant IDs; ownership rules (Wind→frame/diff, Wall→verdict, Door read-only) | [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196) |
+| 2 | State serialization — extend `state.py` to persist `PathContract` history; backward-compatible read of pre-RFC state | [#197](https://github.com/elevanaltd/debate-hall-mcp/issues/197) |
+| 3 | Prompt updates — four templates in `prompts/__init__.py`; Door's citation rule is **conditional** per §5.4 (cite every non-empty category; require reframed-or-terminal-accepted only when HARD_fail exists) | [#198](https://github.com/elevanaltd/debate-hall-mcp/issues/198) |
+| 4 | Context compiler — inject `<PATH_CONTRACTS>` showing latest revision per field plus revision counts | [#199](https://github.com/elevanaltd/debate-hall-mcp/issues/199) |
+| 5 | Orchestrator guards — required-content rule for `diff` (§3.2); Door citation existence check; ownership-violation check; emit validator-failure events | [#200](https://github.com/elevanaltd/debate-hall-mcp/issues/200) |
+| 6 | Feature flag `tier_config.settings.path_contract_enabled` (default OFF; A/B treatment sets ON). **Rollout sequence**: flag-off in main → A/B run → review metrics → decision. No "broad ship" stage exists by design. | [#201](https://github.com/elevanaltd/debate-hall-mcp/issues/201) |
+| 7 | Tests — golden files; **flag-off byte-identical to control** (hard gate); required-content rule enforced; ownership rule enforced; Door citation existence enforced; round-trip serialization | [#202](https://github.com/elevanaltd/debate-hall-mcp/issues/202) |
+| 8 | A/B harness — script + operator guide for two-machine comparison; captures all metrics from §7.3 (incl. invalid contract rate, citation accuracy, originality preservation, bogus reframing) | [#203](https://github.com/elevanaltd/debate-hall-mcp/issues/203) |
 
 Parent tracker: [#195](https://github.com/elevanaltd/debate-hall-mcp/issues/195).
 
-Estimated scope: ~400–600 lines of code + tests, plus prompt edits. ~1–2 days of focused work.
+Estimated scope: ~500–700 lines of code + tests, plus prompt edits and the simulation. ~2 days of focused work, with the pre-build simulation potentially adding a prompt-iteration loop before code starts.
 
 ---
 
 ## 12. Decision
 
-Pending user review.
+Pending user review. Review feedback (2026-05-02) incorporated:
+- Schema is now explicitly **append-only** with per-field revision history and ownership rules (§3.1).
+- Door's citation rule is now **conditional** (cite non-empty categories; require reframe-or-terminal only when HARD_fail exists) — avoiding forced novelty (§5.4).
+- Validator failures are recorded as events for measurement (§6).
+- A/B metrics expanded with invalid-contract rate, citation accuracy, bogus-reframing rate, and Wind-originality-preservation regression check (§7.3).
+- Flag-off byte-identity, citation accuracy, and invalid-contract rate are **hard gates** before A/B is considered valid (§7.4).
+- A pre-build no-code simulation gates the build (§11.1).
