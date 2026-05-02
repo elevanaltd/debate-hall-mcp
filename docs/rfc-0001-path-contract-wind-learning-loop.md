@@ -3,6 +3,7 @@
 **Status**: Proposed (awaiting decision)
 **Date**: 2026-05-02
 **Branch**: `claude/review-debate-agent-flow-DzSFX`
+**Tracking**: [#195](https://github.com/elevanaltd/debate-hall-mcp/issues/195) (parent) — sub-issues [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196)–[#203](https://github.com/elevanaltd/debate-hall-mcp/issues/203)
 **Author**: Generated via meta-debate (Wind→Wall→Wind-Revise→Door) on the question itself
 
 ---
@@ -239,14 +240,18 @@ References:
 
 ## 11. Implementation plan (if accepted)
 
-1. **Schema + types** (`src/debate_hall_mcp/orchestrator.py` or new `types.py`): `PathContract`, `PathFrame`, `InvariantVerdict`, `PathDiff`, `HardInvariant`. Default-empty so existing flows degrade gracefully.
-2. **State serialization**: extend `state.py` to persist contracts alongside transcripts.
-3. **Prompt updates**: four prompt templates in `src/debate_hall_mcp/prompts/__init__.py` (Wind initial, Wall, Wind consensus, Door).
-4. **Context compiler** (`context_compiler.py`): inject `<PATH_CONTRACTS>` sub-block into the `<DEBATE_STATE>` envelope.
-5. **Orchestrator guard**: validation in `_execute_consensus_loop` for non-empty `diff` when HARD_fail exists.
-6. **Feature flag**: `tier_config.settings.path_contract_enabled` (default off in v1, on in A/B treatment build).
-7. **Tests**: golden-file tests for (a) Wall HARD_fail forces non-empty diff, (b) Door synthesis cites all three diff categories, (c) feature-flag-off path is byte-identical to current behaviour.
-8. **A/B harness**: a small script or doc explaining how to run identical topics on two machines and collect transcripts for blind review.
+| # | Task | Issue |
+|---|---|---|
+| 1 | Schema + types (`PathContract`, `PathFrame`, `InvariantVerdict`, `PathDiff`, `HardInvariant`) — default-empty so existing flows degrade gracefully | [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196) |
+| 2 | State serialization — extend `state.py` to persist contracts alongside transcripts | [#197](https://github.com/elevanaltd/debate-hall-mcp/issues/197) |
+| 3 | Prompt updates — four templates in `prompts/__init__.py` (Wind initial, Wall, Wind consensus, Door) | [#198](https://github.com/elevanaltd/debate-hall-mcp/issues/198) |
+| 4 | Context compiler — inject `<PATH_CONTRACTS>` sub-block into `<DEBATE_STATE>` | [#199](https://github.com/elevanaltd/debate-hall-mcp/issues/199) |
+| 5 | Orchestrator guard — validation in `_execute_consensus_loop` for non-empty `diff` when HARD_fail exists | [#200](https://github.com/elevanaltd/debate-hall-mcp/issues/200) |
+| 6 | Feature flag `tier_config.settings.path_contract_enabled` (default off; A/B treatment sets on) | [#201](https://github.com/elevanaltd/debate-hall-mcp/issues/201) |
+| 7 | Tests — golden files; flag-off byte-identity; HARD_fail forces non-empty diff; Door cites all three diff categories | [#202](https://github.com/elevanaltd/debate-hall-mcp/issues/202) |
+| 8 | A/B harness — script + operator guide for the two-machine comparison | [#203](https://github.com/elevanaltd/debate-hall-mcp/issues/203) |
+
+Parent tracker: [#195](https://github.com/elevanaltd/debate-hall-mcp/issues/195).
 
 Estimated scope: ~400–600 lines of code + tests, plus prompt edits. ~1–2 days of focused work.
 
