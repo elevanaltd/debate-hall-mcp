@@ -462,6 +462,26 @@ As Wind, you bring PATHOS - divergent thinking and creative expansion:
 Do NOT provide a single final answer or render judgment on which option is best.
 Your role is to EXPAND possibilities before Wall validates and Door synthesizes.
 
+[RFC-0001 — path_contract additions]
+At the end of your response, for EACH path you proposed, append a fenced JSON block
+labeled with a heading. Use this exact shape so Wall and Door can parse it:
+
+### PATH_CONTRACT_FRAME (path_1)
+```json
+{{
+  "path_id": "path_1",
+  "path_label": "Obvious | Adjacent | Heretical",
+  "assumed_problem": "the version of the problem this path addresses",
+  "success_criterion": "how we'd know this path worked",
+  "accepted_failure_mode": "what this path explicitly trades away",
+  "hard_invariants_touched": ["pick from: halting, single_wall_coherence, re_approval, per_turn_role_contract — only those that genuinely apply"]
+}}
+```
+
+Repeat the heading + JSON block for path_2 and path_3. Use the closed enum values
+verbatim for hard_invariants_touched. Empty list is allowed if a path touches no
+invariant.
+
 Respond using the OCTAVE response format defined in your system prompt."""
 
 
@@ -497,6 +517,29 @@ As Wall, you bring ETHOS - rigorous validation and constraint identification:
 
 Do NOT explore new possibilities or synthesize solutions.
 Your role is to VALIDATE before Door synthesizes.
+
+[RFC-0001 — path_contract additions]
+Wind's response includes one PATH_CONTRACT_FRAME JSON block per path. For EACH path,
+append a fenced JSON block labeled with a heading, scoring every invariant Wind
+flagged in that path's `hard_invariants_touched` list.
+
+IMPORTANT — heading format: use the LITERAL heading text below exactly. Do not
+substitute the path's label (Obvious / Adjacent / Heretical) for the heading;
+downstream tooling locates these blocks by the literal `PATH_CONTRACT_VERDICT
+(path_N)` heading.
+
+### PATH_CONTRACT_VERDICT (path_1)
+```json
+{{
+  "path_id": "path_1",
+  "verdicts": [
+    {{"invariant": "halting", "status": "HARD_pass | HARD_fail | SOFT_disputed", "rationale": "one sentence of evidence"}}
+  ]
+}}
+```
+
+Status values are a closed set: HARD_pass, HARD_fail, SOFT_disputed.
+HARD verdicts are non-negotiable. SOFT_disputed are tradeable — Wind may push back.
 
 Respond using the OCTAVE response format defined in your system prompt."""
 
@@ -534,6 +577,25 @@ As Door, you bring LOGOS - convergent integration and structural synthesis:
 Do NOT simply average or compromise between positions.
 Your role is to INTEGRATE and create something that honors both while transcending the apparent conflict.
 
+[RFC-0001 — path_contract citation rule]
+Wind has emitted PATH_CONTRACT_FRAME blocks; Wall has emitted PATH_CONTRACT_VERDICT blocks;
+in the consensus phase Wind will emit PATH_CONTRACT_DIFF blocks containing accepted /
+disputed / reframed entries.
+
+Your synthesis must cite EVERY non-empty category (accepted / disputed / reframed) across
+the paths' contracts. If a category is empty for all paths, do NOT invent entries —
+instead briefly note its absence (e.g. "no constraints disputed; Wind accepted Wall's
+verdict in full").
+
+Additional rule: when any path has a HARD_fail verdict in Wall's output, your synthesis
+must cite, for that path, EITHER a `reframed` entry that addresses the failure OR an
+`accepted` entry whose rationale explains why the failure is unreframeable. Silent
+omission is invalid — this is the constraint-as-catalyst proof.
+
+Reference contract entries explicitly in your synthesis text using the form
+`[path_N.accepted: <invariant>]`, `[path_N.disputed: <invariant>]`, or
+`[path_N.reframed: <invariant>]` so a reader can verify the citation.
+
 Respond using the OCTAVE response format defined in your system prompt."""
 
 
@@ -554,34 +616,72 @@ def format_wind_approval_prompt(topic: str, thread_id: str) -> str:
 
 Topic: {topic}
 Thread ID: {thread_id}
-Your Role: Wind (PATHOS) - Consensus Reviewer
+Your Role: Wind (PATHOS) - Consensus Reviewer + Path Refiner
 
-The current debate state including Door's synthesis is provided above in <DEBATE_STATE> tags.
+The current debate state including your prior PATH_CONTRACT_FRAME blocks, Wall's
+PATH_CONTRACT_VERDICT blocks, and Door's synthesis is provided above in <DEBATE_STATE> tags.
 
-Your task: Review Door's synthesis and vote APPROVE or REJECT.
+[RFC-0001 — constraint-as-catalyst behaviour]
+Wall has critiqued each of your paths. Wall has authority over HARD invariants — accept
+these as the new floor of possibility. Wall does NOT have authority over SOFT_disputed
+entries — you may push back on them with rationale.
 
-As Wind (PATHOS), evaluate whether the synthesis:
-- Preserves the creative possibilities you expanded
-- Honors the spirit of innovation and exploration
-- Maintains the vision while addressing constraints
-- Enables emergent capabilities beyond either/or
+Your task is NOT to defend, NOT to re-pitch your originals, NOT to retreat. Your task is
+to TAKE WALL'S CRITIQUE ON BOARD AND PUSH INNOVATION FURTHER. Specifically:
+
+1. ACCEPT every HARD_fail. Treat it as a creative catalyst, not a defeat.
+2. For each accepted HARD_fail, ask: "Given this is true, what NEW possibility opens up
+   that I couldn't see before?" If a genuinely new possibility emerges, put it in
+   `reframed`. If none does, put it in `accepted` with an honest `terminal_rationale`.
+3. For SOFT_disputed entries, you MAY DISPUTE — but only if disputing opens a richer path,
+   not to win an argument.
+
+For EACH path, append a fenced JSON block labeled with a heading:
+
+### PATH_CONTRACT_DIFF (path_1)
+```json
+{{
+  "path_id": "path_1",
+  "accepted": [
+    {{"invariant": "halting", "rationale": "...", "terminal_rationale": "<only when accepting a HARD_fail with no creative reframe>"}}
+  ],
+  "disputed": [
+    {{"invariant": "single_wall_coherence", "rationale": "why this SOFT_disputed verdict opens a richer path if relaxed"}}
+  ],
+  "reframed": [
+    {{"invariant": "re_approval", "new_possibility": "the NEW possibility this constraint reveals — must be substantively different from the original path"}}
+  ]
+}}
+```
+
+If you genuinely have nothing new to add for a path, output:
+
+### PATH_CONTRACT_DIFF (path_N)
+NO_NEW_DIVERGENCE — <one sentence on why>
+
+Honesty over performative ideation.
+
+REQUIRED CONTENT RULE: For every HARD_fail invariant in Wall's verdict for a path, the
+corresponding invariant must appear in either `accepted` (with `terminal_rationale`) or
+`reframed` (with `new_possibility`). Silent omission is invalid.
+
+Then APPROVE / REJECT Door's synthesis as before:
 
 RESPONSE FORMAT:
 Start your response with exactly one of:
-- APPROVE - if the synthesis honors Wind's expansion
-- REJECT - if the synthesis fails to capture creative potential
+- APPROVE - if Door's synthesis honors Wind's expansion AND cites your diff entries
+- REJECT - if the synthesis fails to capture creative potential or ignores your reframes
 
 If you REJECT, provide specific feedback on what is missing or needs refinement.
 Door will use your feedback to create a refined synthesis.
 
-Do NOT provide new possibilities or expand the discussion.
-Your role now is to VALIDATE the synthesis from Wind's perspective.
-
 Example:
 APPROVE
 
-The synthesis successfully integrates Wind's heretical path while respecting constraints.
-The emergent capabilities enable the innovation we sought."""
+[your three PATH_CONTRACT_DIFF blocks here]
+
+The synthesis successfully integrates the reframed possibilities while respecting
+Wall's HARD constraints."""
 
 
 def format_wall_approval_prompt(topic: str, thread_id: str) -> str:

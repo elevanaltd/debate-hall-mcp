@@ -21,6 +21,10 @@
 debates/*.json
 debates/*.jsonl
 debates/*.lock
+debates/**/*.json
+debates/**/*.jsonl
+debates/**/*.lock
+debates/**/*.events.jsonl
 *.jsonl
 
 # Python
