@@ -9,15 +9,26 @@ per topic for the #204 gate scoring.
 import asyncio
 import os
 import sys
+import tempfile
 import traceback
 from datetime import datetime, UTC
 from pathlib import Path
 
-# Force tier config + state dir for the spike
-os.environ["DEBATE_HALL_TIERS_FILE"] = str(Path(__file__).resolve().parent.parent / "tiers.yaml")
-SPIKE_STATE_DIR = Path(__file__).resolve().parent.parent / "debates" / "spike-pathcontract"
+# Force tier config + state dir for the spike (absolute paths so cwd changes don't break them)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+os.environ["DEBATE_HALL_TIERS_FILE"] = str(PROJECT_ROOT / "tiers.yaml")
+SPIKE_STATE_DIR = PROJECT_ROOT / "debates" / "spike-pathcontract"
 SPIKE_STATE_DIR.mkdir(parents=True, exist_ok=True)
 os.environ["DEBATE_HALL_STATE_DIR"] = str(SPIKE_STATE_DIR)
+
+# CRITICAL: chdir to a clean temp dir BEFORE any subprocess spawning.
+# The cli provider spawns `claude --print` subprocesses that inherit the runner's cwd.
+# If they inherit the project cwd, they see CLAUDE.md, git state, hook output, etc.,
+# and respond to those instead of the debate topic. Verified on first spike run
+# (5/5 transcripts hijacked by parent session's stop-hook context).
+_clean_cwd = Path(tempfile.mkdtemp(prefix="spike-pathcontract-cwd-"))
+os.chdir(_clean_cwd)
+print(f"[isolation] runner cwd changed to {_clean_cwd}", flush=True)
 
 from debate_hall_mcp.config import load_tier_config  # noqa: E402
 from debate_hall_mcp.orchestrator import DebateOrchestrator  # noqa: E402
