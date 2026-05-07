@@ -1,8 +1,8 @@
 # RFC-0001: `path_contract` — Iterative Wind Learning Loop
 
-**Status**: Proposed (awaiting decision)
-**Date**: 2026-05-02
-**Branch**: `claude/review-debate-agent-flow-DzSFX`
+**Status**: Ratified (2026-05-07)
+**Date**: 2026-05-02 (proposed); 2026-05-07 (ratified)
+**Ratification**: Approved on PR #212 by CE/CRS/SR/TMG at HEAD `3563fc7`; merged to main as `1dc1c57`. Implementation deferred to issues #196–#205 (validator, storage, feature flag, A/B harness).
 **Tracking**: [#195](https://github.com/elevanaltd/debate-hall-mcp/issues/195) (parent) — sub-issues [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196)–[#205](https://github.com/elevanaltd/debate-hall-mcp/issues/205)
 **Author**: Generated via meta-debate (Wind→Wall→Wind-Revise→Door) on the question itself
 
