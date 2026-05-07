@@ -221,3 +221,28 @@ class TestWindConsensusSentinelIsJsonCompatible:
         assert parsed["accepted"] == []
         assert parsed["disputed"] == []
         assert parsed["reframed"] == []
+
+
+class TestWindConsensusSentinelGatedOnHardFail:
+    """RFC-0001 follow-up: Wind's NO_NEW_DIVERGENCE sentinel must be gated on
+    the absence of HARD_fail verdicts for the path. Otherwise it conflicts with
+    Door's HARD_fail coverage rule (Door cannot cite a reframed/accepted entry
+    that does not exist), violating the constraint-as-catalyst proof.
+    """
+
+    def test_wind_consensus_prompt_gates_sentinel_on_no_hard_fail(self) -> None:
+        """Sentinel instruction must explicitly require zero HARD_fail verdicts."""
+        prompt = format_wind_approval_prompt(topic="Test", thread_id="2026-01-30-test")
+        # The precondition language must be present in some form.
+        assert (
+            "no HARD_fail" in prompt
+        ), "Sentinel instruction must gate NO_NEW_DIVERGENCE on absence of HARD_fail verdicts"
+
+    def test_wind_consensus_prompt_forbids_sentinel_on_hard_fail_paths(self) -> None:
+        """Prompt must explicitly state that NO_NEW_DIVERGENCE is invalid for
+        any path with one or more HARD_fail verdicts."""
+        prompt = format_wind_approval_prompt(topic="Test", thread_id="2026-01-30-test")
+        # The counterpart prohibition must be present.
+        assert (
+            "INVALID for HARD_fail paths" in prompt
+        ), "Prompt must explicitly mark NO_NEW_DIVERGENCE as INVALID for HARD_fail paths"

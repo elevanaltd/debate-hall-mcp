@@ -101,8 +101,11 @@ class DiffRevision(TypedDict):
     written_at: datetime
     written_by: Literal["Wind"]             # consensus-phase Wind
     value: PathDiff
-    # Sentinel for paths Wind has nothing new to add. When set, `value` MUST contain
-    # empty accepted/disputed/reframed lists — divergence_marker is the only signal.
+    # Sentinel for paths Wind has nothing new to add. ONLY VALID when the corresponding
+    # `verdict_history` latest revision contains zero `HARD_fail` entries for this path
+    # (every invariant verdict is HARD_pass or SOFT_disputed). When set, `value` MUST
+    # contain empty accepted/disputed/reframed lists — divergence_marker is the only
+    # signal. Emitting NO_NEW_DIVERGENCE on a HARD_fail path is a validator-failure event.
     divergence_marker: NotRequired[Literal["NO_NEW_DIVERGENCE"]]
 
 class PathContract(TypedDict):
@@ -133,7 +136,7 @@ class PathContract(TypedDict):
 | 4+ | Wall (re-approval after Door refines) | `verdict_history.append(rev=N+1, …)` | Wall re-validates against the refined synthesis; previous verdict revisions remain visible for provenance |
 | 4+ | Door (refinement) | (reads full contract history) | Synthesis citation rule per §5.4 |
 
-**Required content rule for `diff` revisions**: for every entry in the latest `verdict` revision with `status == HARD_fail`, the corresponding invariant must appear in `diff.accepted` (with a `terminal_rationale` explaining why no creative reframe is possible) **or** in `diff.reframed` (with the new possibility it opens). Silent omission is invalid.
+**Required content rule for `diff` revisions**: for every entry in the latest `verdict` revision with `status == HARD_fail`, the corresponding invariant must appear in `diff.accepted` (with a `terminal_rationale` explaining why no creative reframe is possible) **or** in `diff.reframed` (with the new possibility it opens). Silent omission is invalid. A `DiffRevision` with `divergence_marker = NO_NEW_DIVERGENCE` on a path whose latest verdict contains any `HARD_fail` is rejected as a validator-failure event — the sentinel may only be used when every invariant verdict for the path is `HARD_pass` or `SOFT_disputed`.
 
 The state machine arc is unchanged; only the payload schema thickens.
 

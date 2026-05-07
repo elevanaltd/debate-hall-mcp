@@ -712,9 +712,11 @@ For EACH path, append a fenced JSON block labeled with a heading:
 }}
 ```
 
-If you genuinely have nothing new to add for a path, emit a JSON-compatible sentinel
-diff with empty lists and the `divergence_marker` field set (this aligns with the
-`DiffRevision.divergence_marker` schema field in RFC-0001 §3.1):
+If a path has no HARD_fail verdicts and you genuinely have nothing new to add, emit
+a JSON-compatible sentinel diff with empty lists and the `divergence_marker` field
+set (this aligns with the `DiffRevision.divergence_marker` schema field in RFC-0001
+§3.1). The sentinel is ONLY valid when every verdict for the path is HARD_pass or
+SOFT_disputed — never when any verdict is HARD_fail.
 
 ### PATH_CONTRACT_DIFF (path_N)
 ```json
@@ -732,7 +734,11 @@ Honesty over performative ideation.
 
 REQUIRED CONTENT RULE: For every HARD_fail invariant in Wall's verdict for a path, the
 corresponding invariant must appear in either `accepted` (with `terminal_rationale`) or
-`reframed` (with `new_possibility`). Silent omission is invalid.
+`reframed` (with `new_possibility`). Silent omission is invalid. NO_NEW_DIVERGENCE is
+INVALID for HARD_fail paths — for any path with one or more HARD_fail verdicts you MUST
+produce a real diff (an `accepted` entry with `terminal_rationale` explaining why the
+failure is unreframeable, OR a `reframed` entry with `new_possibility` that addresses
+the failure). The sentinel cannot substitute for constraint-as-catalyst proof.
 
 Then APPROVE / REJECT Door's synthesis as before:
 
