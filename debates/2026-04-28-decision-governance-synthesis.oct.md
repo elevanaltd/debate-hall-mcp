@@ -1,0 +1,186 @@
+===DECISION_GOVERNANCE_GRAVITY_TIERED_SYNTHESIS===
+META:
+  TYPE::DEBATE_SYNTHESIS
+  VERSION::"1.0"
+  STATUS::ADOPTED
+  CANONICAL::"debates/2026-04-28-decision-governance-synthesis.oct.md"
+  SOURCE::"debate-hall thread 2026-04-28-decision-record-governance-for-01kqa2vb (synthesised by HO)"
+  DATE::"2026-04-28"
+  AUDIENCE::cognitive_evidence
+  COMPRESSION_TIER::CONSERVATIVE
+  LOSS_PROFILE::[
+    preserve::causal_chains⊕heuristic_steps⊕test_cases⊕migration_phases,
+    drop::verbose_phrasing⊕conversational_framing
+  ]
+  PROVENANCE::[
+    "debate-hall thread 2026-04-28-decision-record-governance-for-01kqa2vb",
+    "Issue #633",
+    "HO synthesis 2026-04-28"
+  ]
+§1::QUESTION_DEBATED
+  PROMPT::"Should every ratified decision in elevana-studio originate from a GitHub Issue per HestAI-MCP ADR-0060 (ADR↔Issue alignment, every ADR must have a linked Issue, numbers match), or do we need a tiered model that distinguishes heavyweight architectural decisions from lightweight documented choices?"
+  STANDARD_REFERENCED::HestAI_MCP_ADR_0060_RFC_ADR_alignment
+§2::SYNTHESIZED_MODEL
+  NAME::GRAVITY_TIERED_OCTAVE_MONOLITH
+  KEY_INSIGHT::"Decouple Governance Principle (deliberation via Issue) from Storage Medium (Markdown files). ADR-0060 mandates Issue+ADR linkage for architectural decisions. It does NOT mandate Markdown-file-per-decision storage."
+  IMPLICATION::"Strict ADR-0060 compliance can be satisfied while keeping the OCTAVE monolith — an ADR becomes a TIER::ARCHITECTURAL node with ISSUE_REF::#NNN inside DECISIONS.oct.md, same provenance, different storage."
+  §2a::THREE_TIERS
+    TIER_ARCHITECTURAL:
+      TRIGGER::crosses_boundaries∨irreversible∨security_invariant
+      TREATMENT::Issue_plus_OCTAVE_node_with_ISSUE_REF_field
+      ADR_0060::strict_compliance
+    TIER_CONVENTION:
+      TRIGGER::documented_choice_no_boundary_crossing
+      TREATMENT::inline_OCTAVE_node_no_Issue
+      ADR_0060::exempt
+    TIER_MICRO:
+      TRIGGER::mechanizable_via_linter∨CI∨DB_schema
+      TREATMENT::encode_in_tooling_delete_doc_entirely
+      ADR_0060::not_applicable
+  §2b::CLASSIFICATION_HEURISTIC
+    BUDGET::under_30_seconds
+    STEP_1_MECHANIZATION_TEST:
+      QUESTION::"Can CI / linter / DB schema enforce this?"
+      YES_PATH::TIER_MICRO_encode_delete_doc
+      NO_PATH::continue_to_gravity_test
+    STEP_2_GRAVITY_TEST:
+      SCORING::one_point_each
+      DIMENSIONS::[
+        irreversible_in_under_one_day_of_solo_work,
+        crosses_module_or_app_or_vendor_boundaries,
+        security_invariant_or_data_ownership_boundary
+      ]
+      SCORE_1_TO_3::TIER_ARCHITECTURAL_Issue_plus_linked_ADR_node
+      SCORE_0::TIER_CONVENTION_inline_node_no_Issue
+  §2c::TEST_CASES_VERIFIED
+    CASE_1:
+      NAME::cron_alter_job_not_UPDATE
+      PATH::[Mechanization_no→Gravity_0]
+      RESULT::TIER_CONVENTION_inline
+    CASE_2:
+      NAME::reconciler_orphan_policy
+      PATH::[Mechanization_no→Gravity_2_boundary_plus_security]
+      RESULT::TIER_ARCHITECTURAL_with_AMENDS_parent
+    CASE_3:
+      NAME::client_canonical_model
+      PATH::[Mechanization_no→Gravity_2_boundary_plus_irreversible]
+      RESULT::TIER_ARCHITECTURAL_full_Issue_plus_ADR
+    CASE_4:
+      NAME::kebab_case_file_names
+      PATH::Mechanization_yes_ESLint_or_repo_config
+      RESULT::TIER_MICRO_encode_delete_doc
+    CASE_5:
+      NAME::no_admin_tools_in_portal
+      PATH::[Mechanization_no→Gravity_2_boundary_plus_security]
+      RESULT::TIER_ARCHITECTURAL_Issue
+  §2d::ADR_0060_STANCE
+    VERDICT::JUSTIFIED_EXTENSION_VIA_FORMAT_DECOUPLING
+    MANDATE_HONORED::"every architectural decision links to an Issue with matching number"
+    IMPLEMENTATION_EXTENDED::"the ADR is an OCTAVE node, not a Markdown file"
+    OUT_OF_SCOPE::Conventions_and_Micros_do_not_meet_the_architectural_bar_that_triggers_the_standard
+  §2e::TOKEN_EFFICIENCY_EVIDENCE
+    MONOLITH_FOOTPRINT::"100 OCTAVE nodes ≈ 3500 tokens"
+    DETACHED_FOOTPRINT::"100 detached Markdown files ≈ 80000 tokens of file-traversal overhead"
+    RATIO::twenty_x_efficiency_for_agent_wholesale_load
+    JUSTIFIES::format_decoupling_claim
+§3::MIGRATION_PATH
+  PRINCIPLE::four_phases_zero_filesystem_churn
+  PHASE_1_METADATA_SWEEP:
+    ACTION::agent_parses_existing_DECISIONS_oct_md
+    STEP::applies_classification_heuristic
+    OUTPUT::injects_TIER_field_on_every_entry
+  PHASE_2_ISSUE_BACKFILL:
+    SCOPE::ONLY_for_TIER_ARCHITECTURAL_items_estimate_13
+    ACTION::generate_retroactive_GitHub_Issues_tagged_legacy_migration
+    INJECTION::ISSUE_REF_field_added_to_each_node
+    EXCLUSION::no_Issues_for_estimate_5_conventions_or_estimate_12_retired_entries
+  PHASE_3_FRACTAL_COLLAPSE:
+    ACTION::fold_estimate_15_sub_decisions_into_parent_nodes
+    FORM::nested_arrays_under_parent_token
+  PHASE_4_ARCHIVE_VERIFY:
+    ACTION::confirm_retired_items_in_DECISIONS_ARCHIVE_oct_md
+    TARGET::final_monolith_size_under_3500_tokens
+§4::PRACTICAL_CAVEAT
+  RISK::"TIER::MICRO requires real tooling discipline. If the linter rule is not actually written, the choice becomes undocumented + undetected drift."
+  MITIGATION::TIER_MICRO_requires_commit_reference_to_enforcement_code_linter_rule_or_schema_constraint_or_CI_check_BEFORE_doc_is_deleted
+§5::VISIBILITY_RULES_PLACEMENT
+  STANDARD_REF::".hestai-sys/standards/rules/visibility-rules.oct.md"
+  STANDARD_VERSION::v2.3
+  P30_DEBATE_SYNTHESIS::[
+    location::debates_slash,
+    format::oct_md,
+    lifecycle::COMMITTED,
+    audience::cognitive_evidence
+  ]
+  P31_DEBATE_TRANSCRIPT::[
+    location::debates_slash,
+    format::json,
+    lifecycle::GITIGNORED,
+    layer::working_state
+  ]
+  T6_DEBATES_TIER::[
+    location::debates_slash,
+    lifecycle::oct_md_committed⊕json_gitignored
+  ]
+  CANONICAL_HOME::"debates/2026-04-28-decision-governance-synthesis.oct.md"
+  PRIOR_LOCATION::Tier_3_session_notes_for_immediate_availability_at_hestai_state_sessions
+§6::SELF_APPLICATION
+  CLAIM::"The adoption of this model is itself an architectural decision per its own gravity test."
+  GOVERNANCE_PATTERN_REALIGNMENT:
+    TOKEN::HO-DECISION-GOVERNANCE-GRAVITY-TIERED-20260428
+    TIER::ARCHITECTURAL
+    ISSUE_REF::"#633"
+    STATUS::PROPOSED
+    DECISION::adopt_gravity_tiered_octave_monolith_from_debate_thread_2026_04_28_decision_record_governance_for_01kqa2vb
+    BECAUSE::[
+      twenty_x_token_efficiency_for_agent_load,
+      ADR_0060_compliance_via_ISSUE_REF_in_octave_nodes,
+      eliminates_issue_noise_for_conventions,
+      mechanization_tier_eliminates_documentation_for_enforceable_rules
+    ]
+    EXTENDS::HestAI_MCP_ADR_0060_RFC_ADR_alignment
+    ROUTING::implement_via_document_cleanup_workstream_class_B_phase_1_through_4
+    EVIDENCE::[debate_thread_2026-04-28-decision-record-governance-for-01kqa2vb,"debates/2026-04-28-decision-governance-synthesis.oct.md"]
+§7::HANDOFF_TO_DOCUMENT_CLEANUP_WORKSTREAM
+  COMPANION_TOKEN::HO_HESTAI_CLEANUP_20260428
+  CLEANUP_CLASS_B_TASKS::[
+    R1::author_debates_2026_04_28_decision_governance_synthesis_oct_md_as_proper_OCTAVE,
+    R2::author_HO_DECISION_GOVERNANCE_GRAVITY_TIERED_20260428_token_in_DECISIONS_oct_md_after_ISSUE_REF_populated,
+    R3::update_DECISIONS_oct_md_META_block_to_add_SCHEMA_convention_per_section_8,
+    R4::execute_four_phase_migration_on_existing_estimate_50_entries
+  ]
+§8::SCHEMA_HEADER_CONVENTION
+  TARGET::DECISIONS_oct_md_META_block
+  SCHEMA_REQUIRED::[
+    TOKEN,
+    TIER,
+    STATUS,
+    DECISION,
+    BECAUSE
+  ]
+  TIER_DEFINITIONS::[
+    ARCHITECTURAL::issue_required_plus_ISSUE_REF_field,
+    CONVENTION::no_issue_inline_only,
+    MICRO::no_doc_encode_in_tooling_with_ENFORCEMENT_REF_to_linter_or_ci_or_schema
+  ]
+  SCHEMA_REQUIRED_BY_TIER::[
+    ARCHITECTURAL_REQUIRES::[ISSUE_REF,EXTENDS_or_AMENDS_or_SUPERSEDES_when_applicable],
+    CONVENTION_REQUIRES::[],
+    MICRO_REQUIRES::[ENFORCEMENT_REF_pointing_to_commit_or_file_implementing_mechanism]
+  ]
+  SCHEMA_OPTIONAL::[
+    EVIDENCE,
+    IMPLEMENTATION_HANDOFF,
+    CONSTRAINTS,
+    AMENDMENTS,
+    domain_specific
+  ]
+  SCHEMA_NOTE::ratified_per_HO_DECISION_GOVERNANCE_GRAVITY_TIERED_20260428_extends_HestAI_MCP_ADR_0060
+§9::REFERENCES
+  ADR_0060::"HestAI-MCP/docs/adr/adr-0060-rfc-adr-alignment.md"
+  VISIBILITY_RULES_V2_3::".hestai-sys/standards/rules/visibility-rules.oct.md"
+  DEBATE_THREAD::"2026-04-28-decision-record-governance-for-01kqa2vb"
+  ISSUE::"https://github.com/elevanaltd/elevana-studio/issues/633"
+  COMPANION_DECISION_TOKEN::HO-DECISION-GOVERNANCE-GRAVITY-TIERED-20260428
+  COMPANION_VISIBILITY_TOKEN::HO-VISIBILITY-RULES-CANONICAL-SUPERSEDE-ADR0003-20260428
+===END===

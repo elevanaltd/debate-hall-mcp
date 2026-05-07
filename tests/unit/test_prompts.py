@@ -162,6 +162,36 @@ class TestDoorUserPrompt:
         assert len(prompt) > 100
 
 
+class TestInitialDoorOmitsPathContractCitation:
+    """RFC-0001 Fix 4: the INITIAL Door synthesis prompt MUST NOT mandate citation
+    of PATH_CONTRACT_DIFF entries — those entries do not exist yet at the initial
+    Door turn (Wind emits PATH_CONTRACT_DIFF only in the consensus phase). This
+    test guards against the prior bug where the initial prompt forced fabrication.
+    """
+
+    def test_initial_door_prompt_does_not_demand_path_contract_diff_citation(self) -> None:
+        """Initial Door prompt MUST NOT mandate citation of PATH_CONTRACT_DIFF entries.
+
+        The prompt MAY mention PATH_CONTRACT_DIFF to explain that it does not exist
+        yet (educational), but it MUST NOT carry the citation syntax or the
+        accepted/disputed/reframed mandate that forces fabrication.
+        """
+        prompt = format_door_user_prompt(topic="Test", thread_id="2026-01-30-test")
+        # The citation syntax for diff entries belongs only to the consensus prompt.
+        assert "[path_N.accepted:" not in prompt
+        assert "[path_N.disputed:" not in prompt
+        assert "[path_N.reframed:" not in prompt
+        # And the explicit "must cite EVERY non-empty category" mandate must be absent.
+        assert "must cite EVERY non-empty category" not in prompt
+        assert "must cite, for that path" not in prompt
+
+    def test_initial_door_prompt_still_acknowledges_frame_and_verdict(self) -> None:
+        """Initial Door prompt should still note that FRAME and VERDICT exist (those are emitted by turn 1 / turn 2)."""
+        prompt = format_door_user_prompt(topic="Test", thread_id="2026-01-30-test")
+        assert "PATH_CONTRACT_FRAME" in prompt
+        assert "PATH_CONTRACT_VERDICT" in prompt
+
+
 class TestPromptConsistency:
     """Tests for consistency across all prompt functions."""
 

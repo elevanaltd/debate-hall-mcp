@@ -11,7 +11,10 @@ the prompt via <DEBATE_STATE> tags. Agents receive state passively instead
 of needing to call get_debate() themselves.
 """
 
+import json
+
 from debate_hall_mcp.prompts import (
+    format_door_consensus_prompt,
     format_wall_approval_prompt,
     format_wind_approval_prompt,
 )
@@ -115,3 +118,131 @@ class TestPromptsDifferentiate:
         wind_prompt = format_wind_approval_prompt(topic="Test", thread_id="2026-01-30-test")
         wall_prompt = format_wall_approval_prompt(topic="Test", thread_id="2026-01-30-test")
         assert wind_prompt != wall_prompt
+
+
+class TestConsensusDoorCarriesPathContractCitation:
+    """RFC-0001 Fix 4: the CONSENSUS-phase Door prompt MUST carry the citation
+    rule for PATH_CONTRACT_DIFF entries (accepted/disputed/reframed). This is the
+    counterpart to TestInitialDoorOmitsPathContractCitation in test_prompts.py.
+    """
+
+    def test_consensus_door_prompt_demands_path_contract_diff_citation(self) -> None:
+        prompt = format_door_consensus_prompt(
+            topic="Test", thread_id="2026-01-30-test", rejector="Wind", feedback="needs more rigor"
+        )
+        assert "PATH_CONTRACT_DIFF" in prompt
+        assert "accepted" in prompt
+        assert "disputed" in prompt
+        assert "reframed" in prompt
+
+    def test_consensus_door_prompt_includes_citation_syntax_example(self) -> None:
+        prompt = format_door_consensus_prompt(
+            topic="Test", thread_id="2026-01-30-test", rejector="Wall", feedback=None
+        )
+        # The bracketed citation syntax that lets a reader verify each claim.
+        assert "[path_N.accepted:" in prompt
+        assert "[path_N.disputed:" in prompt
+        assert "[path_N.reframed:" in prompt
+
+    def test_consensus_door_prompt_enforces_hard_fail_rule(self) -> None:
+        prompt = format_door_consensus_prompt(
+            topic="Test", thread_id="2026-01-30-test", rejector="Wind", feedback="x"
+        )
+        # The constraint-as-catalyst proof obligation.
+        assert "HARD_fail" in prompt
+        assert "terminal_rationale" in prompt
+
+    def test_consensus_door_prompt_includes_topic_thread_and_feedback(self) -> None:
+        prompt = format_door_consensus_prompt(
+            topic="Governance",
+            thread_id="2026-01-30-gov",
+            rejector="Wall",
+            feedback="risk surface incomplete",
+        )
+        assert "Governance" in prompt
+        assert "2026-01-30-gov" in prompt
+        assert "Wall" in prompt
+        assert "risk surface incomplete" in prompt
+
+    def test_consensus_door_prompt_handles_none_feedback(self) -> None:
+        prompt = format_door_consensus_prompt(
+            topic="Test", thread_id="2026-01-30-test", rejector="Wind", feedback=None
+        )
+        assert "No specific feedback provided." in prompt
+
+    def test_consensus_door_prompt_acknowledges_divergence_marker(self) -> None:
+        prompt = format_door_consensus_prompt(
+            topic="Test", thread_id="2026-01-30-test", rejector="Wind", feedback=None
+        )
+        # Door must know how to react to NO_NEW_DIVERGENCE rather than fabricating citations.
+        assert "NO_NEW_DIVERGENCE" in prompt
+        assert "divergence_marker" in prompt
+
+
+class TestWindConsensusSentinelIsJsonCompatible:
+    """RFC-0001 Fix 3: the NO_NEW_DIVERGENCE sentinel must be emitted in a
+    JSON-compatible form so it does not collide with the JSON path_contract.diff
+    output mandated elsewhere in the prompt. The schema-level signal is the
+    `divergence_marker` field on `DiffRevision` (RFC §3.1).
+    """
+
+    def test_wind_consensus_prompt_emits_sentinel_inside_json(self) -> None:
+        prompt = format_wind_approval_prompt(topic="Test", thread_id="2026-01-30-test")
+        # The schema field carries the sentinel; raw NO_NEW_DIVERGENCE without JSON
+        # framing is the bug being fixed.
+        assert "divergence_marker" in prompt
+        assert "NO_NEW_DIVERGENCE" in prompt
+
+    def test_wind_consensus_prompt_sentinel_block_parses_as_json(self) -> None:
+        """The example sentinel block in the prompt must be valid JSON when
+        extracted (after str.format brace-escaping is applied)."""
+        prompt = format_wind_approval_prompt(topic="Test", thread_id="2026-01-30-test")
+        # Locate a JSON object containing divergence_marker and ensure it parses.
+        # The prompt embeds the example with literal braces (already unescaped by f-string).
+        marker_idx = prompt.find('"divergence_marker"')
+        assert marker_idx != -1, "divergence_marker example missing from prompt"
+        # Walk back to the nearest '{' and forward to its matching '}' to extract the object.
+        start = prompt.rfind("{", 0, marker_idx)
+        depth = 0
+        end = -1
+        for i in range(start, len(prompt)):
+            ch = prompt[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        assert end != -1, "could not find balanced JSON object around divergence_marker"
+        snippet = prompt[start:end]
+        parsed = json.loads(snippet)
+        assert parsed["divergence_marker"] == "NO_NEW_DIVERGENCE"
+        assert parsed["accepted"] == []
+        assert parsed["disputed"] == []
+        assert parsed["reframed"] == []
+
+
+class TestWindConsensusSentinelGatedOnHardFail:
+    """RFC-0001 follow-up: Wind's NO_NEW_DIVERGENCE sentinel must be gated on
+    the absence of HARD_fail verdicts for the path. Otherwise it conflicts with
+    Door's HARD_fail coverage rule (Door cannot cite a reframed/accepted entry
+    that does not exist), violating the constraint-as-catalyst proof.
+    """
+
+    def test_wind_consensus_prompt_gates_sentinel_on_no_hard_fail(self) -> None:
+        """Sentinel instruction must explicitly require zero HARD_fail verdicts."""
+        prompt = format_wind_approval_prompt(topic="Test", thread_id="2026-01-30-test")
+        # The precondition language must be present in some form.
+        assert (
+            "no HARD_fail" in prompt
+        ), "Sentinel instruction must gate NO_NEW_DIVERGENCE on absence of HARD_fail verdicts"
+
+    def test_wind_consensus_prompt_forbids_sentinel_on_hard_fail_paths(self) -> None:
+        """Prompt must explicitly state that NO_NEW_DIVERGENCE is invalid for
+        any path with one or more HARD_fail verdicts."""
+        prompt = format_wind_approval_prompt(topic="Test", thread_id="2026-01-30-test")
+        # The counterpart prohibition must be present.
+        assert (
+            "INVALID for HARD_fail paths" in prompt
+        ), "Prompt must explicitly mark NO_NEW_DIVERGENCE as INVALID for HARD_fail paths"
