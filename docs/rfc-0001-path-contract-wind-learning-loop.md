@@ -3,7 +3,7 @@
 **Status**: Proposed (awaiting decision)
 **Date**: 2026-05-02
 **Branch**: `claude/review-debate-agent-flow-DzSFX`
-**Tracking**: [#195](https://github.com/elevanaltd/debate-hall-mcp/issues/195) (parent) — sub-issues [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196)–[#203](https://github.com/elevanaltd/debate-hall-mcp/issues/203)
+**Tracking**: [#195](https://github.com/elevanaltd/debate-hall-mcp/issues/195) (parent) — sub-issues [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196)–[#205](https://github.com/elevanaltd/debate-hall-mcp/issues/205)
 **Author**: Generated via meta-debate (Wind→Wall→Wind-Revise→Door) on the question itself
 
 ---
@@ -72,13 +72,16 @@ class InvariantVerdict(TypedDict):
     rationale: str
 
 class PathDiff(TypedDict):
-    accepted: list[InvariantEntry]   # invariant keys Wind accepts (with terminal_rationale if HARD_fail)
+    accepted: list[InvariantEntry]   # invariant keys Wind accepts; HARD_fail entries MUST set terminal_rationale
     disputed: list[InvariantEntry]   # SOFT keys Wind still pushes back on, with rationale
-    reframed: list[InvariantEntry]   # invariant keys whose reframing opens a new possibility
+    reframed: list[InvariantEntry]   # invariant keys whose reframing opens a new possibility (set new_possibility)
 
 class InvariantEntry(TypedDict):
     invariant: HardInvariant
     rationale: str
+    # Optional fields — variant-specific (NotRequired = absent unless populated by the owning category):
+    terminal_rationale: NotRequired[str]   # required on `accepted` items where the verdict was HARD_fail and no creative reframe is possible
+    new_possibility: NotRequired[str]      # required on `reframed` items — the catalyst-opened possibility this constraint reveals
 
 # Append-only revision wrappers — written exactly once each, by the owning role
 class FrameRevision(TypedDict):
@@ -98,6 +101,9 @@ class DiffRevision(TypedDict):
     written_at: datetime
     written_by: Literal["Wind"]             # consensus-phase Wind
     value: PathDiff
+    # Sentinel for paths Wind has nothing new to add. When set, `value` MUST contain
+    # empty accepted/disputed/reframed lists — divergence_marker is the only signal.
+    divergence_marker: NotRequired[Literal["NO_NEW_DIVERGENCE"]]
 
 class PathContract(TypedDict):
     path_id: str

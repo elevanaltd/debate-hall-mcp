@@ -177,7 +177,7 @@ META:
   ]
   SCHEMA_NOTE::ratified_per_HO_DECISION_GOVERNANCE_GRAVITY_TIERED_20260428_extends_HestAI_MCP_ADR_0060
 §9::REFERENCES
-  ADR_0060::"/Volumes/HestAI-MCP/docs/adr/adr-0060-rfc-adr-alignment.md"
+  ADR_0060::"HestAI-MCP/docs/adr/adr-0060-rfc-adr-alignment.md"
   VISIBILITY_RULES_V2_3::".hestai-sys/standards/rules/visibility-rules.oct.md"
   DEBATE_THREAD::"2026-04-28-decision-record-governance-for-01kqa2vb"
   ISSUE::"https://github.com/elevanaltd/elevana-studio/issues/633"

@@ -94,7 +94,7 @@ Five sections, one per debate. Each has:
 > 2. For each accepted HARD_fail, ask: "Given this is true, what new possibility opens up that I couldn't see before?"
 > 3. For SOFT_disputed entries, you may DISPUTE — but only if disputing opens a richer path.
 > 4. Emit `path_contract.diff` for each path: `{accepted: [...], disputed: [...], reframed: [...]}`, keyed to Wall's verdict entries by invariant name.
-> 5. If you genuinely have nothing new to add, emit `NO_NEW_DIVERGENCE` for that path. Honesty over performative ideation.
+> 5. If you genuinely have nothing new to add for a path, emit a JSON-compatible sentinel diff with empty lists and the `divergence_marker` field set: `{"path_id": "path_N", "accepted": [], "disputed": [], "reframed": [], "divergence_marker": "NO_NEW_DIVERGENCE"}`. Honesty over performative ideation. (The `divergence_marker` field on `DiffRevision` is the schema-level signal; see RFC §3.1.)
 
 #### Wind diff output
 

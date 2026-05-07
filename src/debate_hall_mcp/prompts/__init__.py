@@ -577,26 +577,84 @@ As Door, you bring LOGOS - convergent integration and structural synthesis:
 Do NOT simply average or compromise between positions.
 Your role is to INTEGRATE and create something that honors both while transcending the apparent conflict.
 
-[RFC-0001 — path_contract citation rule]
-Wind has emitted PATH_CONTRACT_FRAME blocks; Wall has emitted PATH_CONTRACT_VERDICT blocks;
-in the consensus phase Wind will emit PATH_CONTRACT_DIFF blocks containing accepted /
-disputed / reframed entries.
+[RFC-0001 — path_contract awareness, INITIAL synthesis]
+Wind has emitted PATH_CONTRACT_FRAME blocks; Wall has emitted PATH_CONTRACT_VERDICT blocks.
+At this initial synthesis turn, no PATH_CONTRACT_DIFF exists yet (Wind emits it later in the
+consensus phase). Read FRAME and VERDICT for context, but DO NOT cite or invent
+`accepted`/`disputed`/`reframed` entries — those become available only in the consensus
+refinement turn, where a separate synthesis prompt enforces the citation rule.
 
-Your synthesis must cite EVERY non-empty category (accepted / disputed / reframed) across
-the paths' contracts. If a category is empty for all paths, do NOT invent entries —
-instead briefly note its absence (e.g. "no constraints disputed; Wind accepted Wall's
-verdict in full").
+Respond using the OCTAVE response format defined in your system prompt."""
 
-Additional rule: when any path has a HARD_fail verdict in Wall's output, your synthesis
-must cite, for that path, EITHER a `reframed` entry that addresses the failure OR an
-`accepted` entry whose rationale explains why the failure is unreframeable. Silent
-omission is invalid — this is the constraint-as-catalyst proof.
+
+def format_door_consensus_prompt(
+    topic: str, thread_id: str, rejector: str, feedback: str | None
+) -> str:
+    """Format user prompt for Door (LOGOS) refinement in the CONSENSUS phase.
+
+    This is the consensus-phase Door synthesis prompt. Unlike
+    ``format_door_user_prompt`` (which produces the INITIAL synthesis before any
+    PATH_CONTRACT_DIFF exists), this prompt fires after Wind has emitted
+    PATH_CONTRACT_DIFF blocks during consensus review. It carries the full
+    RFC-0001 path_contract citation rule:
+
+    - cite every non-empty category (accepted / disputed / reframed) across paths
+    - when any path has HARD_fail, cite either a `reframed` entry or an
+      `accepted` entry whose `terminal_rationale` explains unreframeability
+    - reference contract entries inline as ``[path_N.accepted: <invariant>]``,
+      ``[path_N.disputed: <invariant>]``, ``[path_N.reframed: <invariant>]``
+
+    Args:
+        topic: The debate topic being synthesized
+        thread_id: Thread ID for state access (VTP)
+        rejector: The role that rejected (Wind or Wall)
+        feedback: Feedback from the rejector (may be None)
+
+    Returns:
+        Formatted user prompt for Door's consensus-phase refinement turn
+    """
+    feedback_text = feedback if feedback else "No specific feedback provided."
+    return f"""You are participating in a Wind/Wall/Door debate REFINEMENT PHASE (consensus).
+
+Topic: {topic}
+Thread ID: {thread_id}
+Your Role: Door (LOGOS) - Synthesis Refiner
+
+The current debate state is provided above in <DEBATE_STATE> tags.
+
+{rejector} has REJECTED your synthesis with the following feedback:
+{feedback_text}
+
+Your task: Refine your synthesis to address {rejector}'s concerns.
+
+As Door (LOGOS), create a refined synthesis that:
+- Addresses the specific feedback from {rejector}
+- Maintains integration of Wind's possibilities and Wall's constraints
+- Demonstrates how this refinement improves the emergent solution
+- Preserves concrete, actionable implementation steps
+
+[RFC-0001 — path_contract citation rule, CONSENSUS phase]
+Wind has now emitted PATH_CONTRACT_DIFF blocks containing accepted / disputed /
+reframed entries (in addition to the earlier PATH_CONTRACT_FRAME and PATH_CONTRACT_VERDICT
+blocks). Your refined synthesis must cite EVERY non-empty category (accepted /
+disputed / reframed) across the paths' contracts. If a category is empty for all
+paths, do NOT invent entries — instead briefly note its absence (e.g. "no constraints
+disputed; Wind accepted Wall's verdict in full").
+
+Additional rule: when any path has a HARD_fail verdict in Wall's output, your
+synthesis must cite, for that path, EITHER a `reframed` entry that addresses the
+failure OR an `accepted` entry whose `terminal_rationale` explains why the failure
+is unreframeable. Silent omission is invalid — this is the constraint-as-catalyst proof.
 
 Reference contract entries explicitly in your synthesis text using the form
 `[path_N.accepted: <invariant>]`, `[path_N.disputed: <invariant>]`, or
 `[path_N.reframed: <invariant>]` so a reader can verify the citation.
 
-Respond using the OCTAVE response format defined in your system prompt."""
+If a path's PATH_CONTRACT_DIFF carries `divergence_marker: NO_NEW_DIVERGENCE`,
+acknowledge it explicitly (e.g. "path_N had no new divergence; original frame stands")
+rather than fabricating citations for empty categories.
+
+Respond with your refined synthesis using the OCTAVE response format."""
 
 
 def format_wind_approval_prompt(topic: str, thread_id: str) -> str:
@@ -654,10 +712,21 @@ For EACH path, append a fenced JSON block labeled with a heading:
 }}
 ```
 
-If you genuinely have nothing new to add for a path, output:
+If you genuinely have nothing new to add for a path, emit a JSON-compatible sentinel
+diff with empty lists and the `divergence_marker` field set (this aligns with the
+`DiffRevision.divergence_marker` schema field in RFC-0001 §3.1):
 
 ### PATH_CONTRACT_DIFF (path_N)
-NO_NEW_DIVERGENCE — <one sentence on why>
+```json
+{{
+  "path_id": "path_N",
+  "accepted": [],
+  "disputed": [],
+  "reframed": [],
+  "divergence_marker": "NO_NEW_DIVERGENCE",
+  "rationale": "<one sentence on why no new possibility opens>"
+}}
+```
 
 Honesty over performative ideation.
 

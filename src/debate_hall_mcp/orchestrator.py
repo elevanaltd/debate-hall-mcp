@@ -49,6 +49,7 @@ from debate_hall_mcp.prompts import (
     RACI_CONSULTED_PROMPT,
     RACI_INFORMED_PROMPT,
     RACI_RESPONSIBLE_PROMPT,
+    format_door_consensus_prompt,
     format_door_user_prompt,
     format_raci_advice_prompt,
     format_raci_observation_prompt,
@@ -305,6 +306,12 @@ class DebateOrchestrator:
     ) -> str:
         """Create a prompt for Door to refine synthesis based on feedback.
 
+        Delegates to ``format_door_consensus_prompt`` (RFC-0001) which carries the
+        consensus-phase path_contract citation rule. This is the only place where
+        Door is asked to cite PATH_CONTRACT_DIFF entries; the initial Door prompt
+        (``format_door_user_prompt``) deliberately omits the citation rule because
+        no DIFF exists yet at that turn.
+
         Args:
             topic: The debate topic
             thread_id: Thread ID for state access
@@ -312,29 +319,9 @@ class DebateOrchestrator:
             feedback: Feedback from the rejector (may be None)
 
         Returns:
-            Formatted prompt for Door to refine synthesis
+            Formatted prompt for Door to refine synthesis (consensus phase)
         """
-        feedback_text = feedback if feedback else "No specific feedback provided."
-        return f"""You are participating in a Wind/Wall/Door debate REFINEMENT PHASE.
-
-Topic: {topic}
-Thread ID: {thread_id}
-Your Role: Door (LOGOS) - Synthesis Refiner
-
-The current debate state is provided above in <DEBATE_STATE> tags.
-
-{rejector} has REJECTED your synthesis with the following feedback:
-{feedback_text}
-
-Your task: Refine your synthesis to address {rejector}'s concerns.
-
-As Door (LOGOS), create a refined synthesis that:
-- Addresses the specific feedback from {rejector}
-- Maintains integration of Wind's possibilities and Wall's constraints
-- Demonstrates how this refinement improves the emergent solution
-- Preserves concrete, actionable implementation steps
-
-Respond with your refined synthesis using the OCTAVE response format."""
+        return format_door_consensus_prompt(topic, thread_id, rejector, feedback)
 
     async def _execute_role_turn(
         self,
