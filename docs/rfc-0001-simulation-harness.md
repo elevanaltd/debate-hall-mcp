@@ -94,7 +94,9 @@ Five sections, one per debate. Each has:
 > 2. For each accepted HARD_fail, ask: "Given this is true, what new possibility opens up that I couldn't see before?"
 > 3. For SOFT_disputed entries, you may DISPUTE — but only if disputing opens a richer path.
 > 4. Emit `path_contract.diff` for each path: `{accepted: [...], disputed: [...], reframed: [...]}`, keyed to Wall's verdict entries by invariant name.
-> 5. If you genuinely have nothing new to add for a path, emit a JSON-compatible sentinel diff with empty lists and the `divergence_marker` field set: `{"path_id": "path_N", "accepted": [], "disputed": [], "reframed": [], "divergence_marker": "NO_NEW_DIVERGENCE"}`. Honesty over performative ideation. (The `divergence_marker` field on `DiffRevision` is the schema-level signal; see RFC §3.1.)
+> 5. If a path has **no HARD_fail verdicts** and you genuinely have nothing new to add, emit a JSON-compatible sentinel diff with empty lists and the `divergence_marker` field set: `{"path_id": "path_N", "accepted": [], "disputed": [], "reframed": [], "divergence_marker": "NO_NEW_DIVERGENCE"}`. Honesty over performative ideation. (The `divergence_marker` field on `DiffRevision` is the schema-level signal; see RFC §3.1.)
+>
+> **REQUIRED CONTENT RULE**: For any path with one or more `HARD_fail` verdicts, `NO_NEW_DIVERGENCE` is INVALID. You MUST produce a real diff — either an `accepted` entry with `terminal_rationale` explaining why the failure is unreframeable, OR a `reframed` entry with `new_possibility` that addresses the failure. The sentinel cannot substitute for constraint-as-catalyst proof on HARD_fail paths.
 
 #### Wind diff output
 
