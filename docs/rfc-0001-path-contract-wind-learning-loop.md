@@ -217,7 +217,7 @@ Add to the existing Wind prompt:
 > - `assumed_problem`: the version of the problem this path addresses
 > - `success_criterion`: how we'd know this path worked
 > - `accepted_failure_mode`: what this path explicitly trades away
-> - `hard_invariants_touched`: from this enum: {halting, single_wall_coherence, re_approval, per_turn_role_contract}
+> - `invariants_touched`: topic-specific snake_case names, semantically distinct per orthogonal concern (per §3.1 naming convention). Wall will assign verdicts on these and may add invariants you didn't flag.
 
 ### 5.2 Wall prompt (`prompts/__init__.py:468`)
 
@@ -321,7 +321,7 @@ Otherwise iterate prompts or revert.
 
 All five originally-open questions are now decided.
 
-1. **`hard_invariants_touched`**: **closed enum** (no free-text invariant IDs anywhere). Locks Wall and Wind into a shared vocabulary; ownership rule §3.1 enforces it.
+1. **`hard_invariants_touched`**: ~~**closed enum** (no free-text invariant IDs anywhere). Locks Wall and Wind into a shared vocabulary; ownership rule §3.1 enforces it.~~ **Superseded 2026-05-16 by amendment §3.3 Finding A** based on #204 simulation evidence (4/5 agents independently surfaced that real Wall verdicts are topic-shaped, not flow-shaped). Field renamed to `invariants_touched`; type is now `Invariant = str` with a naming-convention placing the shared-vocabulary discipline on Wall. The original decision's intent (preventing cross-debate vocabulary drift) is preserved via the naming convention rather than via enum closure.
 2. **Door citation rule**: **prompt-only enforcement** for v1. The conditional rule in §5.4 (cite every non-empty category; reframe-or-terminal-accepted only when HARD_fail exists) goes in the prompt; the orchestrator's citation-existence check (§6) catches hallucinated citations as validator-failure events. If post-hoc telemetry shows Door cheating frequently, add a strict validator in v2.
 3. **Token-budget ceiling for `path_contract`**: **5–10k tokens per path** is acceptable. Current models run 200k–1M context; a worst-case ~30k tokens of contract state (3 paths × 10k) is a small fraction of context and a fair price for provenance. No truncation policy in v1.
 4. **A/B test corpus**: **~70/30 replay/fresh**, ~20–50 topics total (per RFC §7.2).
@@ -371,7 +371,7 @@ References:
 
 | # | Task | Issue |
 |---|---|---|
-| 1 | Schema + types — append-only revision history per field; closed enum for invariant IDs; ownership rules (Wind→frame/diff, Wall→verdict, Door read-only) | [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196) |
+| 1 | Schema + types — append-only revision history per field; `Invariant = str` with Wall-discipline naming convention per §3.1 and §3.3 Finding A; ownership rules (Wind→frame/diff, Wall→verdict, Door read-only) | [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196) |
 | 2 | State serialization — extend `state.py` to persist `PathContract` history; backward-compatible read of pre-RFC state | [#197](https://github.com/elevanaltd/debate-hall-mcp/issues/197) |
 | 3 | Prompt updates — four templates in `prompts/__init__.py`; Door's citation rule is **conditional** per §5.4 (cite every non-empty category; require reframed-or-terminal-accepted only when HARD_fail exists) | [#198](https://github.com/elevanaltd/debate-hall-mcp/issues/198) |
 | 4 | Context compiler — inject `<PATH_CONTRACTS>` showing latest revision per field plus revision counts | [#199](https://github.com/elevanaltd/debate-hall-mcp/issues/199) |
