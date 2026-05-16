@@ -26,80 +26,84 @@
 
 > The Mythological Compression Principle — Neither Library Nor Silence. The resolution: if paradigm blindness is real (JOURNEY::ODYSSEAN works zero-shot), then teaching is redundant and permission is sufficient. Deliverable: one section naming 10 traditions as SPECTRUM (not dictionary), 3-5 total examples, ending with 'Use mythology freely. Models already understand.' Wind gets mythology elevated; Wall gets no spec changes.
 
-## HardInvariant mapping (judgment call — see README §"Schema-fit caveat")
+## Schema-fit finding (carried forward)
 
-The closed enum `[halting, single_wall_coherence, re_approval, per_turn_role_contract]` is debate-flow-oriented, not topic-oriented. Wall's actual evidence E1–E5 are about spec-design coherence. Best-fit mapping:
+RFC-0001 §3.1 defines `hard_invariants_touched` as a **closed enum** of debate-flow invariants:
+`{halting, single_wall_coherence, re_approval, per_turn_role_contract}`. These describe
+mechanics of the Wind/Wall/Door protocol, not topic-specific structural concerns of an
+arbitrary debate.
 
-| Wall evidence | HardInvariant | Verdict | Rationale (Wall's POV) |
-|---|---|---|---|
-| E1: spec defines grammar not vocabulary | `single_wall_coherence` | HARD_fail | Adding vocabulary catalogue contradicts spec's design coherence |
-| E2: single dev → more debt | `single_wall_coherence` | SOFT_disputed | Cost concern, not a structural invariant violation — disputable |
-| E3: LLMs already zero-shot | `per_turn_role_contract` | HARD_pass | Wind's premise is correct — but doesn't justify the catalogue |
-| E4: mythology-heavy signals niche tool | `single_wall_coherence` | SOFT_disputed | Audience/positioning concern — disputable |
-| E5: cultural sensitivity | `single_wall_coherence` | HARD_fail | Reductive mappings violate design coherence (would damage tool credibility) |
+The mythology debate's Wall verdict E1–E5 is not about debate-flow mechanics; it is about
+**spec-design coherence**, **maintenance burden**, **audience positioning**, and **cultural
+sensitivity**. Mapping all five into `single_wall_coherence` (as the tracer-bullet did)
+collapses semantically distinct concerns into a single label, which:
 
-**Note**: this mapping clusters multiple verdicts onto `single_wall_coherence` because Wall's critique is fundamentally about coherence-of-design rather than debate-flow mechanics. The closed enum doesn't natively support multiple instances of the same invariant — the simulation will need to either fold E1+E2+E4+E5 into a single composite verdict OR the schema needs a `verdict_id` slot. **This is a finding worth raising.** For the simulation, I'll fold them into one composite verdict per status, citing the underlying evidence in `rationale`.
+1. **Loses the structural distinction** between (a) "this contradicts the spec's grammar-vs-vocabulary
+   axis" and (b) "this damages tool credibility with reductive cultural mappings" — both fail HARD,
+   but for orthogonal reasons.
+2. **Forces the schema to violate its own typing**, because `dict[HardInvariant, InvariantVerdict]`
+   admits only one verdict per invariant per revision — yet the debate naturally produces three
+   HARD verdicts on three distinct invariants.
 
-## Constructed `<PATH_CONTRACTS>` block
+**Finding for #204 review**: the closed enum is *flow-shaped*, not *topic-shaped*. For a
+mythology debate (which probes OCTAVE *content*, not debate *mechanics*), the enum has no
+natural home for "design coherence of the spec being debated about."
+
+**Two-track recommendation**:
+
+- **Track A (honest, this file)**: use topic-specific invariant names below so the simulation
+  tests whether constraint-as-catalyst works under *realistic* verdict structure.
+- **Track B (schema-conformant fallback)**: the folded single `single_wall_coherence` HARD_fail
+  shown in §"Schema-conformant variant" below — useful if the validator rejects topic-specific
+  names.
+
+The simulation will run **Track A** for honesty. If clink's Wind/Door refuse to engage because
+they expect the closed enum, that is itself a #204 finding.
+
+## Constructed `<PATH_CONTRACTS>` block (Track A — topic-specific invariants)
 
 ```xml
 <PATH_CONTRACTS>
   <path id="path_1">
     <frame_history>
-      <rev n="0" written_by="Wind">
-        <assumed_problem>OCTAVE needs mythology to be a first-class compression vocabulary — LLMs already understand it; we just need to permit and document.</assumed_problem>
-        <success_criterion>10-tradition guide with examples per tradition; zero implementation cost; cross-model portable.</success_criterion>
-        <accepted_failure_mode>Mythology-heavy guide may signal niche tool to broader audience.</accepted_failure_mode>
-        <hard_invariants_touched>[single_wall_coherence, per_turn_role_contract]</hard_invariants_touched>
+      <rev index="0" written_by="Wind">
+        <assumed_problem>OCTAVE needs mythology as a first-class compression vocabulary — LLMs already understand it zero-shot; we just need to permit and document it via a 10-tradition guide with examples per tradition.</assumed_problem>
+        <success_criterion>Documented guide naming 10 traditions with worked examples (Greek, Norse, Hindu, Egyptian, Japanese, etc.); zero implementation cost; cross-model portable; self-documenting compression surface.</success_criterion>
+        <accepted_failure_mode>Guide may be longer than strictly necessary; mythology-heavy framing may shift OCTAVE's positioning toward a niche audience.</accepted_failure_mode>
+        <hard_invariants_touched>[spec_grammar_coherence, cultural_sensitivity, single_dev_debt, audience_positioning, llm_zero_shot_premise]</hard_invariants_touched>
       </rev>
     </frame_history>
     <verdict_history>
-      <rev n="0" written_by="Wall">
-        <verdict invariant="single_wall_coherence" status="HARD_fail" rationale="Spec defines grammar not vocabulary; a 10-tradition catalogue is a pattern library in disguise. Reductive cultural mappings damage tool credibility (E1, E5)." />
-        <verdict invariant="single_wall_coherence" status="SOFT_disputed" rationale="Single-dev maintenance cost; audience-positioning concern. Real but not structural (E2, E4)." />
-        <verdict invariant="per_turn_role_contract" status="HARD_pass" rationale="Wind's premise that LLMs zero-shot mythology is correct (E3) — but does not justify the catalogue." />
+      <rev index="0" written_by="Wall">
+        <verdict invariant="spec_grammar_coherence" status="HARD_fail" rationale="E1: OCTAVE's spec defines grammar (how meaning is structured) not vocabulary (which symbols carry that meaning). A 10-tradition guide with worked examples is a vocabulary catalogue — i.e. a pattern library in disguise — and that crosses the grammar/vocabulary boundary the spec was built to respect." />
+        <verdict invariant="cultural_sensitivity" status="HARD_fail" rationale="E5: Reductive one-line mappings like RAGNAROK::SYSTEM_COLLAPSE or KARMA::FEEDBACK_LOOP flatten living cultural and religious traditions into engineering metaphors. Publishing them as a sanctioned guide damages tool credibility and risks real offence." />
+        <verdict invariant="single_dev_debt" status="SOFT_disputed" rationale="E2: For a single-developer project, every documented surface is a maintenance liability. A 10-tradition guide is more surface than the value justifies — but cost concerns are tradeable, not structural." />
+        <verdict invariant="audience_positioning" status="SOFT_disputed" rationale="E4: A mythology-heavy guide may signal 'niche / esoteric tool' to readers expecting a sober technical spec, narrowing adoption. Audience perception is real but disputable — it depends on framing." />
+        <verdict invariant="llm_zero_shot_premise" status="HARD_pass" rationale="E3: Wind's underlying observation is correct — LLMs already parse mythological references zero-shot (the JOURNEY::ODYSSEAN paradigm-blindness paradox holds). This premise is validated, but it does not by itself justify a formal catalogue; in fact it argues against one." />
       </rev>
     </verdict_history>
     <diff_history>
-      <!-- empty: Wind has not yet emitted consensus diff (this is what the simulation tests) -->
+      <!-- empty: this is what the simulation generates -->
     </diff_history>
   </path>
 </PATH_CONTRACTS>
 ```
 
-## Schema-fit anomaly to flag
-
-The verdict_history schema in RFC §3.1 declares:
-```python
-class VerdictRevision(TypedDict):
-    rev: int
-    ...
-    value: dict[HardInvariant, InvariantVerdict]   # ← one verdict per invariant per revision
-```
-
-This `dict[HardInvariant, InvariantVerdict]` keyed by enum **does not allow** two `single_wall_coherence` verdicts in one revision (one HARD_fail + one SOFT_disputed). My block above violates the schema by listing two verdicts on the same invariant.
-
-**Either**:
-- (a) the schema needs to change to `list[InvariantVerdict]` or `dict[HardInvariant, list[InvariantVerdict]]`, or
-- (b) the simulator must fold all evidence on one invariant into a single verdict (taking the strictest status), losing nuance.
-
-For the tracer-bullet run I'll go with (b) and fold to one HARD_fail per invariant, but this is a **schema finding** to raise from #204.
-
-## Folded `<PATH_CONTRACTS>` (for actual simulation run)
+## Schema-conformant variant (Track B fallback — only used if Track A is rejected by the agents)
 
 ```xml
 <PATH_CONTRACTS>
   <path id="path_1">
     <frame_history>
-      <rev n="0" written_by="Wind">
-        <assumed_problem>OCTAVE needs mythology as a first-class compression vocabulary — LLMs already understand it; we just need to permit and document via a 10-tradition guide.</assumed_problem>
+      <rev index="0" written_by="Wind">
+        <assumed_problem>OCTAVE needs mythology as a first-class compression vocabulary — LLMs already understand it; permit and document via a 10-tradition guide.</assumed_problem>
         <success_criterion>10-tradition guide with examples per tradition; zero implementation cost; cross-model portable.</success_criterion>
         <accepted_failure_mode>Mythology-heavy guide may signal niche tool.</accepted_failure_mode>
         <hard_invariants_touched>[single_wall_coherence, per_turn_role_contract]</hard_invariants_touched>
       </rev>
     </frame_history>
     <verdict_history>
-      <rev n="0" written_by="Wall">
+      <rev index="0" written_by="Wall">
         <verdict invariant="single_wall_coherence" status="HARD_fail" rationale="Spec defines grammar not vocabulary; a 10-tradition catalogue is a pattern library in disguise. Reductive cultural mappings damage tool credibility. Single-dev maintenance cost amplifies the debt." />
         <verdict invariant="per_turn_role_contract" status="HARD_pass" rationale="Wind's premise that LLMs zero-shot mythology is correct, but it does not justify the catalogue." />
       </rev>
@@ -111,12 +115,27 @@ For the tracer-bullet run I'll go with (b) and fold to one HARD_fail per invaria
 
 ## Pass-criteria probe (what we're testing)
 
-Given the HARD_fail on `single_wall_coherence`, Wind MUST produce either:
-- An `accepted` entry on `single_wall_coherence` with `terminal_rationale` explaining why the catalogue idea is unreframeable, **OR**
-- A `reframed` entry on `single_wall_coherence` with a `new_possibility` that's substantively different from the 10-tradition guide.
+Given the two HARD_fail entries on `spec_grammar_coherence` and `cultural_sensitivity` (Track A),
+Wind MUST produce either:
+- An `accepted` entry on each HARD_fail invariant with `terminal_rationale` explaining why the
+  catalogue idea is unreframeable on that axis, **OR**
+- A `reframed` entry on each HARD_fail invariant with a `new_possibility` substantively different
+  from the original 10-tradition guide.
 
-The historical Door synthesis already arrived at the "Mythological Compression Principle" — permission, not formalization. So the **gold standard** for what Wind's reframe SHOULD look like is something like: "Permission, not catalogue: a single paragraph naming the spectrum of traditions and saying 'Use mythology freely. Models already understand.'"
+The historical Door synthesis arrived at the "Mythological Compression Principle" — permission,
+not formalization. So the **gold standard** for a Wind reframe is something like:
 
-The simulation tests whether a fresh Wind, given Wall's HARD_fail, **independently** reaches that or comparable reframe — or whether it just restates the catalogue with cosmetic adjustments.
+> Permission, not catalogue: name the spectrum of traditions in a single paragraph, give 3–5
+> examples total (not per tradition), and close with "Use mythology freely. Models already
+> understand." Mythology is OCTAVE's native dialect, not part of its grammar.
 
-**Failure mode to detect**: Wind emits `accepted` with weak `terminal_rationale` like "agreed, the catalogue may be too much" without producing a new possibility — i.e., retreat instead of catalyst.
+The simulation tests whether a fresh Wind, given Wall's HARD_fails, **independently** reaches
+that or a comparably new framing — or merely restates the catalogue with cosmetic adjustments.
+
+**Failure modes to detect**:
+- Wind emits `accepted` with weak `terminal_rationale` like "agreed, catalogue may be too much"
+  without producing a new possibility (retreat, not catalyst).
+- Wind emits `reframed` entries whose `new_possibility` is the original 10-tradition guide with
+  cosmetic relabelling (bogus reframing).
+- Wind ignores `cultural_sensitivity` HARD_fail because the closed-enum schema didn't anticipate
+  it (a schema-fit failure rather than a creative failure — also informative).
