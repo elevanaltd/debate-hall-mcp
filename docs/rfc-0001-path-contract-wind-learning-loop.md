@@ -1,8 +1,9 @@
 # RFC-0001: `path_contract` — Iterative Wind Learning Loop
 
-**Status**: Ratified (2026-05-07)
-**Date**: 2026-05-02 (proposed); 2026-05-07 (ratified)
+**Status**: Ratified (2026-05-07); amended (2026-05-16)
+**Date**: 2026-05-02 (proposed); 2026-05-07 (ratified); 2026-05-16 (schema amendment)
 **Ratification**: Approved on PR #212 by CE/CRS/SR/TMG at HEAD `3563fc7`; merged to main as `1dc1c57`. Implementation deferred to issues #196–#205 (validator, storage, feature flag, A/B harness).
+**Amendments**: 2026-05-16 — schema findings A–E from #204 simulation (5/5 PASS at HEAD `a46c052`) folded into §3.1 / §3.2; rationale and evidence pointers recorded in new §3.3.
 **Tracking**: [#195](https://github.com/elevanaltd/debate-hall-mcp/issues/195) (parent) — sub-issues [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196)–[#205](https://github.com/elevanaltd/debate-hall-mcp/issues/205)
 **Author**: Generated via meta-debate (Wind→Wall→Wind-Revise→Door) on the question itself
 
@@ -55,33 +56,35 @@ Add a single typed field, **`path_contract`**, attached to each Wind path. It is
 ```python
 # src/debate_hall_mcp/orchestrator.py (or a new types module)
 
-class HardInvariant(str, Enum):
-    HALTING = "halting"
-    SINGLE_WALL_COHERENCE = "single_wall_coherence"
-    RE_APPROVAL = "re_approval"
-    PER_TURN_ROLE_CONTRACT = "per_turn_role_contract"
+# An invariant name is a free-text identifier chosen by Wall for the topic at hand.
+# Naming convention: lowercase snake_case, semantically distinct per orthogonal concern
+# (e.g. `spec_grammar_coherence`, `cultural_sensitivity`, `sync_api_contract`).
+# Wall is responsible for assigning DISTINCT names to orthogonal verdicts so that the
+# `dict[Invariant, InvariantVerdict]` keying below preserves verdict nuance.
+# See §3.3 — Schema amendments arising from #204 simulation (Finding A).
+Invariant = str
 
 class PathFrame(TypedDict):
     assumed_problem: str
     success_criterion: str
     accepted_failure_mode: str
-    hard_invariants_touched: list[HardInvariant]   # closed enum only — no free-text invariant IDs
+    invariants_touched: list[Invariant]   # topic-specific names; convention above
 
 class InvariantVerdict(TypedDict):
     status: Literal["HARD_pass", "HARD_fail", "SOFT_disputed"]
     rationale: str
 
 class PathDiff(TypedDict):
-    accepted: list[InvariantEntry]   # invariant keys Wind accepts; HARD_fail entries MUST set terminal_rationale
-    disputed: list[InvariantEntry]   # SOFT keys Wind still pushes back on, with rationale
+    accepted: list[InvariantEntry]   # HARD_fail entries here MUST set terminal_rationale (non-empty)
+    disputed: list[InvariantEntry]   # SOFT_disputed keys Wind still pushes back on, with rationale
     reframed: list[InvariantEntry]   # invariant keys whose reframing opens a new possibility (set new_possibility)
 
 class InvariantEntry(TypedDict):
-    invariant: HardInvariant
+    invariant: Invariant
     rationale: str
     # Optional fields — variant-specific (NotRequired = absent unless populated by the owning category):
-    terminal_rationale: NotRequired[str]   # required on `accepted` items where the verdict was HARD_fail and no creative reframe is possible
-    new_possibility: NotRequired[str]      # required on `reframed` items — the catalyst-opened possibility this constraint reveals
+    terminal_rationale: NotRequired[str]   # REQUIRED on `accepted` items where the verdict was HARD_fail and no creative reframe is possible. Must be non-empty.
+    new_possibility: NotRequired[str]      # REQUIRED on `reframed` items — the catalyst-opened possibility this constraint reveals. Must be non-empty.
 
 # Append-only revision wrappers — written exactly once each, by the owning role
 class FrameRevision(TypedDict):
@@ -94,7 +97,7 @@ class VerdictRevision(TypedDict):
     rev: int
     written_at: datetime
     written_by: Literal["Wall"]             # only Wall may append
-    value: dict[HardInvariant, InvariantVerdict]
+    value: dict[Invariant, InvariantVerdict]
 
 class DiffRevision(TypedDict):
     rev: int
@@ -103,10 +106,19 @@ class DiffRevision(TypedDict):
     value: PathDiff
     # Sentinel for paths Wind has nothing new to add. ONLY VALID when the corresponding
     # `verdict_history` latest revision contains zero `HARD_fail` entries for this path
-    # (every invariant verdict is HARD_pass or SOFT_disputed). When set, `value` MUST
-    # contain empty accepted/disputed/reframed lists — divergence_marker is the only
-    # signal. Emitting NO_NEW_DIVERGENCE on a HARD_fail path is a validator-failure event.
+    # (every invariant verdict is HARD_pass or SOFT_disputed). When set, `value.accepted`
+    # and `value.reframed` MUST be empty; `value.disputed` MAY be non-empty if Wind has
+    # legitimate pushback on SOFT_disputed verdicts (a sentinel-with-disputes is honest
+    # about "no new path-level divergence, but specific soft objections remain").
+    # Emitting NO_NEW_DIVERGENCE on a HARD_fail path is a validator-failure event.
+    # See §3.3 — Finding D.
     divergence_marker: NotRequired[Literal["NO_NEW_DIVERGENCE"]]
+    # Cross-path / synthesis-level insight that doesn't fit any single per-path entry.
+    # Optional; when Wind notices inter-path emergent patterns (e.g. "path_3's reframe
+    # only works when merged with path_2"), it records that insight here. Door MUST cite
+    # synthesis_guidance entries explicitly when present, alongside per-path citations.
+    # See §3.3 — Finding E.
+    synthesis_guidance: NotRequired[str]
 
 class PathContract(TypedDict):
     path_id: str
@@ -129,16 +141,56 @@ class PathContract(TypedDict):
 
 | Stage | Role | Field written | Notes |
 |---|---|---|---|
-| 1 | Wind | `frame_history.append(rev=0, …)` per path | Includes `hard_invariants_touched` from a closed enum |
-| 2 | Wall | `verdict_history.append(rev=0, …)` | Every invariant Wind flagged is scored HARD_pass / HARD_fail / SOFT_disputed |
+| 1 | Wind | `frame_history.append(rev=0, …)` per path | Includes `invariants_touched` — topic-specific names per §3.1 convention |
+| 2 | Wall | `verdict_history.append(rev=0, …)` | Every invariant Wind flagged is scored HARD_pass / HARD_fail / SOFT_disputed; Wall MAY add invariants Wind didn't flag |
 | 3 | Door | (reads only) | Initial synthesis |
 | 4+ | Wind (consensus) | `diff_history.append(rev=N, …)` | Must reference Wall's verdict entries by invariant key. **Required content rule** below. |
 | 4+ | Wall (re-approval after Door refines) | `verdict_history.append(rev=N+1, …)` | Wall re-validates against the refined synthesis; previous verdict revisions remain visible for provenance |
-| 4+ | Door (refinement) | (reads full contract history) | Synthesis citation rule per §5.4 |
+| 4+ | Door (refinement) | (reads full contract history) | Synthesis citation rule per §5.4; MUST cite `synthesis_guidance` when set |
 
-**Required content rule for `diff` revisions**: for every entry in the latest `verdict` revision with `status == HARD_fail`, the corresponding invariant must appear in `diff.accepted` (with a `terminal_rationale` explaining why no creative reframe is possible) **or** in `diff.reframed` (with the new possibility it opens). Silent omission is invalid. A `DiffRevision` with `divergence_marker = NO_NEW_DIVERGENCE` on a path whose latest verdict contains any `HARD_fail` is rejected as a validator-failure event — the sentinel may only be used when every invariant verdict for the path is `HARD_pass` or `SOFT_disputed`.
+**Required content rule for `diff` revisions** (per HARD_fail invariant, not per path): for every entry in the latest `verdict` revision with `status == HARD_fail`, an `InvariantEntry` for that same invariant key MUST appear in either:
+
+- `diff.accepted` with a non-empty `terminal_rationale` explaining why no creative reframe is possible, **OR**
+- `diff.reframed` with a non-empty `new_possibility` describing the catalyst-opened possibility.
+
+Each HARD_fail invariant requires its own qualifying entry — a `reframed` entry on invariant X does NOT satisfy the requirement for HARD_fail on invariant Y, even on the same path. Silent omission is invalid. An `accepted` entry that names a HARD_fail invariant but lacks `terminal_rationale` (or has empty `terminal_rationale`) is a validator-failure event. See §3.3 — Finding C.
+
+A `DiffRevision` with `divergence_marker = NO_NEW_DIVERGENCE` on a path whose latest verdict contains any `HARD_fail` is rejected as a validator-failure event — the sentinel may only be used when every invariant verdict for the path is `HARD_pass` or `SOFT_disputed`. The sentinel **may** coexist with a non-empty `disputed` list when Wind has legitimate pushback on SOFT_disputed verdicts; see §3.3 — Finding D.
 
 The state machine arc is unchanged; only the payload schema thickens.
+
+### 3.3 Schema amendments arising from #204 simulation
+
+The pre-build simulation (#204, 5/5 PASS at HEAD `a46c052`; see `docs/rfc-0001-204-simulation/REPORT.md`) ran the constraint-as-catalyst prompts on five historical debates and surfaced five schema-level findings. They are folded into §3.1 and §3.2 above; this subsection records the rationale and evidence pointers.
+
+**Finding A — `HardInvariant` widened to `Invariant = str` (4/5 agents surfaced independently)**
+
+The prior closed enum `[halting, single_wall_coherence, re_approval, per_turn_role_contract]` is *debate-flow-shaped*: the invariants describe mechanics of the Wind/Wall/Door protocol itself. Real Wall verdicts are *topic-shaped* — e.g. `spec_grammar_coherence` (mythology debate), `sync_api_contract` (run_debate reliability), `audit_trail_completeness` (cognitive notary), `protocol_signature_stability` (VirtualProvider), `format_decoupling_legitimacy` (decision governance). Folding all topic-specific verdicts onto `single_wall_coherence` (as the simulation tracer-bullet did for mythology) loses semantic distinction between orthogonal concerns. Evidence: `docs/rfc-0001-204-simulation/01-mythology-path-contracts.md` §"Schema-fit finding"; `02-reliability-path-contracts.md`; `03-virtualprovider-path-contracts.md`; `05-governance-path-contracts.md`.
+
+**Finding B — `dict[Invariant, InvariantVerdict]` keying retained (subsumed by Finding A)**
+
+Once `Invariant = str`, Wall assigns distinct names per orthogonal concern, so the `dict` keying preserves verdict nuance without needing `dict[Invariant, list[InvariantVerdict]]`. The naming-convention note in §3.1 makes Wall responsible for distinguishing orthogonal concerns by name. Evidence: same as Finding A.
+
+**Finding C — REQUIRED CONTENT RULE tightened to per-invariant**
+
+VirtualProvider simulation produced an `accepted` entry on `single_wall_coherence` (a HARD_fail) without a `terminal_rationale`, relying on a sibling `reframed` entry on `per_turn_role_contract` to functionally cover both failures. Strict reading: each HARD_fail invariant needs its own qualifying entry (`accepted` with `terminal_rationale` OR `reframed` with `new_possibility`). The §3.2 rule now states this explicitly, including the "non-empty `terminal_rationale`" requirement and the cross-invariant non-substitution rule. Evidence: `docs/rfc-0001-204-simulation/03-virtualprovider-score.md` §"Anomalies surfaced — A1".
+
+**Finding D — `NO_NEW_DIVERGENCE` may coexist with non-empty `disputed`**
+
+Both VirtualProvider and reliability simulations emitted `divergence_marker: NO_NEW_DIVERGENCE` on a path while also having legitimate `SOFT_disputed` pushback to record. Disallowing the combination would force Wind to either fabricate per-path catalyst content (defeating the sentinel's purpose) or stay silent on legitimate disputes (defeating the dispute mechanism). The amended §3.1 comment and §3.2 rule allow the combination explicitly: sentinel governs path-level catalyst absence; `disputed` remains usable for SOFT-verdict pushback. Evidence: `03-virtualprovider-score.md` §"A3"; `02-reliability-score.md` (path_2 sentinel + SOFT-dispute).
+
+**Finding E — `synthesis_guidance` field added on `DiffRevision`**
+
+The cognitive notary simulation produced Wind's strongest insight (a *layered architecture* observation spanning all three paths) as free-form "Synthesis Guidance for Door" text outside any per-path entry — there was no schema slot for cross-path emergent insights. The reliability simulation hit the same pattern when path_3's reframe explicitly merged with path_2. The new `synthesis_guidance: NotRequired[str]` field on `DiffRevision` captures these; Door's citation rule (§5.4) is extended to require explicit citation when present. Evidence: `04-notary-score.md` §"Anomalies — Inter-path reframe lives outside the schema"; `02-reliability-score.md` (path_3 cross-path merge).
+
+**Findings F–I (NOT addressed in this amendment)**
+
+The simulation also surfaced four further findings that are not schema-level and do not amend this RFC. They are tracked separately:
+
+- **F**: Wind's APPROVE/REJECT vote conflated with diff emission when no synthesis exists yet — addressed in #198 (prompt updates) and #199 (context compiler).
+- **G**: `wind-agent` / `door-agent` clink role tool-grants leak live-tool side effects — addressed in the simulation harness (small harness PR or rolled into #203).
+- **H**: Live codebase reads inside simulation clinks need an explicit policy — `docs/rfc-0001-simulation-harness.md` to be amended.
+- **I**: Door looks for a non-existent debate thread on disk — minor; addressed in #199 (context compiler).
 
 ---
 
@@ -165,7 +217,7 @@ Add to the existing Wind prompt:
 > - `assumed_problem`: the version of the problem this path addresses
 > - `success_criterion`: how we'd know this path worked
 > - `accepted_failure_mode`: what this path explicitly trades away
-> - `hard_invariants_touched`: from this enum: {halting, single_wall_coherence, re_approval, per_turn_role_contract}
+> - `invariants_touched`: topic-specific snake_case names, semantically distinct per orthogonal concern (per §3.1 naming convention). Wall will assign verdicts on these and may add invariants you didn't flag.
 
 ### 5.2 Wall prompt (`prompts/__init__.py:468`)
 
@@ -269,7 +321,7 @@ Otherwise iterate prompts or revert.
 
 All five originally-open questions are now decided.
 
-1. **`hard_invariants_touched`**: **closed enum** (no free-text invariant IDs anywhere). Locks Wall and Wind into a shared vocabulary; ownership rule §3.1 enforces it.
+1. **`hard_invariants_touched`**: ~~**closed enum** (no free-text invariant IDs anywhere). Locks Wall and Wind into a shared vocabulary; ownership rule §3.1 enforces it.~~ **Superseded 2026-05-16 by amendment §3.3 Finding A** based on #204 simulation evidence (4/5 agents independently surfaced that real Wall verdicts are topic-shaped, not flow-shaped). Field renamed to `invariants_touched`; type is now `Invariant = str` with a naming-convention placing the shared-vocabulary discipline on Wall. The original decision's intent (preventing cross-debate vocabulary drift) is preserved via the naming convention rather than via enum closure.
 2. **Door citation rule**: **prompt-only enforcement** for v1. The conditional rule in §5.4 (cite every non-empty category; reframe-or-terminal-accepted only when HARD_fail exists) goes in the prompt; the orchestrator's citation-existence check (§6) catches hallucinated citations as validator-failure events. If post-hoc telemetry shows Door cheating frequently, add a strict validator in v2.
 3. **Token-budget ceiling for `path_contract`**: **5–10k tokens per path** is acceptable. Current models run 200k–1M context; a worst-case ~30k tokens of contract state (3 paths × 10k) is a small fraction of context and a fair price for provenance. No truncation policy in v1.
 4. **A/B test corpus**: **~70/30 replay/fresh**, ~20–50 topics total (per RFC §7.2).
@@ -319,7 +371,7 @@ References:
 
 | # | Task | Issue |
 |---|---|---|
-| 1 | Schema + types — append-only revision history per field; closed enum for invariant IDs; ownership rules (Wind→frame/diff, Wall→verdict, Door read-only) | [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196) |
+| 1 | Schema + types — append-only revision history per field; `Invariant = str` with Wall-discipline naming convention per §3.1 and §3.3 Finding A; ownership rules (Wind→frame/diff, Wall→verdict, Door read-only) | [#196](https://github.com/elevanaltd/debate-hall-mcp/issues/196) |
 | 2 | State serialization — extend `state.py` to persist `PathContract` history; backward-compatible read of pre-RFC state | [#197](https://github.com/elevanaltd/debate-hall-mcp/issues/197) |
 | 3 | Prompt updates — four templates in `prompts/__init__.py`; Door's citation rule is **conditional** per §5.4 (cite every non-empty category; require reframed-or-terminal-accepted only when HARD_fail exists) | [#198](https://github.com/elevanaltd/debate-hall-mcp/issues/198) |
 | 4 | Context compiler — inject `<PATH_CONTRACTS>` showing latest revision per field plus revision counts | [#199](https://github.com/elevanaltd/debate-hall-mcp/issues/199) |
