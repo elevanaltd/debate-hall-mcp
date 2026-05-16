@@ -1,6 +1,6 @@
 # RFC-0001 Issue #204 — Pre-build Simulation Results
 
-**Status**: In progress (Phase B+C+D dispatched in parallel)
+**Status**: Complete — 5/5 PASS (see `REPORT.md`)
 **Started**: 2026-05-07
 **Gate**: ≥4/5 debates produce diffs where `reframed`/`accepted+terminal_rationale` is substantively new AND meaningfully engages a Wall verdict; Door's citations exist in the contract.
 

@@ -10,7 +10,7 @@
 
 ## Raw Wind response (verbatim)
 
-```
+````
 APPROVE
 
 ## WIND (PATHOS) — Consensus Review
@@ -58,7 +58,7 @@ Door's "Mythological Compression Principle — Neither Library Nor Silence" alre
 - **"Use mythology freely. Models already understand."** — this closing line is exactly the right deliverable. It's grammar-level guidance, culturally respectful, and zero-maintenance.
 
 The synthesis successfully integrates the constraint-as-catalyst reframes while delivering the core Wind insight: LLMs already speak mythology, so the spec's job is to get out of the way.
-```
+````
 
 ## One-line summary
 
