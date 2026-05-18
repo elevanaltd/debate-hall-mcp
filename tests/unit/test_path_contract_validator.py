@@ -27,8 +27,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
 from debate_hall_mcp.path_contract import (
     DiffRevision,
     FrameRevision,
@@ -40,7 +38,6 @@ from debate_hall_mcp.path_contract import (
     VerdictRevision,
     new_path_contract,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixture helpers — minimal contract builders used across the RED matrix.
@@ -120,9 +117,7 @@ def _contract_with_verdicts(
     path_id: str = "path_1",
 ) -> PathContract:
     contract = new_path_contract(path_id)
-    contract["frame_history"].append(
-        _frame_rev(invariants=list(verdicts.keys()))
-    )
+    contract["frame_history"].append(_frame_rev(invariants=list(verdicts.keys())))
     contract["verdict_history"].append(_verdict_rev(0, verdicts))
     return contract
 
@@ -220,8 +215,7 @@ def test_diff_fails_when_hard_fail_invariant_silently_omitted() -> None:
     diff = _diff_rev(0)  # all buckets empty
     failures = validate_diff_revision(contract, diff)
     assert any(
-        f.failure_type == MISSING_REQUIRED_ENTRY and f.invariant == "inv_a"
-        for f in failures
+        f.failure_type == MISSING_REQUIRED_ENTRY and f.invariant == "inv_a" for f in failures
     )
 
 
@@ -236,8 +230,7 @@ def test_diff_fails_when_accepted_entry_has_empty_terminal_rationale() -> None:
     diff = _diff_rev(0, accepted=[_entry("inv_a", terminal_rationale="")])
     failures = validate_diff_revision(contract, diff)
     assert any(
-        f.failure_type == EMPTY_TERMINAL_RATIONALE and f.invariant == "inv_a"
-        for f in failures
+        f.failure_type == EMPTY_TERMINAL_RATIONALE and f.invariant == "inv_a" for f in failures
     )
 
 
@@ -252,8 +245,7 @@ def test_diff_fails_when_accepted_entry_missing_terminal_rationale() -> None:
     diff = _diff_rev(0, accepted=[_entry("inv_a")])  # no terminal_rationale at all
     failures = validate_diff_revision(contract, diff)
     assert any(
-        f.failure_type == EMPTY_TERMINAL_RATIONALE and f.invariant == "inv_a"
-        for f in failures
+        f.failure_type == EMPTY_TERMINAL_RATIONALE and f.invariant == "inv_a" for f in failures
     )
 
 
@@ -267,10 +259,7 @@ def test_diff_fails_when_reframed_entry_has_empty_new_possibility() -> None:
     contract = _contract_with_verdicts({"inv_a": ("HARD_fail", "blocked")})
     diff = _diff_rev(0, reframed=[_entry("inv_a", new_possibility="")])
     failures = validate_diff_revision(contract, diff)
-    assert any(
-        f.failure_type == EMPTY_NEW_POSSIBILITY and f.invariant == "inv_a"
-        for f in failures
-    )
+    assert any(f.failure_type == EMPTY_NEW_POSSIBILITY and f.invariant == "inv_a" for f in failures)
 
 
 def test_diff_fails_when_reframed_entry_missing_new_possibility() -> None:
@@ -283,10 +272,7 @@ def test_diff_fails_when_reframed_entry_missing_new_possibility() -> None:
     contract = _contract_with_verdicts({"inv_a": ("HARD_fail", "blocked")})
     diff = _diff_rev(0, reframed=[_entry("inv_a")])  # no new_possibility at all
     failures = validate_diff_revision(contract, diff)
-    assert any(
-        f.failure_type == EMPTY_NEW_POSSIBILITY and f.invariant == "inv_a"
-        for f in failures
-    )
+    assert any(f.failure_type == EMPTY_NEW_POSSIBILITY and f.invariant == "inv_a" for f in failures)
 
 
 def test_diff_fails_per_invariant_not_per_path_finding_c() -> None:
@@ -304,17 +290,13 @@ def test_diff_fails_per_invariant_not_per_path_finding_c() -> None:
     contract = _contract_with_verdicts(
         {"inv_a": ("HARD_fail", "blocked"), "inv_b": ("HARD_fail", "blocked")}
     )
-    diff = _diff_rev(
-        0, reframed=[_entry("inv_b", new_possibility="covers inv_b only")]
-    )
+    diff = _diff_rev(0, reframed=[_entry("inv_b", new_possibility="covers inv_b only")])
     failures = validate_diff_revision(contract, diff)
     inv_a_misses = [
-        f for f in failures
-        if f.failure_type == MISSING_REQUIRED_ENTRY and f.invariant == "inv_a"
+        f for f in failures if f.failure_type == MISSING_REQUIRED_ENTRY and f.invariant == "inv_a"
     ]
     inv_b_misses = [
-        f for f in failures
-        if f.failure_type == MISSING_REQUIRED_ENTRY and f.invariant == "inv_b"
+        f for f in failures if f.failure_type == MISSING_REQUIRED_ENTRY and f.invariant == "inv_b"
     ]
     assert inv_a_misses, "inv_a HARD_fail must be flagged as missing"
     assert not inv_b_misses, "inv_b is satisfied by reframed entry"
@@ -353,18 +335,14 @@ def test_no_new_divergence_finding_d_may_coexist_with_disputed() -> None:
     """Finding D: sentinel + non-empty ``disputed`` list is LEGAL."""
     from debate_hall_mcp.path_contract_validator import validate_diff_revision
 
-    contract = _contract_with_verdicts(
-        {"inv_soft": ("SOFT_disputed", "discuss")}
-    )
+    contract = _contract_with_verdicts({"inv_soft": ("SOFT_disputed", "discuss")})
     diff = _diff_rev(
         0,
         divergence_marker="NO_NEW_DIVERGENCE",
         disputed=[_entry("inv_soft")],
     )
     failures = validate_diff_revision(contract, diff)
-    assert failures == [], (
-        "RFC §3.3 Finding D: sentinel may coexist with non-empty disputed"
-    )
+    assert failures == [], "RFC §3.3 Finding D: sentinel may coexist with non-empty disputed"
 
 
 def test_no_new_divergence_fails_on_any_hard_fail_verdict() -> None:
@@ -379,9 +357,7 @@ def test_no_new_divergence_fails_on_any_hard_fail_verdict() -> None:
     )
     diff = _diff_rev(0, divergence_marker="NO_NEW_DIVERGENCE")
     failures = validate_diff_revision(contract, diff)
-    assert any(
-        f.failure_type == ILLEGAL_NO_NEW_DIVERGENCE for f in failures
-    )
+    assert any(f.failure_type == ILLEGAL_NO_NEW_DIVERGENCE for f in failures)
 
 
 # ---------------------------------------------------------------------------
@@ -532,9 +508,7 @@ def test_emit_validator_failures_writes_one_event_per_failure(tmp_path: Path) ->
         ),
     ]
 
-    events = emit_validator_failures(
-        thread_id="t-1", failures=failures, state_dir=tmp_path
-    )
+    events = emit_validator_failures(thread_id="t-1", failures=failures, state_dir=tmp_path)
     assert len(events) == 2
     assert all(e.event_type == EventType.VALIDATOR_FAILURE for e in events)
 
@@ -560,9 +534,7 @@ def test_emit_validator_failures_empty_list_is_noop(tmp_path: Path) -> None:
     """No failures → no events written, no exceptions."""
     from debate_hall_mcp.path_contract_validator import emit_validator_failures
 
-    events = emit_validator_failures(
-        thread_id="t-empty", failures=[], state_dir=tmp_path
-    )
+    events = emit_validator_failures(thread_id="t-empty", failures=[], state_dir=tmp_path)
     assert events == []
     # No events file written for an empty failure list.
     events_file = tmp_path / "t-empty.events.jsonl"
