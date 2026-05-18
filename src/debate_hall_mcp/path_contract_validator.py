@@ -79,6 +79,21 @@ EMPTY_NEW_POSSIBILITY = "empty_new_possibility"
 ILLEGAL_NO_NEW_DIVERGENCE = "illegal_no_new_divergence"
 """``NO_NEW_DIVERGENCE`` sentinel emitted on a path with at least one HARD_fail verdict."""
 
+ILLEGAL_SENTINEL_WITH_ACCEPTED = "illegal_sentinel_with_accepted"
+"""``NO_NEW_DIVERGENCE`` sentinel emitted alongside a non-empty ``accepted`` list.
+
+Per RFC §3.1 ``divergence_marker`` docstring: when the sentinel is set,
+``value.accepted`` and ``value.reframed`` MUST be empty (``disputed`` MAY
+be non-empty per Finding D).
+"""
+
+ILLEGAL_SENTINEL_WITH_REFRAMED = "illegal_sentinel_with_reframed"
+"""``NO_NEW_DIVERGENCE`` sentinel emitted alongside a non-empty ``reframed`` list.
+
+Per RFC §3.1 ``divergence_marker`` docstring: when the sentinel is set,
+``value.reframed`` MUST be empty.
+"""
+
 OWNERSHIP_VIOLATION = "ownership_violation"
 """A revision was written by a role other than the legal owner for its kind."""
 
@@ -177,32 +192,90 @@ def validate_diff_revision(contract: PathContract, diff: DiffRevision) -> list[V
     path_id = contract["path_id"]
     hard_fail = _hard_fail_invariants(contract)
 
-    # Sentinel legality first — Finding D allows sentinel + disputed; the
-    # only thing that makes the sentinel illegal is the presence of any
-    # HARD_fail in the latest verdict.
-    if diff.get("divergence_marker") == "NO_NEW_DIVERGENCE" and hard_fail:
-        failures.append(
-            ValidatorFailure(
-                failure_type=ILLEGAL_NO_NEW_DIVERGENCE,
-                path_id=path_id,
-                invariant=None,
-                role="Wind",
-                details=(
-                    "NO_NEW_DIVERGENCE sentinel emitted on a path whose "
-                    f"latest verdict contains HARD_fail invariants: {hard_fail}"
-                ),
+    # Sentinel legality — Finding D allows sentinel + disputed; the sentinel
+    # is illegal when (a) any HARD_fail is in the latest verdict, OR (b) the
+    # diff carries a non-empty ``accepted`` or ``reframed`` list (RFC §3.1
+    # ``divergence_marker`` docstring: only ``disputed`` MAY be non-empty).
+    # Each of the three conditions is independently audit-worthy so all
+    # applicable failures are emitted (the A/B harness in #203 groups by
+    # ``failure_type`` and the three discriminators do not occlude each
+    # other).
+    if diff.get("divergence_marker") == "NO_NEW_DIVERGENCE":
+        if hard_fail:
+            failures.append(
+                ValidatorFailure(
+                    failure_type=ILLEGAL_NO_NEW_DIVERGENCE,
+                    path_id=path_id,
+                    invariant=None,
+                    role="Wind",
+                    details=(
+                        "NO_NEW_DIVERGENCE sentinel emitted on a path whose "
+                        f"latest verdict contains HARD_fail invariants: {hard_fail}"
+                    ),
+                )
             )
-        )
-        # Continue checking REQUIRED CONTENT regardless — both failures
-        # are independently audit-worthy and per-invariant grouping in
-        # the A/B harness depends on emitting both.
+        if diff["value"]["accepted"]:
+            failures.append(
+                ValidatorFailure(
+                    failure_type=ILLEGAL_SENTINEL_WITH_ACCEPTED,
+                    path_id=path_id,
+                    invariant=None,
+                    role="Wind",
+                    details=(
+                        "NO_NEW_DIVERGENCE sentinel emitted with a non-empty "
+                        "accepted list; RFC §3.1 requires accepted to be empty "
+                        "when the sentinel is set."
+                    ),
+                )
+            )
+        if diff["value"]["reframed"]:
+            failures.append(
+                ValidatorFailure(
+                    failure_type=ILLEGAL_SENTINEL_WITH_REFRAMED,
+                    path_id=path_id,
+                    invariant=None,
+                    role="Wind",
+                    details=(
+                        "NO_NEW_DIVERGENCE sentinel emitted with a non-empty "
+                        "reframed list; RFC §3.1 requires reframed to be empty "
+                        "when the sentinel is set."
+                    ),
+                )
+            )
+        # Continue checking REQUIRED CONTENT regardless — sentinel-class
+        # failures and per-invariant content failures are independently
+        # audit-worthy.
 
     # Per-invariant REQUIRED CONTENT RULE.
+    #
+    # Two complementary checks per HARD_fail invariant, both emitted:
+    #
+    # 1. Existence (per-invariant, §3.3 Finding C): at least ONE qualifying
+    #    entry must exist (``accepted`` with non-empty ``terminal_rationale``
+    #    OR ``reframed`` with non-empty ``new_possibility``); otherwise
+    #    emit MISSING_REQUIRED_ENTRY.
+    #
+    # 2. Per-entry validity (per-entry, §3.2): EVERY matching ``accepted``
+    #    entry must carry a non-empty ``terminal_rationale``, and EVERY
+    #    matching ``reframed`` entry must carry a non-empty ``new_possibility``;
+    #    each malformed entry emits its own EMPTY_TERMINAL_RATIONALE or
+    #    EMPTY_NEW_POSSIBILITY failure. A sibling entry satisfying the
+    #    existence check does NOT absorb a sibling's per-entry malformation
+    #    — the §3.2 rule is per-entry, not per-invariant.
     for invariant in hard_fail:
         accepted_matches = _qualifying_accepted(diff, invariant)
         reframed_matches = _qualifying_reframed(diff, invariant)
 
-        if not accepted_matches and not reframed_matches:
+        accepted_has_valid = any(
+            isinstance(e.get("terminal_rationale"), str) and e.get("terminal_rationale")
+            for e in accepted_matches
+        )
+        reframed_has_valid = any(
+            isinstance(e.get("new_possibility"), str) and e.get("new_possibility")
+            for e in reframed_matches
+        )
+
+        if not accepted_has_valid and not reframed_has_valid:
             failures.append(
                 ValidatorFailure(
                     failure_type=MISSING_REQUIRED_ENTRY,
@@ -217,51 +290,42 @@ def validate_diff_revision(contract: PathContract, diff: DiffRevision) -> list[V
                     ),
                 )
             )
-            continue
 
-        # If accepted entries exist, at least one must carry a non-empty
-        # terminal_rationale. Otherwise, fall through to reframed check.
-        accepted_satisfies = any(
-            isinstance(e.get("terminal_rationale"), str) and e.get("terminal_rationale")
-            for e in accepted_matches
-        )
-        reframed_satisfies = any(
-            isinstance(e.get("new_possibility"), str) and e.get("new_possibility")
-            for e in reframed_matches
-        )
-
-        if accepted_satisfies or reframed_satisfies:
-            continue
-
-        # We have matches but none satisfy content requirements. Emit one
-        # failure per failing match category so the A/B harness can see
-        # exactly which prompt rule was violated.
-        for _ in accepted_matches:
-            failures.append(
-                ValidatorFailure(
-                    failure_type=EMPTY_TERMINAL_RATIONALE,
-                    path_id=path_id,
-                    invariant=invariant,
-                    role="Wind",
-                    details=(
-                        f"accepted entry on HARD_fail invariant {invariant!r} "
-                        "has empty or missing terminal_rationale."
-                    ),
+        # Per-entry validity — always run, independent of the existence
+        # check above. Each malformed entry emits its own failure so the
+        # A/B harness in #203 can group per-entry violations accurately.
+        for entry in accepted_matches:
+            tr = entry.get("terminal_rationale")
+            if not (isinstance(tr, str) and tr):
+                failures.append(
+                    ValidatorFailure(
+                        failure_type=EMPTY_TERMINAL_RATIONALE,
+                        path_id=path_id,
+                        invariant=invariant,
+                        role="Wind",
+                        details=(
+                            f"accepted entry on HARD_fail invariant {invariant!r} "
+                            "has empty or missing terminal_rationale (§3.2 per-entry "
+                            "rule: each malformed entry is a validator-failure event)."
+                        ),
+                    )
                 )
-            )
-        for _ in reframed_matches:
-            failures.append(
-                ValidatorFailure(
-                    failure_type=EMPTY_NEW_POSSIBILITY,
-                    path_id=path_id,
-                    invariant=invariant,
-                    role="Wind",
-                    details=(
-                        f"reframed entry on HARD_fail invariant {invariant!r} "
-                        "has empty or missing new_possibility."
-                    ),
+        for entry in reframed_matches:
+            np = entry.get("new_possibility")
+            if not (isinstance(np, str) and np):
+                failures.append(
+                    ValidatorFailure(
+                        failure_type=EMPTY_NEW_POSSIBILITY,
+                        path_id=path_id,
+                        invariant=invariant,
+                        role="Wind",
+                        details=(
+                            f"reframed entry on HARD_fail invariant {invariant!r} "
+                            "has empty or missing new_possibility (§3.2 per-entry "
+                            "rule: each malformed entry is a validator-failure event)."
+                        ),
+                    )
                 )
-            )
 
     return failures
 
@@ -408,6 +472,8 @@ __all__ = [
     "EMPTY_NEW_POSSIBILITY",
     "EMPTY_TERMINAL_RATIONALE",
     "ILLEGAL_NO_NEW_DIVERGENCE",
+    "ILLEGAL_SENTINEL_WITH_ACCEPTED",
+    "ILLEGAL_SENTINEL_WITH_REFRAMED",
     "MISSING_REQUIRED_ENTRY",
     "OWNERSHIP_VIOLATION",
     "RevisionKind",

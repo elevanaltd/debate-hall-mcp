@@ -361,6 +361,154 @@ def test_no_new_divergence_fails_on_any_hard_fail_verdict() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Per-entry rationale checks — Cubic bot-resolution P1 (RFC §3.2 per-entry rule).
+# ---------------------------------------------------------------------------
+
+
+def test_diff_fails_per_entry_when_sibling_accepted_entry_empty_terminal_rationale() -> None:
+    """RFC §3.2 per-entry rule: even when ONE ``accepted`` entry on a HARD_fail invariant
+    has a valid ``terminal_rationale``, a SIBLING ``accepted`` entry on the SAME invariant
+    with an empty/missing ``terminal_rationale`` MUST emit EMPTY_TERMINAL_RATIONALE.
+
+    The per-invariant existence check is satisfied by the valid entry (no
+    MISSING_REQUIRED_ENTRY), but the malformed sibling is still a per-entry
+    violation and must surface to the A/B harness.
+    """
+    from debate_hall_mcp.path_contract_validator import (
+        EMPTY_TERMINAL_RATIONALE,
+        MISSING_REQUIRED_ENTRY,
+        validate_diff_revision,
+    )
+
+    contract = _contract_with_verdicts({"inv_a": ("HARD_fail", "blocked")})
+    diff = _diff_rev(
+        0,
+        accepted=[
+            _entry("inv_a", terminal_rationale="valid reason — no creative reframe"),
+            _entry("inv_a", terminal_rationale=""),  # malformed sibling
+        ],
+    )
+    failures = validate_diff_revision(contract, diff)
+    # The valid entry satisfies the per-invariant existence check.
+    assert not any(
+        f.failure_type == MISSING_REQUIRED_ENTRY and f.invariant == "inv_a" for f in failures
+    )
+    # But the malformed sibling must still emit a per-entry failure.
+    empty_tr = [
+        f for f in failures if f.failure_type == EMPTY_TERMINAL_RATIONALE and f.invariant == "inv_a"
+    ]
+    assert len(empty_tr) == 1, (
+        "RFC §3.2 per-entry: each malformed accepted entry must emit its own "
+        "EMPTY_TERMINAL_RATIONALE; the per-invariant existence check does not absorb it."
+    )
+
+
+def test_diff_fails_per_entry_when_sibling_reframed_entry_empty_new_possibility() -> None:
+    """RFC §3.2 per-entry rule: even when ONE ``reframed`` entry on a HARD_fail invariant
+    has a valid ``new_possibility``, a SIBLING ``reframed`` entry on the SAME invariant
+    with an empty/missing ``new_possibility`` MUST emit EMPTY_NEW_POSSIBILITY.
+    """
+    from debate_hall_mcp.path_contract_validator import (
+        EMPTY_NEW_POSSIBILITY,
+        MISSING_REQUIRED_ENTRY,
+        validate_diff_revision,
+    )
+
+    contract = _contract_with_verdicts({"inv_a": ("HARD_fail", "blocked")})
+    diff = _diff_rev(
+        0,
+        reframed=[
+            _entry("inv_a", new_possibility="catalyst-opened path b"),
+            _entry("inv_a", new_possibility=""),  # malformed sibling
+        ],
+    )
+    failures = validate_diff_revision(contract, diff)
+    assert not any(
+        f.failure_type == MISSING_REQUIRED_ENTRY and f.invariant == "inv_a" for f in failures
+    )
+    empty_np = [
+        f for f in failures if f.failure_type == EMPTY_NEW_POSSIBILITY and f.invariant == "inv_a"
+    ]
+    assert len(empty_np) == 1, (
+        "RFC §3.2 per-entry: each malformed reframed entry must emit its own "
+        "EMPTY_NEW_POSSIBILITY; the per-invariant existence check does not absorb it."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Sentinel-with-accepted/reframed rejection — Cubic bot-resolution P2 (§3.1 docstring).
+# ---------------------------------------------------------------------------
+
+
+def test_no_new_divergence_with_non_empty_accepted_is_illegal() -> None:
+    """RFC §3.1 ``divergence_marker`` docstring: when sentinel is set, ``accepted`` MUST be
+    empty. Sentinel + non-empty ``accepted`` → ILLEGAL_SENTINEL_WITH_ACCEPTED.
+    """
+    from debate_hall_mcp.path_contract_validator import (
+        ILLEGAL_SENTINEL_WITH_ACCEPTED,
+        validate_diff_revision,
+    )
+
+    # No HARD_fail verdicts so the existing sentinel-vs-HARD_fail check does NOT
+    # fire — we are isolating the new sentinel-vs-accepted rule.
+    contract = _contract_with_verdicts({"inv_a": ("HARD_pass", "ok")})
+    diff = _diff_rev(
+        0,
+        divergence_marker="NO_NEW_DIVERGENCE",
+        accepted=[_entry("inv_a", terminal_rationale="anything")],
+    )
+    failures = validate_diff_revision(contract, diff)
+    assert any(
+        f.failure_type == ILLEGAL_SENTINEL_WITH_ACCEPTED for f in failures
+    ), "RFC §3.1: NO_NEW_DIVERGENCE sentinel + non-empty accepted is illegal"
+
+
+def test_no_new_divergence_with_non_empty_reframed_is_illegal() -> None:
+    """RFC §3.1 ``divergence_marker`` docstring: when sentinel is set, ``reframed`` MUST be
+    empty. Sentinel + non-empty ``reframed`` → ILLEGAL_SENTINEL_WITH_REFRAMED.
+    """
+    from debate_hall_mcp.path_contract_validator import (
+        ILLEGAL_SENTINEL_WITH_REFRAMED,
+        validate_diff_revision,
+    )
+
+    contract = _contract_with_verdicts({"inv_a": ("HARD_pass", "ok")})
+    diff = _diff_rev(
+        0,
+        divergence_marker="NO_NEW_DIVERGENCE",
+        reframed=[_entry("inv_a", new_possibility="anything")],
+    )
+    failures = validate_diff_revision(contract, diff)
+    assert any(
+        f.failure_type == ILLEGAL_SENTINEL_WITH_REFRAMED for f in failures
+    ), "RFC §3.1: NO_NEW_DIVERGENCE sentinel + non-empty reframed is illegal"
+
+
+def test_no_new_divergence_with_non_empty_disputed_only_is_legal_finding_d_regression_guard() -> (
+    None
+):
+    """RFC §3.3 Finding D regression guard: sentinel + non-empty ``disputed`` only
+    (with empty ``accepted`` and ``reframed``) remains LEGAL.
+
+    Duplicates the spirit of ``test_no_new_divergence_finding_d_may_coexist_with_disputed``
+    but explicitly guards against the P2 fix over-rejecting the disputed bucket.
+    """
+    from debate_hall_mcp.path_contract_validator import validate_diff_revision
+
+    contract = _contract_with_verdicts({"inv_soft": ("SOFT_disputed", "discuss")})
+    diff = _diff_rev(
+        0,
+        divergence_marker="NO_NEW_DIVERGENCE",
+        disputed=[_entry("inv_soft")],
+    )
+    failures = validate_diff_revision(contract, diff)
+    assert failures == [], (
+        "RFC §3.3 Finding D: sentinel + non-empty disputed (only) must remain legal "
+        "after the sentinel-with-accepted/reframed rejection is added"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Ownership rule (RFC §3.1).
 # ---------------------------------------------------------------------------
 
