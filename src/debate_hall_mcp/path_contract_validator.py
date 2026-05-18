@@ -7,6 +7,36 @@ deliberate so the schema module remains stable and the policy can iterate
 independently. See the BOUNDARY docstring on
 ``path_contract.path_contract_from_json`` for the matching note.
 
+Two-phase validation pattern (CE+CRS rework on PR #217):
+-------------------------------------------------------
+
+Per RFC §6 item 3 the validator is the structural-rejection point for
+LLM-emitted payloads. The schema module deliberately does NOT validate
+structure (see the BOUNDARY docstring on ``path_contract_from_json``), so
+this module must defend itself against malformed payloads — an unhandled
+``KeyError`` / ``TypeError`` would crash the orchestrator instead of
+producing an auditable ``VALIDATOR_FAILURE`` event on the I4 ledger.
+
+Validation therefore runs in two phases:
+
+  PHASE 1 — SHAPE pre-pass (``validate_contract_shape`` /
+  ``validate_revision_shape``): checks that the payload is a ``Mapping``
+  with the required keys carrying the required runtime types. Each
+  structural defect emits a ``ValidatorFailure`` with
+  ``failure_type=SCHEMA_SHAPE_VIOLATION`` and a granular ``defect``
+  discriminator on the payload (``missing_key:...`` or ``type_error:...``)
+  so the #203 A/B harness can group by defect class.
+
+  PHASE 2 — SEMANTIC checks (existing functions: REQUIRED CONTENT RULE,
+  sentinel legality, ownership rule, Door citation existence). These run
+  ONLY when the shape pre-pass returned no failures. If the shape is
+  invalid, the public entry points return the shape failures immediately
+  and do NOT attempt semantic interpretation (fail-fast, never crash).
+
+The semantic-check functions therefore assume well-shaped inputs and may
+use direct dict access; the contract is that shape validation passed
+upstream.
+
 Scope per RFC-0001 #200:
 
 * Per-invariant REQUIRED CONTENT RULE (§3.2 amended; §3.3 Finding C):
@@ -50,9 +80,10 @@ Out of scope (deliberately deferred — see PR body):
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from debate_hall_mcp.events import DebateEvent, EventType, append_event
 from debate_hall_mcp.path_contract import (
@@ -100,6 +131,22 @@ OWNERSHIP_VIOLATION = "ownership_violation"
 DOOR_CITATION_NOT_FOUND = "door_citation_not_found"
 """Door cited an invariant that does not appear in the latest verdict revision."""
 
+SCHEMA_SHAPE_VIOLATION = "schema_shape_violation"
+"""Structural pre-pass defect on a contract or revision payload.
+
+Emitted by ``validate_contract_shape`` / ``validate_revision_shape`` for any
+malformed LLM-emitted payload: missing required keys, non-``Mapping`` /
+non-``list`` runtime types where the schema requires them, etc. The granular
+defect identifier (``missing_key:...``, ``type_error:...``) is carried on the
+event payload's ``defect`` field so the #203 A/B harness can group by defect
+class without parsing free text.
+
+This is the structural counterpart to the semantic failure-types above:
+shape defects short-circuit semantic interpretation entirely, preserving
+I4 (auditable ledger) by emitting an event rather than letting a
+``KeyError`` / ``TypeError`` crash the orchestrator.
+"""
+
 
 RevisionKind = Literal["frame", "verdict", "diff"]
 
@@ -128,6 +175,14 @@ class ValidatorFailure:
             violations); ``None`` otherwise.
         details: Human-readable explanation. Not a stable identifier — for
             grouping use ``failure_type``.
+        defect: Granular structural-defect discriminator for
+            ``SCHEMA_SHAPE_VIOLATION`` failures (e.g.
+            ``"missing_key:verdict_history"``,
+            ``"type_error:diff_history[0].value.accepted_not_list"``).
+            ``None`` for non-shape failure-types; preserved as a stable
+            identifier so the #203 harness can group shape defects by
+            class. Defaults to ``None`` for backward compatibility with
+            existing semantic-check call sites.
     """
 
     failure_type: str
@@ -135,6 +190,405 @@ class ValidatorFailure:
     invariant: str | None
     role: str | None
     details: str
+    defect: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# PHASE 1 — Shape pre-pass (CE+CRS rework on PR #217).
+#
+# Defends every public entry point against malformed LLM-emitted payloads.
+# Returns ``SCHEMA_SHAPE_VIOLATION`` failures with a granular ``defect``
+# discriminator instead of letting ``KeyError`` / ``TypeError`` propagate.
+# ---------------------------------------------------------------------------
+
+
+def _shape_failure(path_id: str, defect: str, details: str) -> ValidatorFailure:
+    """Build a ``SCHEMA_SHAPE_VIOLATION`` failure with a granular ``defect``."""
+    return ValidatorFailure(
+        failure_type=SCHEMA_SHAPE_VIOLATION,
+        path_id=path_id,
+        invariant=None,
+        role=None,
+        details=details,
+        defect=defect,
+    )
+
+
+def _check_invariant_entries(
+    entries: object,
+    *,
+    path_id: str,
+    locator_prefix: str,
+) -> list[ValidatorFailure]:
+    """Validate a list of ``InvariantEntry`` dicts.
+
+    Each entry must be a ``Mapping`` carrying at least an ``invariant`` (str)
+    and ``rationale`` (str) field. ``terminal_rationale`` / ``new_possibility``
+    are ``NotRequired`` per the schema and intentionally NOT shape-required —
+    their presence/contents are a semantic concern (handled by
+    ``validate_diff_revision``).
+    """
+    failures: list[ValidatorFailure] = []
+    if not isinstance(entries, list):
+        return [
+            _shape_failure(
+                path_id,
+                f"type_error:{locator_prefix}_not_list",
+                f"{locator_prefix} must be a list (got {type(entries).__name__}).",
+            )
+        ]
+    for index, entry in enumerate(entries):
+        locator = f"{locator_prefix}[{index}]"
+        if not isinstance(entry, Mapping):
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"type_error:{locator}_not_mapping",
+                    f"{locator} must be a Mapping (got {type(entry).__name__}).",
+                )
+            )
+            continue
+        if "invariant" not in entry:
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"missing_key:{locator}.invariant",
+                    f"{locator} missing required key 'invariant'.",
+                )
+            )
+        elif not isinstance(entry["invariant"], str):
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"type_error:{locator}.invariant_not_str",
+                    f"{locator}.invariant must be a string.",
+                )
+            )
+        if "rationale" not in entry:
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"missing_key:{locator}.rationale",
+                    f"{locator} missing required key 'rationale'.",
+                )
+            )
+        elif not isinstance(entry["rationale"], str):
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"type_error:{locator}.rationale_not_str",
+                    f"{locator}.rationale must be a string.",
+                )
+            )
+    return failures
+
+
+def _check_frame_history(history: list[Any], path_id: str) -> list[ValidatorFailure]:
+    """Shape-check each ``FrameRevision`` in ``frame_history``."""
+    failures: list[ValidatorFailure] = []
+    for index, rev in enumerate(history):
+        locator = f"frame_history[{index}]"
+        if not isinstance(rev, Mapping):
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"type_error:{locator}_not_mapping",
+                    f"{locator} must be a Mapping.",
+                )
+            )
+            continue
+        for key in ("rev", "written_at", "written_by", "value"):
+            if key not in rev:
+                failures.append(
+                    _shape_failure(
+                        path_id,
+                        f"missing_key:{locator}.{key}",
+                        f"{locator} missing required key '{key}'.",
+                    )
+                )
+    return failures
+
+
+def _check_verdict_history(history: list[Any], path_id: str) -> list[ValidatorFailure]:
+    """Shape-check each ``VerdictRevision`` in ``verdict_history``."""
+    failures: list[ValidatorFailure] = []
+    for index, rev in enumerate(history):
+        locator = f"verdict_history[{index}]"
+        if not isinstance(rev, Mapping):
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"type_error:{locator}_not_mapping",
+                    f"{locator} must be a Mapping.",
+                )
+            )
+            continue
+        for key in ("rev", "written_at", "written_by", "value"):
+            if key not in rev:
+                failures.append(
+                    _shape_failure(
+                        path_id,
+                        f"missing_key:{locator}.{key}",
+                        f"{locator} missing required key '{key}'.",
+                    )
+                )
+        # value must be a Mapping[str, Mapping] with status/rationale fields.
+        if "value" in rev:
+            value = rev["value"]
+            if not isinstance(value, Mapping):
+                failures.append(
+                    _shape_failure(
+                        path_id,
+                        f"type_error:{locator}.value_not_dict",
+                        f"{locator}.value must be a Mapping[invariant, verdict].",
+                    )
+                )
+                continue
+            for inv_name, verdict in value.items():
+                v_loc = f"{locator}.value[{inv_name!r}]"
+                if not isinstance(verdict, Mapping):
+                    failures.append(
+                        _shape_failure(
+                            path_id,
+                            f"type_error:{v_loc}_not_mapping",
+                            f"{v_loc} must be a Mapping with 'status' and 'rationale'.",
+                        )
+                    )
+                    continue
+                for key in ("status", "rationale"):
+                    if key not in verdict:
+                        failures.append(
+                            _shape_failure(
+                                path_id,
+                                f"missing_key:{v_loc}.{key}",
+                                f"{v_loc} missing required key '{key}'.",
+                            )
+                        )
+    return failures
+
+
+def _check_diff_history(history: list[Any], path_id: str) -> list[ValidatorFailure]:
+    """Shape-check each ``DiffRevision`` in ``diff_history``."""
+    failures: list[ValidatorFailure] = []
+    for index, rev in enumerate(history):
+        locator = f"diff_history[{index}]"
+        if not isinstance(rev, Mapping):
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"type_error:{locator}_not_mapping",
+                    f"{locator} must be a Mapping.",
+                )
+            )
+            continue
+        for key in ("rev", "written_at", "written_by", "value"):
+            if key not in rev:
+                failures.append(
+                    _shape_failure(
+                        path_id,
+                        f"missing_key:{locator}.{key}",
+                        f"{locator} missing required key '{key}'.",
+                    )
+                )
+        if "value" not in rev:
+            continue
+        value = rev["value"]
+        if not isinstance(value, Mapping):
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"type_error:{locator}.value_not_dict",
+                    f"{locator}.value must be a Mapping with accepted/disputed/reframed.",
+                )
+            )
+            continue
+        for bucket in ("accepted", "disputed", "reframed"):
+            if bucket not in value:
+                failures.append(
+                    _shape_failure(
+                        path_id,
+                        f"missing_key:{locator}.value.{bucket}",
+                        f"{locator}.value missing required bucket '{bucket}'.",
+                    )
+                )
+                continue
+            failures.extend(
+                _check_invariant_entries(
+                    value[bucket],
+                    path_id=path_id,
+                    locator_prefix=f"{locator}.value.{bucket}",
+                )
+            )
+    return failures
+
+
+def validate_contract_shape(contract: object) -> list[ValidatorFailure]:
+    """Structural pre-pass — verify ``contract`` matches the ``PathContract`` shape.
+
+    Returns ``SCHEMA_SHAPE_VIOLATION`` failures (with granular ``defect``
+    discriminators) for every structural defect found. An empty return means
+    the payload is well-shaped enough that semantic checks can proceed using
+    direct dict access.
+
+    The function is total: it never raises on a malformed input. Non-``Mapping``
+    inputs produce a single ``defect="not_a_mapping"`` failure (with
+    ``path_id="<unknown>"`` since path_id cannot be read).
+
+    Checks (in order):
+
+    * ``contract`` is a ``Mapping``.
+    * Required top-level keys present: ``path_id`` (str), ``frame_history``
+      (list), ``verdict_history`` (list), ``diff_history`` (list).
+    * For each revision in ``*_history``: a ``Mapping`` carrying ``rev``,
+      ``written_at``, ``written_by``, ``value``.
+    * For ``VerdictRevision.value``: a ``Mapping[str, Mapping]`` where each
+      inner mapping has ``status`` and ``rationale``.
+    * For ``DiffRevision.value``: a ``Mapping`` with ``accepted`` /
+      ``disputed`` / ``reframed`` lists, each containing ``Mapping`` entries
+      with ``invariant`` (str) and ``rationale`` (str).
+
+    ``NotRequired`` schema slots (``terminal_rationale``, ``new_possibility``,
+    ``divergence_marker``, ``synthesis_guidance``) are NOT shape-required —
+    their presence/contents are semantic concerns handled by
+    ``validate_diff_revision`` (per RFC §3.2 per-entry rule).
+    """
+    if not isinstance(contract, Mapping):
+        return [
+            _shape_failure(
+                "<unknown>",
+                "not_a_mapping",
+                f"contract must be a Mapping (got {type(contract).__name__}).",
+            )
+        ]
+
+    # Read path_id defensively for failure correlation.
+    path_id_raw = contract.get("path_id")
+    path_id: str = path_id_raw if isinstance(path_id_raw, str) else "<unknown>"
+
+    failures: list[ValidatorFailure] = []
+
+    if "path_id" not in contract:
+        failures.append(
+            _shape_failure(
+                path_id, "missing_key:path_id", "contract missing required key 'path_id'."
+            )
+        )
+    elif not isinstance(contract["path_id"], str):
+        failures.append(
+            _shape_failure(
+                path_id, "type_error:path_id_not_str", "contract.path_id must be a string."
+            )
+        )
+
+    for history_key in ("frame_history", "verdict_history", "diff_history"):
+        if history_key not in contract:
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"missing_key:{history_key}",
+                    f"contract missing required key '{history_key}'.",
+                )
+            )
+            continue
+        if not isinstance(contract[history_key], list):
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"type_error:{history_key}_not_list",
+                    f"contract.{history_key} must be a list.",
+                )
+            )
+
+    if isinstance(contract.get("frame_history"), list):
+        failures.extend(_check_frame_history(contract["frame_history"], path_id))
+    if isinstance(contract.get("verdict_history"), list):
+        failures.extend(_check_verdict_history(contract["verdict_history"], path_id))
+    if isinstance(contract.get("diff_history"), list):
+        failures.extend(_check_diff_history(contract["diff_history"], path_id))
+
+    return failures
+
+
+def _validate_diff_shape(diff: object, path_id: str) -> list[ValidatorFailure]:
+    """Shape-check a single ``DiffRevision`` payload (the one being appended)."""
+    if not isinstance(diff, Mapping):
+        return [
+            _shape_failure(
+                path_id,
+                "not_a_mapping",
+                f"diff revision must be a Mapping (got {type(diff).__name__}).",
+            )
+        ]
+    failures: list[ValidatorFailure] = []
+    for key in ("rev", "written_at", "written_by", "value"):
+        if key not in diff:
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"missing_key:diff.{key}",
+                    f"diff revision missing required key '{key}'.",
+                )
+            )
+    if "value" not in diff:
+        return failures
+    value = diff["value"]
+    if not isinstance(value, Mapping):
+        failures.append(
+            _shape_failure(
+                path_id,
+                "type_error:diff.value_not_dict",
+                "diff.value must be a Mapping with accepted/disputed/reframed.",
+            )
+        )
+        return failures
+    for bucket in ("accepted", "disputed", "reframed"):
+        if bucket not in value:
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"missing_key:diff.value.{bucket}",
+                    f"diff.value missing required bucket '{bucket}'.",
+                )
+            )
+            continue
+        failures.extend(
+            _check_invariant_entries(
+                value[bucket],
+                path_id=path_id,
+                locator_prefix=f"diff.value.{bucket}",
+            )
+        )
+    return failures
+
+
+def validate_revision_shape(
+    revision: object, *, kind: RevisionKind, path_id: str
+) -> list[ValidatorFailure]:
+    """Structural pre-pass for a single revision (``FrameRevision`` /
+    ``VerdictRevision`` / ``DiffRevision``).
+
+    Used by ``validate_revision_ownership`` to avoid ``KeyError`` on
+    ``revision["written_by"]`` when an LLM emits a malformed revision dict.
+    """
+    if not isinstance(revision, Mapping):
+        return [
+            _shape_failure(
+                path_id,
+                "not_a_mapping",
+                f"{kind} revision must be a Mapping (got {type(revision).__name__}).",
+            )
+        ]
+    failures: list[ValidatorFailure] = []
+    for key in ("rev", "written_at", "written_by", "value"):
+        if key not in revision:
+            failures.append(
+                _shape_failure(
+                    path_id,
+                    f"missing_key:revision.{key}",
+                    f"{kind} revision missing required key '{key}'.",
+                )
+            )
+    return failures
 
 
 # ---------------------------------------------------------------------------
@@ -185,9 +639,23 @@ def validate_diff_revision(contract: PathContract, diff: DiffRevision) -> list[V
       exist for the path; it MAY coexist with a non-empty ``disputed``
       list (Finding D).
 
+    Two-phase pattern: the shape pre-pass runs first; if any structural
+    defects are found the function returns those failures immediately and
+    does NOT proceed to semantic checks (fail-fast, never crash on a
+    malformed LLM payload — see module docstring).
+
     Returns:
         A list of ``ValidatorFailure`` records — empty when valid.
     """
+    # PHASE 1: shape pre-pass — never trust LLM-emitted payloads.
+    path_id_raw = contract.get("path_id") if isinstance(contract, Mapping) else None
+    pid_for_diff: str = path_id_raw if isinstance(path_id_raw, str) else "<unknown>"
+    shape_failures = validate_contract_shape(contract)
+    shape_failures.extend(_validate_diff_shape(diff, pid_for_diff))
+    if shape_failures:
+        return shape_failures
+
+    # PHASE 2: semantic checks (shape is now verified).
     failures: list[ValidatorFailure] = []
     path_id = contract["path_id"]
     hard_fail = _hard_fail_invariants(contract)
@@ -354,6 +822,11 @@ def validate_revision_ownership(
     only Wall may append to ``verdict_history``; Door is read-only and
     therefore can never legally appear as a writer of any revision.
 
+    Two-phase pattern: the per-revision shape pre-pass runs first; if the
+    revision is not a ``Mapping`` or is missing ``written_by``, returns
+    ``SCHEMA_SHAPE_VIOLATION`` failures and does NOT attempt the ownership
+    check (no ``KeyError`` on malformed payloads).
+
     Args:
         revision: The revision wrapper whose owner is being checked.
         kind: The kind of revision (``frame``, ``verdict``, or ``diff``)
@@ -362,9 +835,13 @@ def validate_revision_ownership(
             correlation; revisions themselves do not carry ``path_id``).
 
     Returns:
-        A list with at most one ``ValidatorFailure`` of type
-        ``OWNERSHIP_VIOLATION``.
+        A list with shape failures (if any) OR at most one ``ValidatorFailure``
+        of type ``OWNERSHIP_VIOLATION``.
     """
+    shape_failures = validate_revision_shape(revision, kind=kind, path_id=path_id)
+    if shape_failures:
+        return shape_failures
+
     expected = _LEGAL_OWNER[kind]
     actual = revision["written_by"]
     if actual == expected:
@@ -400,11 +877,20 @@ def validate_door_citations(
     extracting the list of cited invariant names; this function does the
     membership check against the latest verdict revision.
 
+    Two-phase pattern: shape pre-pass runs first; on shape failure the
+    function returns those failures and does NOT attempt citation
+    membership lookup (no ``KeyError`` on malformed payloads).
+
     Returns:
-        One ``DOOR_CITATION_NOT_FOUND`` failure per cited invariant that
-        does NOT appear in the latest verdict revision. If there is no
-        verdict revision at all, every cited invariant is reported.
+        Shape failures (if any) OR one ``DOOR_CITATION_NOT_FOUND`` failure
+        per cited invariant that does NOT appear in the latest verdict
+        revision. If there is no verdict revision at all, every cited
+        invariant is reported.
     """
+    shape_failures = validate_contract_shape(contract)
+    if shape_failures:
+        return shape_failures
+
     latest = _latest_verdict_value(contract)
     known: set[str] = set(latest.keys()) if latest is not None else set()
     return [
@@ -429,13 +915,19 @@ def validate_door_citations(
 
 
 def _failure_payload(failure: ValidatorFailure) -> dict[str, object]:
-    """Project a ``ValidatorFailure`` into a flat JSON-safe event payload."""
+    """Project a ``ValidatorFailure`` into a flat JSON-safe event payload.
+
+    Includes ``defect`` for ``SCHEMA_SHAPE_VIOLATION`` failures so the #203
+    A/B harness can group structural defects by class without parsing the
+    free-text ``details`` field.
+    """
     return {
         "failure_type": failure.failure_type,
         "path_id": failure.path_id,
         "invariant": failure.invariant,
         "role": failure.role,
         "details": failure.details,
+        "defect": failure.defect,
     }
 
 
@@ -476,10 +968,13 @@ __all__ = [
     "ILLEGAL_SENTINEL_WITH_REFRAMED",
     "MISSING_REQUIRED_ENTRY",
     "OWNERSHIP_VIOLATION",
+    "SCHEMA_SHAPE_VIOLATION",
     "RevisionKind",
     "ValidatorFailure",
     "emit_validator_failures",
+    "validate_contract_shape",
     "validate_diff_revision",
     "validate_door_citations",
     "validate_revision_ownership",
+    "validate_revision_shape",
 ]

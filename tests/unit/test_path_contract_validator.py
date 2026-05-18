@@ -687,3 +687,372 @@ def test_emit_validator_failures_empty_list_is_noop(tmp_path: Path) -> None:
     # No events file written for an empty failure list.
     events_file = tmp_path / "t-empty.events.jsonl"
     assert not events_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# SCHEMA_SHAPE_VIOLATION pre-pass — CE+CRS rework on PR #217.
+#
+# These tests cover the structural pre-pass that must run BEFORE any semantic
+# check on a contract/revision payload originating from an LLM. Malformed
+# payloads MUST yield ValidatorFailure events with failure_type
+# SCHEMA_SHAPE_VIOLATION and a granular ``defect`` discriminator on the
+# payload (for #203 grouping) — NOT raise KeyError or TypeError.
+# ---------------------------------------------------------------------------
+
+
+def test_schema_shape_violation_constant_present() -> None:
+    """``SCHEMA_SHAPE_VIOLATION`` is exported as a module constant."""
+    from debate_hall_mcp.path_contract_validator import SCHEMA_SHAPE_VIOLATION
+
+    assert SCHEMA_SHAPE_VIOLATION == "schema_shape_violation"
+
+
+def test_validator_failure_carries_defect_discriminator() -> None:
+    """``ValidatorFailure`` exposes a ``defect`` field; default is ``None``."""
+    from debate_hall_mcp.path_contract_validator import ValidatorFailure
+
+    f = ValidatorFailure(
+        failure_type="schema_shape_violation",
+        path_id="path_1",
+        invariant=None,
+        role=None,
+        details="missing required top-level key",
+        defect="missing_key:verdict_history",
+    )
+    assert f.defect == "missing_key:verdict_history"
+
+    # Backwards compatible: defect defaults to None for existing call sites.
+    g = ValidatorFailure(
+        failure_type="missing_required_entry",
+        path_id="path_1",
+        invariant="inv_a",
+        role="Wind",
+        details="x",
+    )
+    assert g.defect is None
+
+
+def test_validate_contract_shape_accepts_well_formed_contract() -> None:
+    """A semantically-valid, well-shaped contract emits zero shape failures."""
+    from debate_hall_mcp.path_contract_validator import validate_contract_shape
+
+    contract = _contract_with_verdicts({"inv_a": ("HARD_pass", "ok")})
+    contract["diff_history"].append(_diff_rev(0))
+    assert validate_contract_shape(contract) == []
+
+
+def test_validate_contract_shape_rejects_non_dict_input() -> None:
+    """A non-Mapping input → SCHEMA_SHAPE_VIOLATION (defect: not_a_mapping)."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    failures = validate_contract_shape("not a dict")  # type: ignore[arg-type]
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION and f.defect == "not_a_mapping" for f in failures
+    )
+
+
+def test_validate_contract_shape_rejects_missing_path_id() -> None:
+    """Contract missing ``path_id`` → SCHEMA_SHAPE_VIOLATION (defect: missing_key:path_id)."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    bad = {
+        "frame_history": [],
+        "verdict_history": [],
+        "diff_history": [],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION and f.defect == "missing_key:path_id"
+        for f in failures
+    )
+
+
+def test_validate_contract_shape_rejects_missing_verdict_history() -> None:
+    """Contract missing ``verdict_history`` → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    bad = {"path_id": "p", "frame_history": [], "diff_history": []}
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION and f.defect == "missing_key:verdict_history"
+        for f in failures
+    )
+
+
+def test_validate_contract_shape_rejects_history_not_a_list() -> None:
+    """``verdict_history`` is a dict instead of list → SCHEMA_SHAPE_VIOLATION (type_error)."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    bad = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": {"not": "a list"},
+        "diff_history": [],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "type_error:verdict_history_not_list"
+        for f in failures
+    )
+
+
+def test_validate_contract_shape_rejects_diff_entry_missing_value() -> None:
+    """``diff_history[0]`` missing ``value`` → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    contract = _contract_with_verdicts({"inv_a": ("HARD_pass", "ok")})
+    contract["diff_history"].append(
+        {  # type: ignore[arg-type]
+            "rev": 0,
+            "written_at": _now(),
+            "written_by": "Wind",
+            # value: deliberately missing
+        }
+    )
+    failures = validate_contract_shape(contract)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION and f.defect == "missing_key:diff_history[0].value"
+        for f in failures
+    )
+
+
+def test_validate_contract_shape_rejects_diff_value_accepted_not_list() -> None:
+    """``diff_history[0].value.accepted`` is a dict instead of list → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    contract = _contract_with_verdicts({"inv_a": ("HARD_pass", "ok")})
+    contract["diff_history"].append(
+        {  # type: ignore[arg-type]
+            "rev": 0,
+            "written_at": _now(),
+            "written_by": "Wind",
+            "value": {
+                "accepted": {"oops": "dict not list"},
+                "disputed": [],
+                "reframed": [],
+            },
+        }
+    )
+    failures = validate_contract_shape(contract)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "type_error:diff_history[0].value.accepted_not_list"
+        for f in failures
+    )
+
+
+def test_validate_contract_shape_rejects_verdict_value_not_dict() -> None:
+    """``verdict_history[0].value`` is a list instead of dict → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    bad: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Wall",
+                "value": ["not", "a", "dict"],
+            }
+        ],
+        "diff_history": [],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "type_error:verdict_history[0].value_not_dict"
+        for f in failures
+    )
+
+
+def test_validate_contract_shape_rejects_invariant_entry_missing_invariant() -> None:
+    """``InvariantEntry`` missing ``invariant`` key → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    contract = _contract_with_verdicts({"inv_a": ("HARD_pass", "ok")})
+    contract["diff_history"].append(
+        {  # type: ignore[arg-type]
+            "rev": 0,
+            "written_at": _now(),
+            "written_by": "Wind",
+            "value": {
+                "accepted": [{"rationale": "r"}],  # invariant missing
+                "disputed": [],
+                "reframed": [],
+            },
+        }
+    )
+    failures = validate_contract_shape(contract)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "missing_key:diff_history[0].value.accepted[0].invariant"
+        for f in failures
+    )
+
+
+def test_validate_diff_revision_returns_shape_failures_instead_of_keyerror() -> None:
+    """``validate_diff_revision`` on a malformed contract must NOT raise — returns failures."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_diff_revision,
+    )
+
+    # Contract is missing verdict_history entirely; previous code would
+    # KeyError on the first access in _hard_fail_invariants.
+    malformed = {"path_id": "p"}  # missing all three histories
+    diff = _diff_rev(0)
+
+    try:
+        failures = validate_diff_revision(malformed, diff)  # type: ignore[arg-type]
+    except (KeyError, TypeError) as exc:  # pragma: no cover - failure path
+        raise AssertionError(
+            f"validate_diff_revision must not raise on malformed payload: {exc!r}"
+        ) from exc
+
+    assert any(f.failure_type == SCHEMA_SHAPE_VIOLATION for f in failures)
+
+
+def test_validate_diff_revision_short_circuits_on_shape_failure() -> None:
+    """When shape is invalid, semantic checks MUST NOT run — only shape failures returned."""
+    from debate_hall_mcp.path_contract_validator import (
+        ILLEGAL_NO_NEW_DIVERGENCE,
+        MISSING_REQUIRED_ENTRY,
+        SCHEMA_SHAPE_VIOLATION,
+        validate_diff_revision,
+    )
+
+    malformed = {"path_id": "p"}  # missing histories
+    diff = _diff_rev(0, divergence_marker="NO_NEW_DIVERGENCE")
+    failures = validate_diff_revision(malformed, diff)  # type: ignore[arg-type]
+
+    # Only shape failures; no semantic failures from short-circuit.
+    assert all(f.failure_type == SCHEMA_SHAPE_VIOLATION for f in failures)
+    assert not any(
+        f.failure_type in (MISSING_REQUIRED_ENTRY, ILLEGAL_NO_NEW_DIVERGENCE) for f in failures
+    )
+
+
+def test_validate_door_citations_returns_shape_failures_instead_of_keyerror() -> None:
+    """``validate_door_citations`` on a malformed contract must NOT raise — returns failures."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_door_citations,
+    )
+
+    malformed = {"frame_history": []}  # missing path_id + verdict_history + diff_history
+
+    try:
+        failures = validate_door_citations(malformed, cited_invariants=["x"])  # type: ignore[arg-type]
+    except (KeyError, TypeError) as exc:  # pragma: no cover - failure path
+        raise AssertionError(
+            f"validate_door_citations must not raise on malformed payload: {exc!r}"
+        ) from exc
+
+    assert any(f.failure_type == SCHEMA_SHAPE_VIOLATION for f in failures)
+
+
+def test_validate_revision_ownership_returns_shape_failure_when_written_by_missing() -> None:
+    """Revision missing ``written_by`` must NOT raise — returns SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_revision_ownership,
+    )
+
+    bad = {"rev": 0, "written_at": _now(), "value": {}}  # no written_by
+
+    try:
+        failures = validate_revision_ownership(  # type: ignore[arg-type]
+            bad, kind="verdict", path_id="path_1"
+        )
+    except (KeyError, TypeError) as exc:  # pragma: no cover - failure path
+        raise AssertionError(
+            f"validate_revision_ownership must not raise on malformed revision: {exc!r}"
+        ) from exc
+
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION and f.defect == "missing_key:revision.written_by"
+        for f in failures
+    )
+
+
+def test_validate_revision_ownership_returns_shape_failure_when_not_a_mapping() -> None:
+    """Revision that is not a Mapping → SCHEMA_SHAPE_VIOLATION (defect: not_a_mapping)."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_revision_ownership,
+    )
+
+    failures = validate_revision_ownership(  # type: ignore[arg-type]
+        "not a dict", kind="verdict", path_id="path_1"
+    )
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION and f.defect == "not_a_mapping" for f in failures
+    )
+
+
+def test_valid_contract_passes_pre_pass_regression_guard() -> None:
+    """Semantically-correct contract still passes; pre-pass produces no false positives."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_diff_revision,
+    )
+
+    contract = _contract_with_verdicts({"inv_a": ("HARD_fail", "blocked")})
+    diff = _diff_rev(
+        0, accepted=[_entry("inv_a", terminal_rationale="terminal — no creative reframe")]
+    )
+    failures = validate_diff_revision(contract, diff)
+    # No shape failures; semantic check also passes.
+    assert not any(f.failure_type == SCHEMA_SHAPE_VIOLATION for f in failures)
+    assert failures == []
+
+
+def test_validator_failure_event_payload_includes_defect(tmp_path: Path) -> None:
+    """``emit_validator_failures`` surfaces ``defect`` in the event payload for #203 grouping."""
+    from debate_hall_mcp.events import load_events
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        ValidatorFailure,
+        emit_validator_failures,
+    )
+
+    failures = [
+        ValidatorFailure(
+            failure_type=SCHEMA_SHAPE_VIOLATION,
+            path_id="path_1",
+            invariant=None,
+            role=None,
+            details="missing required top-level key",
+            defect="missing_key:verdict_history",
+        )
+    ]
+    emit_validator_failures(thread_id="t-defect", failures=failures, state_dir=tmp_path)
+    loaded = load_events(thread_id="t-defect", state_dir=tmp_path)
+    assert len(loaded) == 1
+    assert loaded[0].payload["defect"] == "missing_key:verdict_history"
