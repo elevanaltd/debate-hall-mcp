@@ -34,7 +34,13 @@ responsible for assigning distinct names per orthogonal verdict so that
 
 import json
 from datetime import datetime
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal
+
+# NOTE: ``TypedDict`` / ``NotRequired`` are imported from ``typing_extensions``
+# (not ``typing``) because Pydantic 2 on Python < 3.12 requires the
+# ``typing_extensions`` variant for runtime introspection — see the longer
+# comment block below for the full rationale.
+from typing_extensions import NotRequired, TypedDict  # noqa: UP035
 
 # NOTE: ``from __future__ import annotations`` is intentionally NOT used.
 # Under PEP 563 stringification, the runtime ``TypedDict`` machinery in
@@ -43,6 +49,13 @@ from typing import Any, Literal, NotRequired, TypedDict
 # (``terminal_rationale``, ``new_possibility``, ``divergence_marker``,
 # ``synthesis_guidance``) are load-bearing for the validator in #200, so we
 # evaluate annotations eagerly here.
+#
+# NOTE: ``TypedDict`` and ``NotRequired`` are imported from ``typing_extensions``
+# (not ``typing``) because Pydantic 2 on Python < 3.12 requires the
+# ``typing_extensions`` variant for runtime introspection — ``TypeAdapter(...)``
+# raises ``PydanticUserError`` (see https://errors.pydantic.dev/2.12/u/typed-dict-version)
+# when given a ``typing.TypedDict``. This module's TypedDicts are consumed by
+# #197 state serialisation via Pydantic, so the source must be ``typing_extensions``.
 
 # ---------------------------------------------------------------------------
 # Open-set invariant name (RFC §3.1 / §3.3 Finding A).
@@ -235,6 +248,37 @@ def path_contract_from_json(payload: str) -> PathContract:
 
     Restores ``datetime`` instances on every revision in every history. Keys
     that were absent on the source object remain absent on the result.
+
+    BOUNDARY (deliberate non-validation):
+
+    This function performs JSON deserialisation and ``datetime`` conversion
+    ONLY. It does NOT validate the structural correctness of the resulting
+    ``PathContract``. Specifically, it does NOT check that:
+
+    * ``frame_history`` / ``verdict_history`` / ``diff_history`` are lists,
+    * revisions are monotonically ordered by ``rev``,
+    * ``written_by`` respects the ownership ``Literal`` for the revision kind
+      (``Wind`` for frame/diff, ``Wall`` for verdict),
+    * ``status`` values inside ``InvariantVerdict`` are members of the closed
+      ``Literal["HARD_pass", "HARD_fail", "SOFT_disputed"]``,
+    * the ``NO_NEW_DIVERGENCE`` sentinel co-occurs only with legal verdict
+      states (see RFC-0001 §3.3 Finding D), or
+    * ``terminal_rationale`` / ``new_possibility`` are present where
+      ``InvariantEntry`` semantics require them.
+
+    Per RFC-0001 §6, all such schema-shape violations are enforced as
+    ``VALIDATOR_FAILURE`` events by the orchestrator validator (#200), not
+    here. The same separation-of-concerns rationale that keeps
+    ``from __future__ import annotations`` out of this module (see the
+    module-level note above) keeps validation logic out as well: this module
+    is the wire-format I/O boundary; #200 is the policy boundary.
+
+    Callers MUST NOT treat the return value as a validated contract — it is
+    structurally typed for the type checker but is not runtime-checked. Pass
+    the result through the #200 validator before relying on any invariant
+    that is not encoded in the JSON wire format itself (i.e. anything beyond
+    "this parsed as JSON and any ``written_at`` strings decoded as ISO-8601
+    datetimes").
     """
     raw: dict[str, Any] = json.loads(payload)
     for key in ("frame_history", "verdict_history", "diff_history"):

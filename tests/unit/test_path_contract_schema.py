@@ -282,12 +282,9 @@ def test_round_trip_json_serialization() -> None:
     restored = path_contract_from_json(encoded)
     assert restored["path_id"] == original["path_id"]
     assert restored["frame_history"][0]["written_at"] == datetime(2026, 5, 16, 12, 0, 0, tzinfo=UTC)
+    assert restored["diff_history"][0]["divergence_marker"] == "NO_NEW_DIVERGENCE"
     assert (
-        restored["diff_history"][0]["divergence_marker"]  # type: ignore[typeddict-item]
-        == "NO_NEW_DIVERGENCE"
-    )
-    assert (
-        restored["diff_history"][0]["synthesis_guidance"]  # type: ignore[typeddict-item]
+        restored["diff_history"][0]["synthesis_guidance"]
         == "Path-1's reframe only works when merged with path-2."
     )
 
@@ -302,8 +299,8 @@ def test_round_trip_preserves_optional_absence() -> None:
     pc = _make_populated_contract()
     # Strip the optional slots from the lone diff revision.
     diff = pc["diff_history"][0]  # type: ignore[index]
-    diff.pop("divergence_marker", None)  # type: ignore[union-attr]
-    diff.pop("synthesis_guidance", None)  # type: ignore[union-attr]
+    diff.pop("divergence_marker", None)
+    diff.pop("synthesis_guidance", None)
 
     restored = path_contract_from_json(path_contract_to_json(pc))  # type: ignore[arg-type]
     restored_diff = restored["diff_history"][0]
@@ -382,6 +379,32 @@ def test_module_does_not_smuggle_validator_logic() -> None:
         assert not hasattr(
             mod, forbidden
         ), f"{forbidden} would conflate #196 with #200 (validator scope)."
+
+
+# -- Pydantic runtime compatibility (CE finding on PR #216) ------------------
+
+
+def test_path_contract_is_pydantic_compatible() -> None:
+    """``TypeAdapter(PathContract)`` must succeed on Python 3.11.
+
+    Pydantic 2 on Python < 3.12 requires ``typing_extensions.TypedDict``; the
+    ``typing.TypedDict`` variant raises ``PydanticUserError`` at TypeAdapter
+    construction (see https://errors.pydantic.dev/2.12/u/typed-dict-version).
+    #197 (state serialisation) round-trips ``PathContract`` through Pydantic,
+    so this smoke test guards the load-bearing import source in
+    ``path_contract.py`` to prevent silent regression.
+    """
+    from pydantic import TypeAdapter
+
+    from debate_hall_mcp.path_contract import PathContract, new_path_contract
+
+    adapter = TypeAdapter(PathContract)
+    # Minimal valid contract (empty histories) must validate without error.
+    validated = adapter.validate_python(new_path_contract("path_1"))
+    assert validated["path_id"] == "path_1"
+    assert validated["frame_history"] == []
+    assert validated["verdict_history"] == []
+    assert validated["diff_history"] == []
 
 
 if __name__ == "__main__":

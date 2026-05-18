@@ -33,6 +33,7 @@ dependencies = [
     "octave-mcp>=1.9.2",  # v1.9.2: latest version with improvements
     "python-ulid>=3.0.0",  # ULID for event ordering (ADR-0002)
     "PyYAML>=6.0",  # Tier configuration loading (ADR-0002)
+    "typing_extensions>=4.12",  # Required directly: path_contract uses typing_extensions.TypedDict for Pydantic 2 runtime introspection on Python < 3.12 (PR #216)
 ]
 
 [project.optional-dependencies]
