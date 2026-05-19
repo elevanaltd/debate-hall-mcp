@@ -19,7 +19,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -32,8 +31,6 @@ from debate_hall_mcp.path_contract import (
     VerdictRevision,
     new_path_contract,
 )
-from debate_hall_mcp.providers import ProviderResponse
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -374,9 +371,9 @@ class TestFindingIDoorPromptNoDiskRead:
 
         assert isinstance(prompt, str)
         assert thread_id in prompt
-        assert offending_opens == [], (
-            f"Door prompt construction performed disk reads for thread paths: {offending_opens}"
-        )
+        assert (
+            offending_opens == []
+        ), f"Door prompt construction performed disk reads for thread paths: {offending_opens}"
 
 
 # ---------------------------------------------------------------------------
