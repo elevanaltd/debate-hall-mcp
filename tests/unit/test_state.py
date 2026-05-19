@@ -18,7 +18,8 @@ import pytest
 from debate_hall_mcp.path_contract import (
     DiffRevision,
     FrameRevision,
-    PathContract,
+    PathDiff,
+    PathFrame,
     VerdictRevision,
     new_path_contract,
 )
@@ -1662,17 +1663,17 @@ def _ts(minute: int = 0) -> datetime:
     return datetime(2026, 5, 19, 12, minute, 0, tzinfo=UTC)
 
 
-def _frame_value(problem: str = "x") -> dict[str, object]:
-    return {
-        "assumed_problem": problem,
-        "success_criterion": "criterion",
-        "accepted_failure_mode": "failure_mode",
-        "invariants_touched": ["inv_a"],
-    }
+def _frame_value(problem: str = "x") -> PathFrame:
+    return PathFrame(
+        assumed_problem=problem,
+        success_criterion="criterion",
+        accepted_failure_mode="failure_mode",
+        invariants_touched=["inv_a"],
+    )
 
 
-def _diff_value_empty() -> dict[str, list[dict[str, str]]]:
-    return {"accepted": [], "disputed": [], "reframed": []}
+def _diff_value_empty() -> PathDiff:
+    return PathDiff(accepted=[], disputed=[], reframed=[])
 
 
 class TestDebateRoomPathContractsField:
@@ -1711,7 +1712,7 @@ class TestPathContractsRoundTrip:
                 rev=0,
                 written_at=_ts(0),
                 written_by="Wind",
-                value=_frame_value("alpha problem"),  # type: ignore[arg-type]
+                value=_frame_value("alpha problem"),
             )
         )
         contract["verdict_history"].append(
@@ -1727,7 +1728,7 @@ class TestPathContractsRoundTrip:
                 rev=0,
                 written_at=_ts(2),
                 written_by="Wind",
-                value=_diff_value_empty(),  # type: ignore[arg-type]
+                value=_diff_value_empty(),
                 divergence_marker="NO_NEW_DIVERGENCE",
             )
         )
@@ -1765,7 +1766,7 @@ class TestPathContractsRoundTrip:
                 rev=0,
                 written_at=_ts(),
                 written_by="Wind",
-                value=_frame_value(),  # type: ignore[arg-type]
+                value=_frame_value(),
             )
         )
         room = DebateRoom(
@@ -1821,7 +1822,7 @@ class TestPathContractTypedAppendAPI:
         room.append_frame_revision(
             path_id="new_path",
             written_at=_ts(),
-            value=_frame_value(),  # type: ignore[arg-type]
+            value=_frame_value(),
         )
         assert len(room.path_contracts) == 1
         contract = room.path_contracts[0]
@@ -1839,12 +1840,8 @@ class TestPathContractTypedAppendAPI:
             topic="monotonic",
             mode=DebateMode.FIXED,
         )
-        room.append_frame_revision(
-            path_id="p1", written_at=_ts(0), value=_frame_value("v0")  # type: ignore[arg-type]
-        )
-        room.append_frame_revision(
-            path_id="p1", written_at=_ts(1), value=_frame_value("v1")  # type: ignore[arg-type]
-        )
+        room.append_frame_revision(path_id="p1", written_at=_ts(0), value=_frame_value("v0"))
+        room.append_frame_revision(path_id="p1", written_at=_ts(1), value=_frame_value("v1"))
         contract = room.path_contracts[0]
         assert [r["rev"] for r in contract["frame_history"]] == [0, 1]
         assert contract["frame_history"][1]["value"]["assumed_problem"] == "v1"
@@ -1875,7 +1872,7 @@ class TestPathContractTypedAppendAPI:
         room.append_diff_revision(
             path_id="p1",
             written_at=_ts(),
-            value=_diff_value_empty(),  # type: ignore[arg-type]
+            value=_diff_value_empty(),
         )
         contract = room.path_contracts[0]
         assert contract["diff_history"][0]["written_by"] == "Wind"
@@ -1891,7 +1888,7 @@ class TestPathContractTypedAppendAPI:
         room.append_diff_revision(
             path_id="p1",
             written_at=_ts(),
-            value=_diff_value_empty(),  # type: ignore[arg-type]
+            value=_diff_value_empty(),
             divergence_marker="NO_NEW_DIVERGENCE",
             synthesis_guidance="cross-path insight",
         )
@@ -1908,15 +1905,9 @@ class TestPathContractTypedAppendAPI:
             topic="per-path",
             mode=DebateMode.FIXED,
         )
-        room.append_frame_revision(
-            path_id="p1", written_at=_ts(0), value=_frame_value()  # type: ignore[arg-type]
-        )
-        room.append_frame_revision(
-            path_id="p2", written_at=_ts(1), value=_frame_value()  # type: ignore[arg-type]
-        )
-        room.append_frame_revision(
-            path_id="p1", written_at=_ts(2), value=_frame_value()  # type: ignore[arg-type]
-        )
+        room.append_frame_revision(path_id="p1", written_at=_ts(0), value=_frame_value())
+        room.append_frame_revision(path_id="p2", written_at=_ts(1), value=_frame_value())
+        room.append_frame_revision(path_id="p1", written_at=_ts(2), value=_frame_value())
         assert {c["path_id"] for c in room.path_contracts} == {"p1", "p2"}
         by_id = {c["path_id"]: c for c in room.path_contracts}
         assert [r["rev"] for r in by_id["p1"]["frame_history"]] == [0, 1]
@@ -1934,8 +1925,8 @@ class TestPathContractTypedAppendAPI:
             room.append_diff_revision(
                 path_id="p1",
                 written_at=_ts(),
-                value=_diff_value_empty(),  # type: ignore[arg-type]
-                divergence_marker="BOGUS_MARKER",  # type: ignore[arg-type]
+                value=_diff_value_empty(),
+                divergence_marker="BOGUS_MARKER",
             )
 
 
@@ -1953,12 +1944,8 @@ class TestPathContractLatestRevisionGuard:
             topic="latest",
             mode=DebateMode.FIXED,
         )
-        room.append_frame_revision(
-            path_id="p1", written_at=_ts(0), value=_frame_value("rev0")  # type: ignore[arg-type]
-        )
-        room.append_frame_revision(
-            path_id="p1", written_at=_ts(1), value=_frame_value("rev1")  # type: ignore[arg-type]
-        )
+        room.append_frame_revision(path_id="p1", written_at=_ts(0), value=_frame_value("rev0"))
+        room.append_frame_revision(path_id="p1", written_at=_ts(1), value=_frame_value("rev1"))
         state_dir = tmp_path / "debates"
         save_debate_state(room, state_dir)
         loaded = load_debate_state("2026-05-19-pc-latest", state_dir)
