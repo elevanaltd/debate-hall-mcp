@@ -47,6 +47,11 @@ class EventType(StrEnum):
     - CONSENSUS_VOTE: Agent voted on consensus
     - ERROR: Error occurred during processing
     - DEBATE_CLOSED: Debate concluded (synthesis, exhaustion, etc.)
+    - VALIDATOR_FAILURE: A path_contract validator rejection (RFC-0001 §6
+      item 3). Failure-type discrimination lives in the event payload
+      (``failure_type`` key) so the A/B harness (#203) can group failures
+      without parsing free text. The discriminator constants are exported
+      from ``debate_hall_mcp.path_contract_validator``.
     """
 
     DEBATE_STARTED = "debate_started"
@@ -54,6 +59,7 @@ class EventType(StrEnum):
     CONSENSUS_VOTE = "consensus_vote"
     ERROR = "error"
     DEBATE_CLOSED = "debate_closed"
+    VALIDATOR_FAILURE = "validator_failure"
 
 
 class DebateEvent(BaseModel):
