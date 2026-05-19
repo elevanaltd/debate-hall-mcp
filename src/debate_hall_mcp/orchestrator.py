@@ -216,6 +216,11 @@ class DebateOrchestrator:
         Returns:
             Formatted string with DEBATE_STATE tags
         """
+        from debate_hall_mcp.context_compiler import (
+            derive_synthesis_status,
+            render_path_contracts_block,
+        )
+
         lines = ["<DEBATE_STATE>"]
         lines.append(f"THREAD_ID::{debate_state['thread_id']}")
         lines.append(f"TOPIC::{debate_state['topic']}")
@@ -242,6 +247,29 @@ class DebateOrchestrator:
                     lines.append(f"  {role_label} ({token_output} tokens):: {content}")
                 else:
                     lines.append(f"  {role_label}:: {content}")
+
+        # RFC-0001 #199: inject <PATH_CONTRACTS> sub-block (RFC §6 item 1)
+        # when path_contracts are present in the in-memory state. Absent/empty
+        # input renders nothing — preserves envelope byte-identity for the
+        # feature-off path (gated by #201/#205).
+        #
+        # PR #218 rework — joint emission contract (CE finding 1):
+        # ``SYNTHESIS_STATUS::<value>`` and ``<PATH_CONTRACTS>`` are emitted
+        # IFF path_contracts is non-empty. When the feature is off, the
+        # envelope is byte-identical to the pre-#199 shape. #198's prompt
+        # branches depend on this joint emission contract — SYNTHESIS_STATUS
+        # only matters when contracts are being tracked.
+        path_contracts_block = render_path_contracts_block(debate_state.get("path_contracts") or [])
+        if path_contracts_block:
+            # Insert SYNTHESIS_STATUS just before the </DEBATE_STATE> closer,
+            # alongside the contracts block, so both appear jointly inside the
+            # envelope without disturbing the pre-PR header line ordering.
+            synthesis_status = derive_synthesis_status(
+                synthesis=debate_state.get("synthesis"),
+                turn_count=int(debate_state.get("turn_count", 0)),
+            )
+            lines.append(f"SYNTHESIS_STATUS::{synthesis_status}")
+            lines.append(path_contracts_block)
 
         lines.append("</DEBATE_STATE>")
         return "\n".join(lines)
