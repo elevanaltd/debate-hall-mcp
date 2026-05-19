@@ -227,15 +227,6 @@ class DebateOrchestrator:
         lines.append(f"STATUS::{debate_state['status']}")
         lines.append(f"TURN_COUNT::{debate_state['turn_count']}")
 
-        # RFC-0001 #199 Finding F: explicit synthesis-status flag so Wind/Wall/Door
-        # prompts (#198) can branch unambiguously. Always emitted; the value
-        # distinguishes "no synthesis yet" from "synthesis withdrawn for refinement".
-        synthesis_status = derive_synthesis_status(
-            synthesis=debate_state.get("synthesis"),
-            turn_count=int(debate_state.get("turn_count", 0)),
-        )
-        lines.append(f"SYNTHESIS_STATUS::{synthesis_status}")
-
         if debate_state.get("synthesis"):
             lines.append(f"SYNTHESIS::{debate_state['synthesis']}")
 
@@ -261,8 +252,23 @@ class DebateOrchestrator:
         # when path_contracts are present in the in-memory state. Absent/empty
         # input renders nothing — preserves envelope byte-identity for the
         # feature-off path (gated by #201/#205).
+        #
+        # PR #218 rework — joint emission contract (CE finding 1):
+        # ``SYNTHESIS_STATUS::<value>`` and ``<PATH_CONTRACTS>`` are emitted
+        # IFF path_contracts is non-empty. When the feature is off, the
+        # envelope is byte-identical to the pre-#199 shape. #198's prompt
+        # branches depend on this joint emission contract — SYNTHESIS_STATUS
+        # only matters when contracts are being tracked.
         path_contracts_block = render_path_contracts_block(debate_state.get("path_contracts") or [])
         if path_contracts_block:
+            # Insert SYNTHESIS_STATUS just before the </DEBATE_STATE> closer,
+            # alongside the contracts block, so both appear jointly inside the
+            # envelope without disturbing the pre-PR header line ordering.
+            synthesis_status = derive_synthesis_status(
+                synthesis=debate_state.get("synthesis"),
+                turn_count=int(debate_state.get("turn_count", 0)),
+            )
+            lines.append(f"SYNTHESIS_STATUS::{synthesis_status}")
             lines.append(path_contracts_block)
 
         lines.append("</DEBATE_STATE>")
