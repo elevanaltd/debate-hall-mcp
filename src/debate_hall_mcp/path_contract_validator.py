@@ -214,6 +214,48 @@ def _shape_failure(path_id: str, defect: str, details: str) -> ValidatorFailure:
     )
 
 
+# Allowed Literal value sets per RFC §3.1. Centralised here so the shape
+# pre-pass enforces VALUE membership (not just key presence) — addresses
+# Cubic P2 on PR #217: previously ``status="HARD_FAIL"`` (caps) or
+# ``written_by="wind"`` (lowercase) passed shape validation and either
+# silently bypassed semantic checks (false negative on REQUIRED CONTENT
+# RULE) or were mis-categorised as ``OWNERSHIP_VIOLATION``.
+_ALLOWED_STATUS: frozenset[str] = frozenset({"HARD_pass", "HARD_fail", "SOFT_disputed"})
+_ALLOWED_WRITTEN_BY: dict[RevisionKind, frozenset[str]] = {
+    "frame": frozenset({"Wind"}),
+    "verdict": frozenset({"Wall"}),
+    "diff": frozenset({"Wind"}),
+}
+_ALLOWED_DIVERGENCE_MARKER: frozenset[str] = frozenset({"NO_NEW_DIVERGENCE"})
+
+
+def _check_literal_value(
+    value: object,
+    *,
+    allowed: frozenset[str],
+    path_id: str,
+    locator: str,
+) -> ValidatorFailure | None:
+    """Verify ``value`` is one of the ``allowed`` Literal strings.
+
+    Returns ``None`` when ``value`` is a valid member, otherwise a
+    ``SCHEMA_SHAPE_VIOLATION`` with defect ``invalid_literal:<locator>:<repr>``.
+    A ``None`` ``value`` (caller already determined the key is absent and
+    that absence is permitted — e.g. ``NotRequired`` slot) should not be
+    passed here; callers gate on presence first.
+    """
+    if isinstance(value, str) and value in allowed:
+        return None
+    return _shape_failure(
+        path_id,
+        f"invalid_literal:{locator}:{value!r}",
+        (
+            f"{locator} must be one of {sorted(allowed)!r}; "
+            f"got {value!r} (type {type(value).__name__})."
+        ),
+    )
+
+
 def _check_invariant_entries(
     entries: object,
     *,
@@ -306,6 +348,16 @@ def _check_frame_history(history: list[Any], path_id: str) -> list[ValidatorFail
                         f"{locator} missing required key '{key}'.",
                     )
                 )
+        # Literal VALUE membership for ``written_by`` (RFC §3.1).
+        if "written_by" in rev:
+            wb_failure = _check_literal_value(
+                rev["written_by"],
+                allowed=_ALLOWED_WRITTEN_BY["frame"],
+                path_id=path_id,
+                locator=f"{locator}.written_by",
+            )
+            if wb_failure is not None:
+                failures.append(wb_failure)
     return failures
 
 
@@ -332,6 +384,16 @@ def _check_verdict_history(history: list[Any], path_id: str) -> list[ValidatorFa
                         f"{locator} missing required key '{key}'.",
                     )
                 )
+        # Literal VALUE membership for ``written_by`` (RFC §3.1).
+        if "written_by" in rev:
+            wb_failure = _check_literal_value(
+                rev["written_by"],
+                allowed=_ALLOWED_WRITTEN_BY["verdict"],
+                path_id=path_id,
+                locator=f"{locator}.written_by",
+            )
+            if wb_failure is not None:
+                failures.append(wb_failure)
         # value must be a Mapping[str, Mapping] with status/rationale fields.
         if "value" in rev:
             value = rev["value"]
@@ -364,6 +426,16 @@ def _check_verdict_history(history: list[Any], path_id: str) -> list[ValidatorFa
                                 f"{v_loc} missing required key '{key}'.",
                             )
                         )
+                # Literal VALUE membership for ``status`` (RFC §3.1).
+                if "status" in verdict:
+                    status_failure = _check_literal_value(
+                        verdict["status"],
+                        allowed=_ALLOWED_STATUS,
+                        path_id=path_id,
+                        locator=f"{v_loc}.status",
+                    )
+                    if status_failure is not None:
+                        failures.append(status_failure)
     return failures
 
 
@@ -390,6 +462,27 @@ def _check_diff_history(history: list[Any], path_id: str) -> list[ValidatorFailu
                         f"{locator} missing required key '{key}'.",
                     )
                 )
+        # Literal VALUE membership for ``written_by`` (RFC §3.1).
+        if "written_by" in rev:
+            wb_failure = _check_literal_value(
+                rev["written_by"],
+                allowed=_ALLOWED_WRITTEN_BY["diff"],
+                path_id=path_id,
+                locator=f"{locator}.written_by",
+            )
+            if wb_failure is not None:
+                failures.append(wb_failure)
+        # Literal VALUE membership for ``divergence_marker`` (NotRequired —
+        # only checked when present). RFC §3.1: Literal["NO_NEW_DIVERGENCE"].
+        if "divergence_marker" in rev:
+            dm_failure = _check_literal_value(
+                rev["divergence_marker"],
+                allowed=_ALLOWED_DIVERGENCE_MARKER,
+                path_id=path_id,
+                locator=f"{locator}.divergence_marker",
+            )
+            if dm_failure is not None:
+                failures.append(dm_failure)
         if "value" not in rev:
             continue
         value = rev["value"]
@@ -529,6 +622,26 @@ def _validate_diff_shape(diff: object, path_id: str) -> list[ValidatorFailure]:
                     f"diff revision missing required key '{key}'.",
                 )
             )
+    # Literal VALUE membership for ``written_by`` (RFC §3.1: Literal["Wind"]).
+    if "written_by" in diff:
+        wb_failure = _check_literal_value(
+            diff["written_by"],
+            allowed=_ALLOWED_WRITTEN_BY["diff"],
+            path_id=path_id,
+            locator="diff.written_by",
+        )
+        if wb_failure is not None:
+            failures.append(wb_failure)
+    # Literal VALUE membership for ``divergence_marker`` (NotRequired).
+    if "divergence_marker" in diff:
+        dm_failure = _check_literal_value(
+            diff["divergence_marker"],
+            allowed=_ALLOWED_DIVERGENCE_MARKER,
+            path_id=path_id,
+            locator="diff.divergence_marker",
+        )
+        if dm_failure is not None:
+            failures.append(dm_failure)
     if "value" not in diff:
         return failures
     value = diff["value"]
@@ -588,6 +701,21 @@ def validate_revision_shape(
                     f"{kind} revision missing required key '{key}'.",
                 )
             )
+    # Literal VALUE membership for ``written_by`` per ``kind`` (RFC §3.1).
+    # Critical for the two-phase pattern: an invalid Literal here is a
+    # shape defect, not a semantic ``OWNERSHIP_VIOLATION`` — the latter
+    # only applies when ``written_by`` is a STRUCTURALLY valid Literal but
+    # for the wrong revision kind. Without this check, ``written_by="wind"``
+    # (lowercase) would be mis-categorised as OWNERSHIP.
+    if "written_by" in revision:
+        wb_failure = _check_literal_value(
+            revision["written_by"],
+            allowed=_ALLOWED_WRITTEN_BY[kind],
+            path_id=path_id,
+            locator="revision.written_by",
+        )
+        if wb_failure is not None:
+            failures.append(wb_failure)
     return failures
 
 

@@ -514,9 +514,19 @@ def test_no_new_divergence_with_non_empty_disputed_only_is_legal_finding_d_regre
 
 
 def test_ownership_wind_writing_verdict_fails() -> None:
-    """Wind writing a VerdictRevision → OWNERSHIP_VIOLATION."""
+    """Wind writing a VerdictRevision → SCHEMA_SHAPE_VIOLATION.
+
+    Per Cubic P2 rework on PR #217: ``written_by`` is a Literal field; a
+    value outside the kind's Literal set is a STRUCTURAL defect caught at
+    the shape pre-pass, not a semantic OWNERSHIP_VIOLATION. The latter is
+    only reachable when ``written_by`` is a structurally valid string but
+    semantically wrong for the kind — which under the strengthened
+    ``Literal["Wall"]`` rule for verdicts is now unreachable for verdicts
+    (any non-"Wall" value is rejected at shape time).
+    """
     from debate_hall_mcp.path_contract_validator import (
         OWNERSHIP_VIOLATION,
+        SCHEMA_SHAPE_VIOLATION,
         validate_revision_ownership,
     )
 
@@ -527,13 +537,20 @@ def test_ownership_wind_writing_verdict_fails() -> None:
         value={},
     )
     failures = validate_revision_ownership(bad, kind="verdict", path_id="path_1")
-    assert any(f.failure_type == OWNERSHIP_VIOLATION and f.role == "Wind" for f in failures)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "invalid_literal:revision.written_by:'Wind'"
+        for f in failures
+    ), failures
+    # Two-phase short-circuit: semantic OWNERSHIP_VIOLATION does NOT also fire.
+    assert not any(f.failure_type == OWNERSHIP_VIOLATION for f in failures)
 
 
 def test_ownership_wall_writing_frame_fails() -> None:
-    """Wall writing a FrameRevision → OWNERSHIP_VIOLATION."""
+    """Wall writing a FrameRevision → SCHEMA_SHAPE_VIOLATION (see verdict test for rationale)."""
     from debate_hall_mcp.path_contract_validator import (
         OWNERSHIP_VIOLATION,
+        SCHEMA_SHAPE_VIOLATION,
         validate_revision_ownership,
     )
 
@@ -549,19 +566,30 @@ def test_ownership_wall_writing_frame_fails() -> None:
         ),
     )
     failures = validate_revision_ownership(bad, kind="frame", path_id="path_1")
-    assert any(f.failure_type == OWNERSHIP_VIOLATION and f.role == "Wall" for f in failures)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "invalid_literal:revision.written_by:'Wall'"
+        for f in failures
+    ), failures
+    assert not any(f.failure_type == OWNERSHIP_VIOLATION for f in failures)
 
 
 def test_ownership_door_writing_diff_fails() -> None:
-    """Door writing a DiffRevision → OWNERSHIP_VIOLATION (Door is read-only)."""
+    """Door writing a DiffRevision → SCHEMA_SHAPE_VIOLATION (Door not in Literal["Wind"])."""
     from debate_hall_mcp.path_contract_validator import (
         OWNERSHIP_VIOLATION,
+        SCHEMA_SHAPE_VIOLATION,
         validate_revision_ownership,
     )
 
     bad = _diff_rev(0, written_by="Door")
     failures = validate_revision_ownership(bad, kind="diff", path_id="path_1")
-    assert any(f.failure_type == OWNERSHIP_VIOLATION and f.role == "Door" for f in failures)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "invalid_literal:revision.written_by:'Door'"
+        for f in failures
+    ), failures
+    assert not any(f.failure_type == OWNERSHIP_VIOLATION for f in failures)
 
 
 def test_ownership_correct_owners_pass() -> None:
@@ -1056,3 +1084,428 @@ def test_validator_failure_event_payload_includes_defect(tmp_path: Path) -> None
     loaded = load_events(thread_id="t-defect", state_dir=tmp_path)
     assert len(loaded) == 1
     assert loaded[0].payload["defect"] == "missing_key:verdict_history"
+
+
+# ---------------------------------------------------------------------------
+# Shape pre-pass: Literal VALUE membership (Cubic P2 rework on PR #217).
+#
+# The pre-pass previously checked key PRESENCE but not Literal VALUE
+# membership. A malformed status like ``"HARD_FAIL"`` (caps) or
+# ``written_by="wind"`` (lowercase) passed shape validation and then either
+# (a) silently bypassed downstream semantic checks (false negative on the
+# REQUIRED CONTENT RULE) or (b) was mis-categorized as ``OWNERSHIP_VIOLATION``
+# when the real defect is structural.
+#
+# Per RFC §3.1:
+#   * ``InvariantVerdict.status: Literal["HARD_pass", "HARD_fail", "SOFT_disputed"]``
+#   * ``FrameRevision.written_by: Literal["Wind"]``
+#   * ``VerdictRevision.written_by: Literal["Wall"]``
+#   * ``DiffRevision.written_by: Literal["Wind"]``
+#   * ``DiffRevision.divergence_marker: NotRequired[Literal["NO_NEW_DIVERGENCE"]]``
+#
+# Defect identifier format: ``invalid_literal:<locator>:<actual_repr>``.
+# ---------------------------------------------------------------------------
+
+
+def test_shape_rejects_verdict_status_uppercase_literal() -> None:
+    """``status="HARD_FAIL"`` (uppercase) is NOT in the Literal set → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    bad: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Wall",
+                "value": {"inv_a": {"status": "HARD_FAIL", "rationale": "blocked"}},
+            }
+        ],
+        "diff_history": [],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect is not None
+        and f.defect.startswith("invalid_literal:verdict_history[0].value[")
+        and f.defect.endswith("].status:'HARD_FAIL'")
+        for f in failures
+    ), failures
+
+
+def test_shape_rejects_verdict_status_lowercase_failed() -> None:
+    """``status="failed"`` is NOT in the Literal set → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    bad: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Wall",
+                "value": {"inv_a": {"status": "failed", "rationale": "x"}},
+            }
+        ],
+        "diff_history": [],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect is not None
+        and "invalid_literal:" in f.defect
+        and f.defect.endswith(".status:'failed'")
+        for f in failures
+    ), failures
+
+
+def test_shape_rejects_verdict_status_non_string() -> None:
+    """``status=42`` (non-string) → SCHEMA_SHAPE_VIOLATION (invalid_literal defect)."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    bad: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Wall",
+                "value": {"inv_a": {"status": 42, "rationale": "x"}},
+            }
+        ],
+        "diff_history": [],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect is not None
+        and "invalid_literal:" in f.defect
+        and f.defect.endswith(".status:42")
+        for f in failures
+    ), failures
+
+
+def test_shape_rejects_frame_written_by_lowercase_wind() -> None:
+    """Frame ``written_by="wind"`` (lowercase) → SCHEMA_SHAPE_VIOLATION (not OWNERSHIP)."""
+    from debate_hall_mcp.path_contract_validator import (
+        OWNERSHIP_VIOLATION,
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+        validate_revision_ownership,
+    )
+
+    bad: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "wind",  # lowercase — not in Literal set
+                "value": {},
+            }
+        ],
+        "verdict_history": [],
+        "diff_history": [],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "invalid_literal:frame_history[0].written_by:'wind'"
+        for f in failures
+    ), failures
+
+    # Per-revision check via validate_revision_shape (called by ownership pre-pass).
+    revision = {"rev": 0, "written_at": _now(), "written_by": "wind", "value": {}}
+    own_failures = validate_revision_ownership(  # type: ignore[arg-type]
+        revision, kind="frame", path_id="p"
+    )
+    assert any(f.failure_type == SCHEMA_SHAPE_VIOLATION for f in own_failures)
+    assert not any(
+        f.failure_type == OWNERSHIP_VIOLATION for f in own_failures
+    ), "Shape violation must short-circuit ownership semantic check"
+
+
+def test_shape_rejects_diff_written_by_door() -> None:
+    """Diff ``written_by="Door"`` is NOT in Literal["Wind"] → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        OWNERSHIP_VIOLATION,
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+        validate_revision_ownership,
+    )
+
+    bad: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [],
+        "diff_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Door",  # not in Literal["Wind"]
+                "value": {"accepted": [], "disputed": [], "reframed": []},
+            }
+        ],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "invalid_literal:diff_history[0].written_by:'Door'"
+        for f in failures
+    ), failures
+
+    # Ownership pre-pass short-circuits semantic OWNERSHIP_VIOLATION.
+    revision = {
+        "rev": 0,
+        "written_at": _now(),
+        "written_by": "Door",
+        "value": {"accepted": [], "disputed": [], "reframed": []},
+    }
+    own_failures = validate_revision_ownership(  # type: ignore[arg-type]
+        revision, kind="diff", path_id="p"
+    )
+    assert any(f.failure_type == SCHEMA_SHAPE_VIOLATION for f in own_failures)
+    assert not any(f.failure_type == OWNERSHIP_VIOLATION for f in own_failures)
+
+
+def test_shape_rejects_verdict_written_by_wind_not_wall() -> None:
+    """Verdict ``written_by="Wind"`` is NOT in Literal["Wall"] → SCHEMA_SHAPE_VIOLATION.
+
+    "Wind" is a valid Literal for frame/diff but NOT for verdict; the real
+    defect here is shape (wrong Literal for this revision kind), not
+    semantic ownership.
+    """
+    from debate_hall_mcp.path_contract_validator import (
+        OWNERSHIP_VIOLATION,
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+        validate_revision_ownership,
+    )
+
+    bad: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Wind",  # not in Literal["Wall"]
+                "value": {"inv_a": {"status": "HARD_pass", "rationale": "ok"}},
+            }
+        ],
+        "diff_history": [],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "invalid_literal:verdict_history[0].written_by:'Wind'"
+        for f in failures
+    ), failures
+
+    revision = {
+        "rev": 0,
+        "written_at": _now(),
+        "written_by": "Wind",
+        "value": {"inv_a": {"status": "HARD_pass", "rationale": "ok"}},
+    }
+    own_failures = validate_revision_ownership(  # type: ignore[arg-type]
+        revision, kind="verdict", path_id="p"
+    )
+    assert any(f.failure_type == SCHEMA_SHAPE_VIOLATION for f in own_failures)
+    assert not any(f.failure_type == OWNERSHIP_VIOLATION for f in own_failures)
+
+
+def test_shape_rejects_divergence_marker_unknown_value() -> None:
+    """``divergence_marker="DIVERGENCE"`` is not in Literal["NO_NEW_DIVERGENCE"] → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    bad: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [],
+        "diff_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Wind",
+                "value": {"accepted": [], "disputed": [], "reframed": []},
+                "divergence_marker": "DIVERGENCE",
+            }
+        ],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "invalid_literal:diff_history[0].divergence_marker:'DIVERGENCE'"
+        for f in failures
+    ), failures
+
+
+def test_shape_rejects_divergence_marker_lowercase() -> None:
+    """Lowercase ``divergence_marker="no_new_divergence"`` → SCHEMA_SHAPE_VIOLATION."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    bad: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [],
+        "diff_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Wind",
+                "value": {"accepted": [], "disputed": [], "reframed": []},
+                "divergence_marker": "no_new_divergence",
+            }
+        ],
+    }
+    failures = validate_contract_shape(bad)
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "invalid_literal:diff_history[0].divergence_marker:'no_new_divergence'"
+        for f in failures
+    ), failures
+
+
+def test_shape_pre_pass_short_circuits_required_content_on_bad_status_literal() -> None:
+    """Malformed status Literal must NOT silently bypass REQUIRED CONTENT RULE.
+
+    Regression guard for the Cubic Bug A false-negative: previously, a verdict
+    with ``status="HARD_FAIL"`` (caps) passed shape validation, then the semantic
+    REQUIRED_CONTENT check compared against the canonical ``"HARD_fail"`` and
+    saw no HARD_fail invariants — so a diff missing required rationale was
+    silently accepted. The fix: shape pre-pass rejects the bad Literal first;
+    semantic checks never run on shape-invalid input.
+    """
+    from debate_hall_mcp.path_contract_validator import (
+        MISSING_REQUIRED_ENTRY,
+        SCHEMA_SHAPE_VIOLATION,
+        validate_diff_revision,
+    )
+
+    bad_contract: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Wall",
+                "value": {"inv_a": {"status": "HARD_FAIL", "rationale": "blocked"}},
+            }
+        ],
+        "diff_history": [],
+    }
+    # Diff with NO qualifying entry for inv_a — would be a MISSING_REQUIRED_ENTRY
+    # if the status Literal were valid; instead we must see only shape failures.
+    diff = _diff_rev(0)
+
+    failures = validate_diff_revision(bad_contract, diff)  # type: ignore[arg-type]
+
+    # Shape failure on the status Literal must be present.
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect is not None
+        and "invalid_literal:" in f.defect
+        and ".status:'HARD_FAIL'" in f.defect
+        for f in failures
+    ), failures
+    # Two-phase short-circuit: no semantic failures emitted.
+    assert not any(
+        f.failure_type == MISSING_REQUIRED_ENTRY for f in failures
+    ), "Shape pre-pass must short-circuit semantic checks on shape-invalid input"
+
+
+def test_shape_pre_pass_allows_all_three_valid_status_literals() -> None:
+    """Regression guard: each of the 3 valid status Literals passes shape pre-pass."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    for status in ("HARD_pass", "HARD_fail", "SOFT_disputed"):
+        contract: dict[str, object] = {
+            "path_id": "p",
+            "frame_history": [],
+            "verdict_history": [
+                {
+                    "rev": 0,
+                    "written_at": _now(),
+                    "written_by": "Wall",
+                    "value": {"inv_a": {"status": status, "rationale": "x"}},
+                }
+            ],
+            "diff_history": [],
+        }
+        failures = validate_contract_shape(contract)
+        assert not any(
+            f.failure_type == SCHEMA_SHAPE_VIOLATION for f in failures
+        ), f"Valid status Literal {status!r} must not produce shape failures; got {failures}"
+
+
+def test_shape_pre_pass_allows_valid_divergence_marker() -> None:
+    """Regression guard: ``divergence_marker="NO_NEW_DIVERGENCE"`` passes shape pre-pass."""
+    from debate_hall_mcp.path_contract_validator import (
+        SCHEMA_SHAPE_VIOLATION,
+        validate_contract_shape,
+    )
+
+    contract: dict[str, object] = {
+        "path_id": "p",
+        "frame_history": [],
+        "verdict_history": [],
+        "diff_history": [
+            {
+                "rev": 0,
+                "written_at": _now(),
+                "written_by": "Wind",
+                "value": {"accepted": [], "disputed": [], "reframed": []},
+                "divergence_marker": "NO_NEW_DIVERGENCE",
+            }
+        ],
+    }
+    failures = validate_contract_shape(contract)
+    assert not any(f.failure_type == SCHEMA_SHAPE_VIOLATION for f in failures), failures
+
+
+def test_shape_pre_pass_diff_shape_helper_rejects_invalid_written_by() -> None:
+    """``validate_diff_revision`` (which calls ``_validate_diff_shape``) rejects diff with bad written_by Literal."""
+    from debate_hall_mcp.path_contract_validator import (
+        OWNERSHIP_VIOLATION,
+        SCHEMA_SHAPE_VIOLATION,
+        validate_diff_revision,
+    )
+
+    contract = _contract_with_verdicts({"inv_a": ("HARD_pass", "ok")})
+    bad_diff: dict[str, object] = {
+        "rev": 0,
+        "written_at": _now(),
+        "written_by": "Door",  # not in Literal["Wind"]
+        "value": {"accepted": [], "disputed": [], "reframed": []},
+    }
+    failures = validate_diff_revision(contract, bad_diff)  # type: ignore[arg-type]
+    assert any(
+        f.failure_type == SCHEMA_SHAPE_VIOLATION
+        and f.defect == "invalid_literal:diff.written_by:'Door'"
+        for f in failures
+    ), failures
+    # Two-phase: ownership/semantic checks short-circuit on shape failure.
+    assert not any(f.failure_type == OWNERSHIP_VIOLATION for f in failures)
