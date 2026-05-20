@@ -115,8 +115,6 @@ def test_flag_spec_validates_via_pydantic_typeadapter() -> None:
 
 def test_lifecycle_policy_validates_via_pydantic_typeadapter() -> None:
     adapter = TypeAdapter(features.LifecyclePolicy)
-    validated = adapter.validate_python(
-        features.FLAG_REGISTRY["path_contract"]["lifecycle"]
-    )
+    validated = adapter.validate_python(features.FLAG_REGISTRY["path_contract"]["lifecycle"])
     assert validated["layer"] == "experimentation"
     assert validated["classification"] == "temporary_experiment"
