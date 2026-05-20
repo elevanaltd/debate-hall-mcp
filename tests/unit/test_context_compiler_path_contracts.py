@@ -106,11 +106,16 @@ def _contract_full(path_id: str = "path_1") -> PathContract:
 
 
 def _make_orchestrator(tmp_path: Path) -> DebateOrchestrator:
+    # #201: orchestrator <PATH_CONTRACTS>/SYNTHESIS_STATUS emission is gated
+    # on features.is_enabled("path_contract", ctx). Tests in this module
+    # exercise the on-mode rendering / joint-emission contract, so flip the
+    # TierSettings flag ON. Off-mode byte-identity is verified in
+    # tests/unit/test_path_contract_flag_wiring.py.
     tier_config = TierConfig(
         wind=RoleConfig(provider="cli", cli="claude"),
         wall=RoleConfig(provider="cli", cli="codex"),
         door=RoleConfig(provider="cli", cli="gemini"),
-        settings=TierSettings(),
+        settings=TierSettings(path_contract_enabled=True),
     )
     return DebateOrchestrator(tier_config, tmp_path)
 

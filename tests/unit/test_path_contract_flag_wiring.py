@@ -30,11 +30,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from debate_hall_mcp import features
 from debate_hall_mcp.config import (
-    FallbackConfig,
     RoleConfig,
     TierConfig,
     TierSettings,
@@ -45,7 +42,6 @@ from debate_hall_mcp.path_contract import (
     PathContract,
     new_path_contract,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -128,9 +128,24 @@ def is_enabled(flag_name: str, context: FeatureContext) -> bool:
 
     1. ``flag_name`` MUST be registered in :data:`FLAG_REGISTRY`; unknown
        flags raise :class:`KeyError` (refuse-to-degrade).
-    2. Look up ``context["tier_config"].settings.<flag_name>_enabled``; if
-       present, return its boolean value.
-    3. Otherwise, return :data:`FLAG_REGISTRY` ``[flag_name]["default"]``.
+    2. The context's ``tier_config.settings`` is validated:
+
+       * ``None`` ⇒ fail-safe-off (return ``False``)
+       * not a Pydantic ``BaseModel`` instance ⇒ fail-safe-off
+         (rejects dicts, plain objects, mocks)
+
+       This is the CE hardening from #220 review (carry-forward to #201).
+       Per PROD::I2 (UNIVERSAL_OCTAVE_BINDING — "semantic validity precedes
+       processing; junk in = rejection out"), a malformed settings object
+       must not silently flip the feature state.
+    3. Look up ``<flag_name>_enabled`` on the settings object. The
+       attribute's value MUST be a real ``bool`` — truthy non-bool values
+       (``1``, ``"true"``, ``[1]``) ⇒ fail-safe-off. Strict identity, not
+       coercion, mirrors PROD::I5 (SOVEREIGN_SAFETY_OVERRIDE): the
+       kill-switch only fires on an unambiguous ``True``.
+    4. If the attribute is absent (legacy ``TierSettings`` lacking the
+       field — the pre-#201 state), return ``FLAG_REGISTRY[flag_name][
+       "default"]`` (which is itself a real ``bool``).
 
     Raises:
         KeyError: If ``flag_name`` is not registered in :data:`FLAG_REGISTRY`.
@@ -138,11 +153,28 @@ def is_enabled(flag_name: str, context: FeatureContext) -> bool:
             ``FLAG_REGISTRY`` so the call site can locate the registration
             point quickly.
     """
+    from pydantic import BaseModel  # local import keeps module import cycle-safe
+
     if flag_name not in FLAG_REGISTRY:
         raise KeyError(
             f"Unknown feature flag: {flag_name!r}. "
             f"Register it in FLAG_REGISTRY (debate_hall_mcp.features)."
         )
-    settings = context["tier_config"].settings
+
+    # Hardening step 2 — validate the settings carrier (CE #220 carry-forward).
+    tier_config = context.get("tier_config") if isinstance(context, dict) else None
+    settings = getattr(tier_config, "settings", None)
+    if settings is None or not isinstance(settings, BaseModel):
+        # Fail-safe-off: malformed context ⇒ flag is OFF, never coerced.
+        return False
+
     attr = f"{flag_name}_enabled"
-    return bool(getattr(settings, attr, FLAG_REGISTRY[flag_name]["default"]))
+    default = FLAG_REGISTRY[flag_name]["default"]
+    value = getattr(settings, attr, default)
+
+    # Hardening step 3 — strict bool, no truthy coercion. ``True`` and
+    # ``False`` are the only acceptable values; anything else (str, int,
+    # list, None) ⇒ fail-safe-off.
+    if not isinstance(value, bool):
+        return False
+    return value

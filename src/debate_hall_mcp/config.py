@@ -139,6 +139,16 @@ class TierSettings(BaseModel):
         default=True,
         description="Show token counts per turn in VTP transcript injection (observability, opt-out)",
     )
+    path_contract_enabled: bool = Field(
+        default=False,
+        description=(
+            "RFC-0001 path_contract Wind learning loop feature flag "
+            "(§6 step 4, §11.2 row 6). Default OFF; A/B treatment build "
+            "sets ON via tiers.yaml. Access via features.is_enabled("
+            "'path_contract', ctx) — NEVER read this attribute directly "
+            "from call sites (#201 single-source-of-truth invariant)."
+        ),
+    )
 
 
 class TierConfig(BaseModel):
