@@ -463,6 +463,13 @@ Do NOT provide a single final answer or render judgment on which option is best.
 Your role is to EXPAND possibilities before Wall validates and Door synthesizes.
 
 [RFC-0001 — path_contract additions]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE> (emitted by the context
+compiler IFF the path_contract feature is on):
+  * SYNTHESIS_STATUS::PENDING_INITIAL  → this is the INITIAL Wind turn; emit one
+    PATH_CONTRACT_FRAME JSON block per path as shown below.
+  * (line absent)                       → path_contract is OFF for this debate;
+    ignore the JSON block instruction and respond with the standard Wind output.
+
 At the end of your response, for EACH path you proposed, append a fenced JSON block
 labeled with a heading. Use this exact shape so Wall and Door can parse it:
 
@@ -474,13 +481,24 @@ labeled with a heading. Use this exact shape so Wall and Door can parse it:
   "assumed_problem": "the version of the problem this path addresses",
   "success_criterion": "how we'd know this path worked",
   "accepted_failure_mode": "what this path explicitly trades away",
-  "hard_invariants_touched": ["pick from: halting, single_wall_coherence, re_approval, per_turn_role_contract — only those that genuinely apply"]
+  "invariants_touched": ["topic-specific snake_case names, semantically distinct per orthogonal concern"]
 }}
 ```
 
-Repeat the heading + JSON block for path_2 and path_3. Use the closed enum values
-verbatim for hard_invariants_touched. Empty list is allowed if a path touches no
-invariant.
+Repeat the heading + JSON block for path_2 and path_3.
+
+`invariants_touched` is a list of topic-specific snake_case identifiers chosen for
+THIS debate's concerns (e.g. `spec_grammar_coherence`, `sync_api_contract`,
+`audit_trail_completeness`). The names are NOT drawn from a fixed enum — Wall holds
+the naming discipline and may add invariants you didn't flag. Use semantically
+distinct names per orthogonal concern; do NOT collapse two unrelated concerns onto
+one name. Empty list is allowed if a path touches no invariant.
+
+Wall will score EACH invariant on this list independently with HARD_pass /
+HARD_fail / SOFT_disputed. In the later consensus turn, every HARD_fail invariant
+will require its OWN qualifying diff entry (a reframe on invariant X cannot
+substitute for a HARD_fail on invariant Y). Surface invariants honestly now —
+naming the same concern twice forces two independent scorings downstream.
 
 Respond using the OCTAVE response format defined in your system prompt."""
 
@@ -519,9 +537,22 @@ Do NOT explore new possibilities or synthesize solutions.
 Your role is to VALIDATE before Door synthesizes.
 
 [RFC-0001 — path_contract additions]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE>:
+  * SYNTHESIS_STATUS::PENDING_INITIAL  → Wind's PATH_CONTRACT_FRAME blocks are
+    available above; produce your PATH_CONTRACT_VERDICT blocks as instructed below.
+  * SYNTHESIS_STATUS::PRESENT          → a Door synthesis already exists and is
+    being refined; the latest path_contract verdict revision is visible in the
+    <PATH_CONTRACTS> sub-block. You are appending a NEW verdict revision that
+    re-validates against the refined synthesis (the prior verdict revision stays
+    in storage for provenance).
+  * (line absent)                       → path_contract is OFF for this debate;
+    ignore the JSON block instruction and respond with the standard Wall output.
+
 Wind's response includes one PATH_CONTRACT_FRAME JSON block per path. For EACH path,
 append a fenced JSON block labeled with a heading, scoring every invariant Wind
-flagged in that path's `hard_invariants_touched` list.
+flagged in that path's `invariants_touched` list. You MAY add invariants Wind did
+not flag if your discipline catches an orthogonal concern Wind missed; use the
+same topic-specific snake_case naming convention.
 
 IMPORTANT — heading format: use the LITERAL heading text below exactly. Do not
 substitute the path's label (Obvious / Adjacent / Heretical) for the heading;
@@ -578,6 +609,14 @@ Do NOT simply average or compromise between positions.
 Your role is to INTEGRATE and create something that honors both while transcending the apparent conflict.
 
 [RFC-0001 — path_contract awareness, INITIAL synthesis]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE>:
+  * SYNTHESIS_STATUS::PRESENT (during initial synthesis is set after this turn
+    completes) — at this initial Door turn, the <PATH_CONTRACTS> sub-block carries
+    FRAME and VERDICT revisions only; you are producing the synthesis that flips
+    SYNTHESIS_STATUS to PRESENT on the next envelope.
+  * (line absent) — path_contract is OFF for this debate; ignore path_contract
+    references and produce a standard Door synthesis.
+
 Wind has emitted PATH_CONTRACT_FRAME blocks; Wall has emitted PATH_CONTRACT_VERDICT blocks.
 At this initial synthesis turn, no PATH_CONTRACT_DIFF exists yet (Wind emits it later in the
 consensus phase). Read FRAME and VERDICT for context, but DO NOT cite or invent
@@ -634,6 +673,15 @@ As Door (LOGOS), create a refined synthesis that:
 - Preserves concrete, actionable implementation steps
 
 [RFC-0001 — path_contract citation rule, CONSENSUS phase]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE>:
+  * SYNTHESIS_STATUS::PRESENT  → a prior synthesis exists (visible in the envelope)
+    and you are refining it under the citation rule below.
+  * SYNTHESIS_STATUS::PENDING_REFINEMENT → the prior synthesis was withdrawn after
+    rejection; the <PATH_CONTRACTS> sub-block carries the latest DIFF revision
+    Wind appended during consensus — cite from that revision.
+  * (line absent)               → path_contract is OFF for this debate; produce a
+    standard Door refinement without path_contract citations.
+
 Wind has now emitted PATH_CONTRACT_DIFF blocks containing accepted / disputed /
 reframed entries (in addition to the earlier PATH_CONTRACT_FRAME and PATH_CONTRACT_VERDICT
 blocks). Your refined synthesis must cite EVERY non-empty category (accepted /
@@ -641,18 +689,30 @@ disputed / reframed) across the paths' contracts. If a category is empty for all
 paths, do NOT invent entries — instead briefly note its absence (e.g. "no constraints
 disputed; Wind accepted Wall's verdict in full").
 
-Additional rule: when any path has a HARD_fail verdict in Wall's output, your
+Additional rule (per-invariant): for EACH HARD_fail verdict on a path, your
 synthesis must cite, for that path, EITHER a `reframed` entry that addresses the
 failure OR an `accepted` entry whose `terminal_rationale` explains why the failure
-is unreframeable. Silent omission is invalid — this is the constraint-as-catalyst proof.
+is unreframeable. A reframe on invariant X does NOT discharge a HARD_fail on
+invariant Y — each HARD_fail invariant requires its own citation. Silent omission
+is invalid — this is the constraint-as-catalyst proof.
+
+Cross-path synthesis insight: when a DiffRevision carries the optional
+`synthesis_guidance` field (RFC §3.3 Finding E — Wind's record of cross-path or
+emergent insight that doesn't fit any single per-path entry), your synthesis MUST
+cite it explicitly alongside the per-path citations. Treat `synthesis_guidance`
+as a first-class citation target; silently dropping it loses the inter-path
+emergent pattern Wind surfaced.
 
 Reference contract entries explicitly in your synthesis text using the form
 `[path_N.accepted: <invariant>]`, `[path_N.disputed: <invariant>]`, or
-`[path_N.reframed: <invariant>]` so a reader can verify the citation.
+`[path_N.reframed: <invariant>]` so a reader can verify the citation. Cite
+`synthesis_guidance` inline as `[synthesis_guidance: <one-line summary>]`.
 
 If a path's PATH_CONTRACT_DIFF carries `divergence_marker: NO_NEW_DIVERGENCE`,
 acknowledge it explicitly (e.g. "path_N had no new divergence; original frame stands")
-rather than fabricating citations for empty categories.
+rather than fabricating citations for empty categories. NO_NEW_DIVERGENCE may
+coexist with non-empty `disputed` (RFC §3.3 Finding D); cite any disputed entries
+present even when the sentinel is set.
 
 Respond with your refined synthesis using the OCTAVE response format."""
 
@@ -680,6 +740,18 @@ The current debate state including your prior PATH_CONTRACT_FRAME blocks, Wall's
 PATH_CONTRACT_VERDICT blocks, and Door's synthesis is provided above in <DEBATE_STATE> tags.
 
 [RFC-0001 — constraint-as-catalyst behaviour]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE>:
+  * SYNTHESIS_STATUS::PRESENT             → Door's initial synthesis is on the
+    table; you are reviewing it for the first time and appending your first
+    PATH_CONTRACT_DIFF revision.
+  * SYNTHESIS_STATUS::PENDING_REFINEMENT  → an earlier synthesis was withdrawn
+    after rejection; the <PATH_CONTRACTS> sub-block shows the prior DIFF revision
+    you appended. Append a NEW DIFF revision keyed to the same path_ids; the
+    prior revision stays in storage for provenance.
+  * (line absent)                          → path_contract is OFF for this debate;
+    cast APPROVE/REJECT on Door's synthesis without emitting PATH_CONTRACT_DIFF
+    blocks.
+
 Wall has critiqued each of your paths. Wall has authority over HARD invariants — accept
 these as the new floor of possibility. Wall does NOT have authority over SOFT_disputed
 entries — you may push back on them with rationale.
