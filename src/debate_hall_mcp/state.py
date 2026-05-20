@@ -26,6 +26,22 @@ from typing import Any
 import fasteners  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field, field_validator
 
+from debate_hall_mcp.path_contract import (
+    DiffRevision,
+    FrameRevision,
+    PathContract,
+    PathDiff,
+    PathFrame,
+    VerdictRevision,
+    new_path_contract,
+)
+from debate_hall_mcp.path_contract import (
+    Invariant as _Invariant,
+)
+from debate_hall_mcp.path_contract import (
+    InvariantVerdict as _InvariantVerdict,
+)
+
 
 class ConcurrencyError(Exception):
     """Raised when a Compare-and-Swap (CAS) operation fails due to concurrent modification.
@@ -601,6 +617,171 @@ class DebateRoom(BaseModel):
         default=None,
         description="Pre-compiled RACI turn manifest (populated by orchestrator for RACI mode)",
     )
+    path_contracts: list[PathContract] = Field(
+        default_factory=list,
+        description=(
+            "Per-path append-only contracts (RFC-0001 §3.1 / #196). "
+            "Always-emit-empty backward compat: legacy state files lacking "
+            "this key load with path_contracts=[]. The typed append API "
+            "(append_frame_revision / append_verdict_revision / "
+            "append_diff_revision) is the only sanctioned mutation surface "
+            "and enforces the PROD::I4 append-only invariant at the type "
+            "boundary by auto-assigning monotonic rev and stamping "
+            "ownership Literals."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Typed append API for path_contracts (RFC-0001 §3.1, PROD::I4).
+    #
+    # The trio below is the ONLY sanctioned mutation surface for
+    # path_contracts. Each method:
+    #
+    #   * auto-creates the PathContract for ``path_id`` on first use
+    #     (callers do not need to pre-register paths),
+    #   * assigns ``rev = len(history)`` so revision numbers are
+    #     strictly monotonic per (path_id, history-kind) without
+    #     callers having to track them,
+    #   * stamps ``written_by`` with the RFC §3.1 ownership Literal so
+    #     callers cannot spoof the owner (the validator in #200 would
+    #     reject a spoofed value, but defending in-depth at the write
+    #     boundary keeps the in-memory state authoritative),
+    #   * returns the appended revision (the wrapper TypedDict) so the
+    #     caller can immediately read the assigned ``rev`` or pass the
+    #     revision through downstream validation.
+    #
+    # Callers MUST NOT mutate ``path_contracts`` directly. Direct list
+    # mutation is not statically enforceable (Pydantic exposes the list
+    # by reference), but the ledger invariant (PROD::I4) is enforced
+    # downstream by the #200 validator's ownership and shape checks at
+    # consensus time, so the practical attack surface is bounded.
+    # ------------------------------------------------------------------
+
+    def _get_or_create_contract(self, path_id: str) -> PathContract:
+        """Return the PathContract for ``path_id``, creating it if absent."""
+        for contract in self.path_contracts:
+            if contract["path_id"] == path_id:
+                return contract
+        new_contract = new_path_contract(path_id)
+        self.path_contracts.append(new_contract)
+        return new_contract
+
+    def append_frame_revision(
+        self,
+        *,
+        path_id: str,
+        written_at: datetime,
+        value: PathFrame,
+    ) -> FrameRevision:
+        """Append a Wind-owned frame revision to ``path_id``'s history.
+
+        Args:
+            path_id: Path identifier; the contract is auto-created on
+                first append.
+            written_at: Authoring timestamp (timezone-aware UTC).
+            value: The :class:`PathFrame` payload Wind is asserting.
+
+        Returns:
+            The appended :class:`FrameRevision` wrapper (so callers can
+            read the auto-assigned ``rev``).
+        """
+        contract = self._get_or_create_contract(path_id)
+        rev_num = len(contract["frame_history"])
+        revision: FrameRevision = FrameRevision(
+            rev=rev_num,
+            written_at=written_at,
+            written_by="Wind",
+            value=value,
+        )
+        contract["frame_history"].append(revision)
+        return revision
+
+    def append_verdict_revision(
+        self,
+        *,
+        path_id: str,
+        written_at: datetime,
+        value: dict[_Invariant, _InvariantVerdict],
+    ) -> VerdictRevision:
+        """Append a Wall-owned verdict revision to ``path_id``'s history.
+
+        Args:
+            path_id: Path identifier; the contract is auto-created on
+                first append.
+            written_at: Authoring timestamp (timezone-aware UTC).
+            value: Mapping of invariant name -> InvariantVerdict for
+                every invariant Wall judges on this revision.
+
+        Returns:
+            The appended :class:`VerdictRevision` wrapper.
+        """
+        contract = self._get_or_create_contract(path_id)
+        rev_num = len(contract["verdict_history"])
+        revision: VerdictRevision = VerdictRevision(
+            rev=rev_num,
+            written_at=written_at,
+            written_by="Wall",
+            value=value,
+        )
+        contract["verdict_history"].append(revision)
+        return revision
+
+    def append_diff_revision(
+        self,
+        *,
+        path_id: str,
+        written_at: datetime,
+        value: PathDiff,
+        divergence_marker: str | None = None,
+        synthesis_guidance: str | None = None,
+    ) -> DiffRevision:
+        """Append a Wind-owned diff revision to ``path_id``'s history.
+
+        Optional fields ``divergence_marker`` and ``synthesis_guidance``
+        flow through when supplied; absent inputs stay absent on the
+        revision (the schema's ``NotRequired`` keys are not coerced to
+        ``None``).
+
+        Args:
+            path_id: Path identifier; the contract is auto-created on
+                first append.
+            written_at: Authoring timestamp (timezone-aware UTC).
+            value: The :class:`PathDiff` payload (accepted / disputed /
+                reframed buckets).
+            divergence_marker: Optional sentinel. When set, MUST equal
+                ``"NO_NEW_DIVERGENCE"`` per the schema's ``Literal``;
+                any other value raises ``ValueError`` here so the
+                persisted shape cannot drift from the validator's
+                expected sentinel set.
+            synthesis_guidance: Optional free-text cross-path insight
+                (Finding E). Carried through verbatim.
+
+        Returns:
+            The appended :class:`DiffRevision` wrapper.
+
+        Raises:
+            ValueError: If ``divergence_marker`` is supplied with a
+                value other than ``"NO_NEW_DIVERGENCE"``.
+        """
+        if divergence_marker is not None and divergence_marker != "NO_NEW_DIVERGENCE":
+            raise ValueError(
+                "divergence_marker must equal 'NO_NEW_DIVERGENCE' when set "
+                f"(got {divergence_marker!r}); see RFC-0001 §3.1 ``DiffRevision``."
+            )
+        contract = self._get_or_create_contract(path_id)
+        rev_num = len(contract["diff_history"])
+        revision: DiffRevision = DiffRevision(
+            rev=rev_num,
+            written_at=written_at,
+            written_by="Wind",
+            value=value,
+        )
+        if divergence_marker is not None:
+            revision["divergence_marker"] = "NO_NEW_DIVERGENCE"
+        if synthesis_guidance is not None:
+            revision["synthesis_guidance"] = synthesis_guidance
+        contract["diff_history"].append(revision)
+        return revision
 
 
 def calculate_turn_hash(

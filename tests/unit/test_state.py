@@ -15,6 +15,14 @@ from pathlib import Path
 
 import pytest
 
+from debate_hall_mcp.path_contract import (
+    DiffRevision,
+    FrameRevision,
+    PathDiff,
+    PathFrame,
+    VerdictRevision,
+    new_path_contract,
+)
 from debate_hall_mcp.state import (
     ConsensusMetadata,
     DebateMode,
@@ -1630,3 +1638,390 @@ print(f"{{request_time}},{{acquired_time}}")
             f"Concurrent reads took {elapsed:.3f}s, expected < 0.20s. "
             f"Reads may be blocking each other."
         )
+
+
+# ---------------------------------------------------------------------------
+# RFC-0001 #197 — PathContract persistence on DebateRoom
+#
+# RED tests for:
+#   1. round-trip preserves all PathContract fields including append-only
+#      revision histories (PROD::I4, RFC §3.1)
+#   2. backward compat: state files without `path_contracts` load with
+#      `path_contracts = []` (always-emit-empty design)
+#   3. typed append API: `append_frame_revision` / `append_verdict_revision`
+#      / `append_diff_revision` auto-create the contract for the path_id,
+#      auto-assign monotonic `rev`, enforce ownership at the API boundary,
+#      and reject mutation of already-appended revisions (PROD::I4
+#      append-only invariant)
+#   4. `prompt_context_view` on a persisted contract returns the correct
+#      `latest_*` revisions (regression guard for #199 renderer hot path)
+# ---------------------------------------------------------------------------
+
+
+def _ts(minute: int = 0) -> datetime:
+    """Stable timezone-aware timestamp for deterministic tests."""
+    return datetime(2026, 5, 19, 12, minute, 0, tzinfo=UTC)
+
+
+def _frame_value(problem: str = "x") -> PathFrame:
+    return PathFrame(
+        assumed_problem=problem,
+        success_criterion="criterion",
+        accepted_failure_mode="failure_mode",
+        invariants_touched=["inv_a"],
+    )
+
+
+def _diff_value_empty() -> PathDiff:
+    return PathDiff(accepted=[], disputed=[], reframed=[])
+
+
+class TestDebateRoomPathContractsField:
+    """The `path_contracts` field exists with a sensible default."""
+
+    def test_path_contracts_defaults_to_empty_list(self) -> None:
+        """Fresh DebateRoom has `path_contracts == []` (always-emit-empty)."""
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-default",
+            topic="contracts field default",
+            mode=DebateMode.FIXED,
+        )
+        assert room.path_contracts == []
+
+    def test_path_contracts_accepts_initial_contracts(self) -> None:
+        """Construction with pre-built contracts list preserves them."""
+        contract = new_path_contract("p1")
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-init",
+            topic="contracts on construction",
+            mode=DebateMode.FIXED,
+            path_contracts=[contract],
+        )
+        assert len(room.path_contracts) == 1
+        assert room.path_contracts[0]["path_id"] == "p1"
+
+
+class TestPathContractsRoundTrip:
+    """Round-trip preserves every PathContract field through JSON."""
+
+    def test_roundtrip_preserves_all_histories(self, tmp_path: Path) -> None:
+        """Save then reload preserves frame/verdict/diff histories and dt fields."""
+        contract = new_path_contract("path_alpha")
+        contract["frame_history"].append(
+            FrameRevision(
+                rev=0,
+                written_at=_ts(0),
+                written_by="Wind",
+                value=_frame_value("alpha problem"),
+            )
+        )
+        contract["verdict_history"].append(
+            VerdictRevision(
+                rev=0,
+                written_at=_ts(1),
+                written_by="Wall",
+                value={"inv_a": {"status": "HARD_pass", "rationale": "ok"}},
+            )
+        )
+        contract["diff_history"].append(
+            DiffRevision(
+                rev=0,
+                written_at=_ts(2),
+                written_by="Wind",
+                value=_diff_value_empty(),
+                divergence_marker="NO_NEW_DIVERGENCE",
+            )
+        )
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-rt",
+            topic="round-trip preservation",
+            mode=DebateMode.FIXED,
+            path_contracts=[contract],
+        )
+
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+        loaded = load_debate_state("2026-05-19-pc-rt", state_dir)
+
+        assert len(loaded.path_contracts) == 1
+        rt = loaded.path_contracts[0]
+        assert rt["path_id"] == "path_alpha"
+        assert len(rt["frame_history"]) == 1
+        assert len(rt["verdict_history"]) == 1
+        assert len(rt["diff_history"]) == 1
+        assert rt["frame_history"][0]["written_by"] == "Wind"
+        assert rt["frame_history"][0]["value"]["assumed_problem"] == "alpha problem"
+        # datetime restored to native type, not str
+        assert isinstance(rt["frame_history"][0]["written_at"], datetime)
+        assert rt["verdict_history"][0]["value"]["inv_a"]["status"] == "HARD_pass"
+        # NotRequired key preserved when present on input
+        assert rt["diff_history"][0].get("divergence_marker") == "NO_NEW_DIVERGENCE"
+
+    def test_roundtrip_multiple_contracts_preserved(self, tmp_path: Path) -> None:
+        """Multiple PathContracts persist independently."""
+        c1 = new_path_contract("p1")
+        c2 = new_path_contract("p2")
+        c2["frame_history"].append(
+            FrameRevision(
+                rev=0,
+                written_at=_ts(),
+                written_by="Wind",
+                value=_frame_value(),
+            )
+        )
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-multi",
+            topic="multi-path",
+            mode=DebateMode.FIXED,
+            path_contracts=[c1, c2],
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+        loaded = load_debate_state("2026-05-19-pc-multi", state_dir)
+        assert [c["path_id"] for c in loaded.path_contracts] == ["p1", "p2"]
+        assert len(loaded.path_contracts[0]["frame_history"]) == 0
+        assert len(loaded.path_contracts[1]["frame_history"]) == 1
+
+
+class TestPathContractsBackwardCompat:
+    """State files written before #197 land with no `path_contracts` key
+    must still load, defaulting to an empty list."""
+
+    def test_legacy_state_without_path_contracts_loads(self, tmp_path: Path) -> None:
+        """Hand-craft a state file lacking `path_contracts`; load yields []."""
+        state_dir = tmp_path / "debates"
+        state_dir.mkdir()
+        legacy_payload = {
+            "thread_id": "2026-05-19-legacy",
+            "topic": "legacy",
+            "mode": "fixed",
+            "status": "active",
+            "max_turns": 12,
+            "max_rounds": 4,
+            "turns": [],
+            "audit_log": [],
+            "injected_context": [],
+        }
+        (state_dir / "2026-05-19-legacy.json").write_text(json.dumps(legacy_payload))
+
+        loaded = load_debate_state("2026-05-19-legacy", state_dir)
+        assert loaded.path_contracts == []
+
+
+class TestPathContractTypedAppendAPI:
+    """`DebateRoom.append_*_revision` methods enforce the PROD::I4
+    append-only invariant at the type/API boundary."""
+
+    def test_append_frame_revision_auto_creates_contract(self) -> None:
+        """First append for a new path_id transparently creates the contract."""
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-auto",
+            topic="auto-create",
+            mode=DebateMode.FIXED,
+        )
+        room.append_frame_revision(
+            path_id="new_path",
+            written_at=_ts(),
+            value=_frame_value(),
+        )
+        assert len(room.path_contracts) == 1
+        contract = room.path_contracts[0]
+        assert contract["path_id"] == "new_path"
+        assert len(contract["frame_history"]) == 1
+        # rev auto-assigned to 0 for first append
+        assert contract["frame_history"][0]["rev"] == 0
+        # ownership Literal set by API, not caller
+        assert contract["frame_history"][0]["written_by"] == "Wind"
+
+    def test_append_frame_revision_monotonic_rev(self) -> None:
+        """Successive appends assign rev = previous rev + 1."""
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-mono",
+            topic="monotonic",
+            mode=DebateMode.FIXED,
+        )
+        room.append_frame_revision(path_id="p1", written_at=_ts(0), value=_frame_value("v0"))
+        room.append_frame_revision(path_id="p1", written_at=_ts(1), value=_frame_value("v1"))
+        contract = room.path_contracts[0]
+        assert [r["rev"] for r in contract["frame_history"]] == [0, 1]
+        assert contract["frame_history"][1]["value"]["assumed_problem"] == "v1"
+
+    def test_append_verdict_revision_sets_wall_owner(self) -> None:
+        """Verdict appends are stamped `written_by='Wall'` by the API."""
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-verdict",
+            topic="verdict owner",
+            mode=DebateMode.FIXED,
+        )
+        room.append_verdict_revision(
+            path_id="p1",
+            written_at=_ts(),
+            value={"inv_a": {"status": "HARD_pass", "rationale": "r"}},
+        )
+        contract = room.path_contracts[0]
+        assert contract["verdict_history"][0]["written_by"] == "Wall"
+        assert contract["verdict_history"][0]["rev"] == 0
+
+    def test_append_diff_revision_sets_wind_owner(self) -> None:
+        """Diff appends are stamped `written_by='Wind'` by the API."""
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-diff",
+            topic="diff owner",
+            mode=DebateMode.FIXED,
+        )
+        room.append_diff_revision(
+            path_id="p1",
+            written_at=_ts(),
+            value=_diff_value_empty(),
+        )
+        contract = room.path_contracts[0]
+        assert contract["diff_history"][0]["written_by"] == "Wind"
+        assert contract["diff_history"][0]["rev"] == 0
+
+    def test_append_diff_revision_carries_optional_fields(self) -> None:
+        """Optional `divergence_marker` / `synthesis_guidance` flow through."""
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-diff-opt",
+            topic="diff optional",
+            mode=DebateMode.FIXED,
+        )
+        room.append_diff_revision(
+            path_id="p1",
+            written_at=_ts(),
+            value=_diff_value_empty(),
+            divergence_marker="NO_NEW_DIVERGENCE",
+            synthesis_guidance="cross-path insight",
+        )
+        contract = room.path_contracts[0]
+        diff = contract["diff_history"][0]
+        assert diff.get("divergence_marker") == "NO_NEW_DIVERGENCE"
+        assert diff.get("synthesis_guidance") == "cross-path insight"
+
+    def test_append_methods_are_per_path(self) -> None:
+        """Different path_ids produce distinct contracts; rev counters are
+        independent per (path_id, history-kind)."""
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-perpath",
+            topic="per-path",
+            mode=DebateMode.FIXED,
+        )
+        room.append_frame_revision(path_id="p1", written_at=_ts(0), value=_frame_value())
+        room.append_frame_revision(path_id="p2", written_at=_ts(1), value=_frame_value())
+        room.append_frame_revision(path_id="p1", written_at=_ts(2), value=_frame_value())
+        assert {c["path_id"] for c in room.path_contracts} == {"p1", "p2"}
+        by_id = {c["path_id"]: c for c in room.path_contracts}
+        assert [r["rev"] for r in by_id["p1"]["frame_history"]] == [0, 1]
+        assert [r["rev"] for r in by_id["p2"]["frame_history"]] == [0]
+
+    def test_append_diff_rejects_illegal_divergence_marker(self) -> None:
+        """API guards the `divergence_marker` Literal at the boundary so
+        the persisted form cannot carry an invalid sentinel value."""
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-bad-sentinel",
+            topic="bad sentinel",
+            mode=DebateMode.FIXED,
+        )
+        with pytest.raises(ValueError, match="divergence_marker"):
+            room.append_diff_revision(
+                path_id="p1",
+                written_at=_ts(),
+                value=_diff_value_empty(),
+                divergence_marker="BOGUS_MARKER",
+            )
+
+
+class TestPathContractLatestRevisionGuard:
+    """Regression guard for #199: `prompt_context_view` on a persisted
+    contract MUST return the correct latest revision per field — this is
+    the renderer's hot-path invariant."""
+
+    def test_prompt_context_view_after_roundtrip(self, tmp_path: Path) -> None:
+        """Persist a contract with 2 frame revs; latest_frame is rev 1."""
+        from debate_hall_mcp.path_contract import prompt_context_view
+
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-latest",
+            topic="latest",
+            mode=DebateMode.FIXED,
+        )
+        room.append_frame_revision(path_id="p1", written_at=_ts(0), value=_frame_value("rev0"))
+        room.append_frame_revision(path_id="p1", written_at=_ts(1), value=_frame_value("rev1"))
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+        loaded = load_debate_state("2026-05-19-pc-latest", state_dir)
+
+        view = prompt_context_view(loaded.path_contracts[0])
+        assert view["frame_count"] == 2
+        assert view["latest_frame"] is not None
+        assert view["latest_frame"]["rev"] == 1
+        assert view["latest_frame"]["value"]["assumed_problem"] == "rev1"
+        assert view["latest_verdict"] is None
+        assert view["latest_diff"] is None
+
+    def test_prompt_context_view_latest_verdict_after_roundtrip(self, tmp_path: Path) -> None:
+        """Persist a contract with 2 verdict revs; latest_verdict is rev 1.
+
+        Symmetric coverage of TMG CONDITIONAL (#219): the renderer's hot-path
+        invariant must hold for verdict history under round-trip, not just frame.
+        """
+        from debate_hall_mcp.path_contract import prompt_context_view
+
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-latest-verdict",
+            topic="latest verdict",
+            mode=DebateMode.FIXED,
+        )
+        room.append_verdict_revision(
+            path_id="p1",
+            written_at=_ts(0),
+            value={"inv_a": {"status": "HARD_pass", "rationale": "rev0"}},
+        )
+        room.append_verdict_revision(
+            path_id="p1",
+            written_at=_ts(1),
+            value={"inv_a": {"status": "HARD_pass", "rationale": "rev1"}},
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+        loaded = load_debate_state("2026-05-19-pc-latest-verdict", state_dir)
+
+        view = prompt_context_view(loaded.path_contracts[0])
+        assert view["verdict_count"] == 2
+        assert view["latest_verdict"] is not None
+        assert view["latest_verdict"]["rev"] == 1
+        assert view["latest_verdict"]["value"]["inv_a"]["rationale"] == "rev1"
+
+    def test_prompt_context_view_latest_diff_after_roundtrip(self, tmp_path: Path) -> None:
+        """Persist a contract with 2 diff revs; latest_diff is rev 1.
+
+        Symmetric coverage of TMG CONDITIONAL (#219): the renderer's hot-path
+        invariant must hold for diff history under round-trip, not just frame.
+        """
+        from debate_hall_mcp.path_contract import prompt_context_view
+
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-latest-diff",
+            topic="latest diff",
+            mode=DebateMode.FIXED,
+        )
+        room.append_diff_revision(
+            path_id="p1",
+            written_at=_ts(0),
+            value=_diff_value_empty(),
+            synthesis_guidance="rev0",
+        )
+        room.append_diff_revision(
+            path_id="p1",
+            written_at=_ts(1),
+            value=_diff_value_empty(),
+            synthesis_guidance="rev1",
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+        loaded = load_debate_state("2026-05-19-pc-latest-diff", state_dir)
+
+        view = prompt_context_view(loaded.path_contracts[0])
+        assert view["diff_count"] == 2
+        assert view["latest_diff"] is not None
+        assert view["latest_diff"]["rev"] == 1
+        assert view["latest_diff"]["synthesis_guidance"] == "rev1"
