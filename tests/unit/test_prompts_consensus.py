@@ -223,6 +223,74 @@ class TestWindConsensusSentinelIsJsonCompatible:
         assert parsed["reframed"] == []
 
 
+class TestDoorConsensusCitesSynthesisGuidanceFindingE:
+    """RFC-0001 §3.3 Finding E — ``synthesis_guidance`` on DiffRevision.
+
+    Wind may record cross-path / synthesis-level insight in
+    ``DiffRevision.synthesis_guidance`` (NotRequired). When present, Door's
+    consensus citation rule (§5.4) is EXTENDED to require explicit citation
+    alongside per-path citations. The prompt must surface this obligation so
+    the agent does not silently drop the cross-path insight.
+    """
+
+    def test_consensus_door_prompt_mentions_synthesis_guidance(self) -> None:
+        prompt = format_door_consensus_prompt(
+            topic="T", thread_id="2026-05-21-t", rejector="Wind", feedback=None
+        )
+        assert "synthesis_guidance" in prompt
+
+    def test_consensus_door_prompt_demands_citation_when_present(self) -> None:
+        prompt = format_door_consensus_prompt(
+            topic="T", thread_id="2026-05-21-t", rejector="Wind", feedback=None
+        )
+        idx = prompt.find("synthesis_guidance")
+        assert idx != -1
+        # Within a ~400 char window around the mention, the prompt must use the
+        # word "cite" (or "citation") so the obligation is unambiguous.
+        window = prompt[max(0, idx - 200) : idx + 400].lower()
+        assert "cite" in window or "citation" in window
+
+
+class TestConsensusPromptsBranchOnSynthesisStatus:
+    """RFC-0001 #198 — consensus prompts branch on SYNTHESIS_STATUS.
+
+    * Wind consensus turn fires under PENDING_REFINEMENT (a prior synthesis
+      was withdrawn) — the prompt must reference this value.
+    * Door consensus turn fires under PRESENT during refinement; the prompt
+      must reference SYNTHESIS_STATUS so the agent reads the envelope.
+    """
+
+    def test_wind_approval_prompt_references_pending_refinement(self) -> None:
+        prompt = format_wind_approval_prompt(topic="T", thread_id="2026-05-21-t")
+        assert "SYNTHESIS_STATUS" in prompt
+        assert "PENDING_REFINEMENT" in prompt
+
+    def test_door_consensus_prompt_references_synthesis_status(self) -> None:
+        prompt = format_door_consensus_prompt(
+            topic="T", thread_id="2026-05-21-t", rejector="Wind", feedback=None
+        )
+        assert "SYNTHESIS_STATUS" in prompt
+        assert "PRESENT" in prompt
+
+
+class TestWindConsensusPerInvariantContentRule:
+    """RFC-0001 §3.2 / Finding C — per-invariant REQUIRED CONTENT RULE.
+
+    Wind's consensus prompt must instruct that EACH HARD_fail invariant
+    requires its OWN qualifying entry (cross-invariant substitution is
+    invalid).
+    """
+
+    def test_wind_consensus_prompt_mentions_each_invariant_obligation(self) -> None:
+        prompt = format_wind_approval_prompt(topic="T", thread_id="2026-05-21-t")
+        assert "HARD_fail" in prompt
+        # The per-invariant phrasing must be explicit (substitution disallowed).
+        assert (
+            "each HARD_fail invariant" in prompt
+            or "every HARD_fail invariant" in prompt
+        )
+
+
 class TestWindConsensusSentinelGatedOnHardFail:
     """RFC-0001 follow-up: Wind's NO_NEW_DIVERGENCE sentinel must be gated on
     the absence of HARD_fail verdicts for the path. Otherwise it conflicts with

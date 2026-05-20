@@ -192,6 +192,81 @@ class TestInitialDoorOmitsPathContractCitation:
         assert "PATH_CONTRACT_VERDICT" in prompt
 
 
+class TestPathContractPromptsBranchOnSynthesisStatus:
+    """RFC-0001 #198 — prompt branches keyed off the SYNTHESIS_STATUS line.
+
+    Per the #218 joint-emission contract, the context compiler emits
+    ``SYNTHESIS_STATUS::<value>`` inside ``<DEBATE_STATE>`` IFF
+    ``<PATH_CONTRACTS>`` is also emitted. Values: PENDING_INITIAL,
+    PENDING_REFINEMENT, PRESENT. The Wind/Wall/Door prompts must instruct
+    the agent on how to branch deterministically on each value rather than
+    inferring intent from heuristics (Finding F prompt-portion).
+    """
+
+    def test_wind_initial_prompt_references_synthesis_status_pending_initial(self) -> None:
+        """Wind initial prompt must direct the agent on PENDING_INITIAL handling."""
+        prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
+        assert "SYNTHESIS_STATUS" in prompt
+        assert "PENDING_INITIAL" in prompt
+
+    def test_wall_prompt_references_synthesis_status_present(self) -> None:
+        """Wall reads existing contract under PRESENT (refinement phase)."""
+        prompt = format_wall_user_prompt(topic="T", thread_id="2026-05-21-t")
+        assert "SYNTHESIS_STATUS" in prompt
+        assert "PRESENT" in prompt
+
+    def test_door_initial_prompt_references_synthesis_status_present(self) -> None:
+        """Door initial prompt branches on PRESENT (consumes existing contract)."""
+        prompt = format_door_user_prompt(topic="T", thread_id="2026-05-21-t")
+        assert "SYNTHESIS_STATUS" in prompt
+        assert "PRESENT" in prompt
+
+
+class TestWindInitialPromptInvariantNamingFindingA:
+    """RFC-0001 §3.3 Finding A — ``Invariant = str`` with Wall-discipline naming.
+
+    The pre-amendment closed enum ``[halting, single_wall_coherence, re_approval,
+    per_turn_role_contract]`` is SUPERSEDED. Wind's initial prompt must instruct
+    Wall-discipline snake_case naming, semantically distinct per orthogonal
+    concern; it MUST NOT bind invariants to that flow-shaped closed enum.
+    """
+
+    def test_wind_initial_prompt_does_not_advertise_closed_enum(self) -> None:
+        """Wind prompt must not instruct the agent to pick from the superseded enum."""
+        prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
+        assert (
+            "halting, single_wall_coherence, re_approval, per_turn_role_contract"
+            not in prompt
+        )
+        assert "closed enum" not in prompt
+        assert "pick from: halting" not in prompt
+
+    def test_wind_initial_prompt_advertises_topic_specific_snake_case(self) -> None:
+        """Wind prompt must teach the agent Wall-discipline naming convention."""
+        prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
+        assert "snake_case" in prompt
+        assert "invariants_touched" in prompt
+        assert "topic-specific" in prompt or "topic specific" in prompt
+
+
+class TestPerInvariantContentRuleSurfacedToAgents:
+    """RFC-0001 §3.2 (Finding C) — REQUIRED CONTENT RULE is per-invariant.
+
+    Each HARD_fail invariant under ``accepted`` or ``reframed`` requires its
+    OWN rationale entry (a `reframed` entry on invariant X does NOT satisfy
+    HARD_fail on invariant Y). The Wind initial prompt must surface that
+    invariants are independently scored so downstream consensus turns can
+    honour the per-entry obligation.
+    """
+
+    def test_wind_initial_prompt_warns_about_per_invariant_obligation(self) -> None:
+        """Wind initial prompt must surface that invariants are independently scored."""
+        prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
+        # The path may touch multiple invariants; Wall scores each independently.
+        text = prompt.lower()
+        assert "each" in text and "invariant" in text
+
+
 class TestPromptConsistency:
     """Tests for consistency across all prompt functions."""
 
