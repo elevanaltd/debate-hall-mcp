@@ -1957,3 +1957,71 @@ class TestPathContractLatestRevisionGuard:
         assert view["latest_frame"]["value"]["assumed_problem"] == "rev1"
         assert view["latest_verdict"] is None
         assert view["latest_diff"] is None
+
+    def test_prompt_context_view_latest_verdict_after_roundtrip(self, tmp_path: Path) -> None:
+        """Persist a contract with 2 verdict revs; latest_verdict is rev 1.
+
+        Symmetric coverage of TMG CONDITIONAL (#219): the renderer's hot-path
+        invariant must hold for verdict history under round-trip, not just frame.
+        """
+        from debate_hall_mcp.path_contract import prompt_context_view
+
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-latest-verdict",
+            topic="latest verdict",
+            mode=DebateMode.FIXED,
+        )
+        room.append_verdict_revision(
+            path_id="p1",
+            written_at=_ts(0),
+            value={"inv_a": {"status": "HARD_pass", "rationale": "rev0"}},
+        )
+        room.append_verdict_revision(
+            path_id="p1",
+            written_at=_ts(1),
+            value={"inv_a": {"status": "HARD_pass", "rationale": "rev1"}},
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+        loaded = load_debate_state("2026-05-19-pc-latest-verdict", state_dir)
+
+        view = prompt_context_view(loaded.path_contracts[0])
+        assert view["verdict_count"] == 2
+        assert view["latest_verdict"] is not None
+        assert view["latest_verdict"]["rev"] == 1
+        assert view["latest_verdict"]["value"]["inv_a"]["rationale"] == "rev1"
+
+    def test_prompt_context_view_latest_diff_after_roundtrip(self, tmp_path: Path) -> None:
+        """Persist a contract with 2 diff revs; latest_diff is rev 1.
+
+        Symmetric coverage of TMG CONDITIONAL (#219): the renderer's hot-path
+        invariant must hold for diff history under round-trip, not just frame.
+        """
+        from debate_hall_mcp.path_contract import prompt_context_view
+
+        room = DebateRoom(
+            thread_id="2026-05-19-pc-latest-diff",
+            topic="latest diff",
+            mode=DebateMode.FIXED,
+        )
+        room.append_diff_revision(
+            path_id="p1",
+            written_at=_ts(0),
+            value=_diff_value_empty(),
+            synthesis_guidance="rev0",
+        )
+        room.append_diff_revision(
+            path_id="p1",
+            written_at=_ts(1),
+            value=_diff_value_empty(),
+            synthesis_guidance="rev1",
+        )
+        state_dir = tmp_path / "debates"
+        save_debate_state(room, state_dir)
+        loaded = load_debate_state("2026-05-19-pc-latest-diff", state_dir)
+
+        view = prompt_context_view(loaded.path_contracts[0])
+        assert view["diff_count"] == 2
+        assert view["latest_diff"] is not None
+        assert view["latest_diff"]["rev"] == 1
+        assert view["latest_diff"]["synthesis_guidance"] == "rev1"
