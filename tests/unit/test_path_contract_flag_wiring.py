@@ -26,9 +26,13 @@ validate ``settings`` type).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import pytest
+from pydantic import BaseModel, ValidationError
 
 from debate_hall_mcp import features
 from debate_hall_mcp.config import (
@@ -157,6 +161,34 @@ class TestIsEnabledReadsRealTierSettingsField:
 # ---------------------------------------------------------------------------
 
 
+class TestTierSettingsStrictBoolRejectsMalformedInputs:
+    """``TierSettings.path_contract_enabled`` is declared ``StrictBool``.
+
+    Per PROD::I2 (UNIVERSAL_OCTAVE_BINDING — "semantic validity precedes
+    processing; junk in = rejection out"), Pydantic MUST refuse non-bool
+    inputs at construction time instead of silently coercing ``"true"``,
+    ``1``, etc. to ``True``. This is the primary CE finding from PR #222
+    review: without ``StrictBool``, the wrapper's hardening branch never
+    sees malformed values because Pydantic has already coerced them.
+
+    These tests exercise real ``TierSettings(...)`` construction; no
+    ``object.__setattr__`` bypass.
+    """
+
+    @pytest.mark.parametrize("bad_value", ["true", "True", "yes", "1", 1, 0, [], {}])
+    def test_construction_with_non_bool_raises_validation_error(self, bad_value: object) -> None:
+        with pytest.raises(ValidationError):
+            TierSettings(path_contract_enabled=bad_value)  # type: ignore[arg-type]
+
+    def test_construction_with_real_true_succeeds(self) -> None:
+        settings = TierSettings(path_contract_enabled=True)
+        assert settings.path_contract_enabled is True
+
+    def test_construction_with_real_false_succeeds(self) -> None:
+        settings = TierSettings(path_contract_enabled=False)
+        assert settings.path_contract_enabled is False
+
+
 class TestIsEnabledHardening:
     """``features.is_enabled`` validates ``context`` shape strictly.
 
@@ -165,48 +197,83 @@ class TestIsEnabledHardening:
     Per PROD::I5 (SOVEREIGN_SAFETY_OVERRIDE): the off-mode default is the
     kill-switch, so any ambiguity resolves to False — not to a stack
     trace deep inside a downstream call site.
+    Per PROD::I4 (VERIFIABLE_EVENT_LEDGER): each fail-safe-off MUST emit
+    a warning log naming the reason, so operators can diagnose why the
+    feature is silently disabled.
     """
 
-    def test_settings_is_none_returns_false(self) -> None:
+    def test_settings_is_none_returns_false_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         # A bogus context where ``tier_config.settings`` is None must
-        # fail-safe-off, not raise AttributeError downstream.
+        # fail-safe-off, not raise AttributeError downstream, and must
+        # log a warning naming the rejection reason (PROD::I4).
         class _FakeTier:
             settings = None
 
         ctx: features.FeatureContext = {"tier_config": _FakeTier()}  # type: ignore[typeddict-item]
-        assert features.is_enabled("path_contract", ctx) is False
+        with caplog.at_level(logging.WARNING, logger="debate_hall_mcp.features"):
+            assert features.is_enabled("path_contract", ctx) is False
+        assert any(
+            "path_contract" in record.message and "settings" in record.message.lower()
+            for record in caplog.records
+        ), f"Expected warning log naming flag + settings reason, got: {caplog.records}"
 
-    def test_settings_is_dict_returns_false(self) -> None:
-        # A dict masquerading as TierSettings must be rejected — Pydantic
-        # normally enforces this at TierConfig construction, but the
-        # wrapper is the chokepoint and must not assume the caller
-        # constructed the context via Pydantic.
+    def test_settings_wrong_pydantic_model_returns_false_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # CE finding #2: a different Pydantic model with a same-named
+        # field must NOT be accepted. ``isinstance(settings, BaseModel)``
+        # is too permissive; the wrapper must narrow to TierSettings.
+
+        class _OtherModel(BaseModel):
+            path_contract_enabled: bool = True
+
+        class _FakeTier:
+            settings = _OtherModel()
+
+        ctx: features.FeatureContext = {"tier_config": _FakeTier()}  # type: ignore[typeddict-item]
+        with caplog.at_level(logging.WARNING, logger="debate_hall_mcp.features"):
+            assert features.is_enabled("path_contract", ctx) is False
+        assert any(
+            "TierSettings" in record.message or "type" in record.message.lower()
+            for record in caplog.records
+        ), f"Expected warning log naming the wrong-type reason, got: {caplog.records}"
+
+    def test_settings_is_dict_returns_false_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # A dict masquerading as TierSettings must be rejected.
         class _FakeTier:
             settings = {"path_contract_enabled": True}
 
         ctx: features.FeatureContext = {"tier_config": _FakeTier()}  # type: ignore[typeddict-item]
-        assert features.is_enabled("path_contract", ctx) is False
+        with caplog.at_level(logging.WARNING, logger="debate_hall_mcp.features"):
+            assert features.is_enabled("path_contract", ctx) is False
+        assert caplog.records, "Expected at least one warning log on fail-safe-off"
 
-    def test_flag_value_non_bool_returns_false(self) -> None:
-        # A truthy non-bool value (e.g. the string "true" from a
-        # mis-typed YAML file that bypassed Pydantic) must NOT be
-        # truthy-coerced. Strict bool-only.
+    def test_defense_in_depth_non_bool_flag_value_returns_false_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Defense in depth: even if a caller bypasses Pydantic via
+        # ``object.__setattr__`` (e.g. malicious runtime mutation, test
+        # double, future refactor that allows extra fields), the wrapper
+        # must still fail-safe-off on a non-bool flag value AND emit a
+        # warning. With StrictBool now blocking construction-time
+        # coercion, this branch is unreachable by normal callers — but
+        # the safety net stays as belt-and-braces.
         settings = TierSettings()
-        # Inject a non-bool to simulate a malformed runtime mutation.
+        # Bypass Pydantic to simulate an attacker / faulty mutator.
         object.__setattr__(settings, "path_contract_enabled", "true")
         role = RoleConfig(provider="cli", cli="claude")
         tier_config = TierConfig(wind=role, wall=role, door=role, settings=settings)
         ctx: features.FeatureContext = {"tier_config": tier_config}
-        assert features.is_enabled("path_contract", ctx) is False
-
-    def test_flag_value_integer_one_returns_false(self) -> None:
-        # ``1`` is truthy in Python but is NOT bool — must be rejected.
-        settings = TierSettings()
-        object.__setattr__(settings, "path_contract_enabled", 1)
-        role = RoleConfig(provider="cli", cli="claude")
-        tier_config = TierConfig(wind=role, wall=role, door=role, settings=settings)
-        ctx: features.FeatureContext = {"tier_config": tier_config}
-        assert features.is_enabled("path_contract", ctx) is False
+        with caplog.at_level(logging.WARNING, logger="debate_hall_mcp.features"):
+            assert features.is_enabled("path_contract", ctx) is False
+        assert any(
+            "path_contract" in record.message and "bool" in record.message.lower()
+            for record in caplog.records
+        ), f"Expected warning log naming the non-bool flag-value reason, got: {caplog.records}"
 
 
 # ---------------------------------------------------------------------------
