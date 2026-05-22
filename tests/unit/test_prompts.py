@@ -176,7 +176,9 @@ class TestInitialDoorOmitsPathContractCitation:
         yet (educational), but it MUST NOT carry the citation syntax or the
         accepted/disputed/reframed mandate that forces fabrication.
         """
-        prompt = format_door_user_prompt(topic="Test", thread_id="2026-01-30-test")
+        prompt = format_door_user_prompt(
+            topic="Test", thread_id="2026-01-30-test", path_contract_enabled=True
+        )
         # The citation syntax for diff entries belongs only to the consensus prompt.
         assert "[path_N.accepted:" not in prompt
         assert "[path_N.disputed:" not in prompt
@@ -187,7 +189,9 @@ class TestInitialDoorOmitsPathContractCitation:
 
     def test_initial_door_prompt_still_acknowledges_frame_and_verdict(self) -> None:
         """Initial Door prompt should still note that FRAME and VERDICT exist (those are emitted by turn 1 / turn 2)."""
-        prompt = format_door_user_prompt(topic="Test", thread_id="2026-01-30-test")
+        prompt = format_door_user_prompt(
+            topic="Test", thread_id="2026-01-30-test", path_contract_enabled=True
+        )
         assert "PATH_CONTRACT_FRAME" in prompt
         assert "PATH_CONTRACT_VERDICT" in prompt
 
@@ -201,25 +205,63 @@ class TestPathContractPromptsBranchOnSynthesisStatus:
     PENDING_REFINEMENT, PRESENT. The Wind/Wall/Door prompts must instruct
     the agent on how to branch deterministically on each value rather than
     inferring intent from heuristics (Finding F prompt-portion).
+
+    CRS rework (PR #221 follow-up): correct the branching against the
+    actual values emitted by ``derive_synthesis_status``:
+      * Wind initial turn  → PENDING_INITIAL  (no synthesis, turn_count < 3)
+      * Wall initial turn  → PENDING_INITIAL  (Wind has just spoken)
+      * Door initial turn  → PENDING_INITIAL  (Wind+Wall spoken; turn_count == 2)
+      * Wind consensus     → PRESENT or PENDING_REFINEMENT
+      * Wall consensus     → PRESENT or PENDING_REFINEMENT
+      * Door consensus     → PRESENT or PENDING_REFINEMENT
     """
 
     def test_wind_initial_prompt_references_synthesis_status_pending_initial(self) -> None:
         """Wind initial prompt must direct the agent on PENDING_INITIAL handling."""
-        prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
+        prompt = format_wind_user_prompt(
+            topic="T", thread_id="2026-05-21-t", path_contract_enabled=True
+        )
         assert "SYNTHESIS_STATUS" in prompt
         assert "PENDING_INITIAL" in prompt
 
-    def test_wall_prompt_references_synthesis_status_present(self) -> None:
-        """Wall reads existing contract under PRESENT (refinement phase)."""
-        prompt = format_wall_user_prompt(topic="T", thread_id="2026-05-21-t")
-        assert "SYNTHESIS_STATUS" in prompt
-        assert "PRESENT" in prompt
+    def test_wall_initial_prompt_references_synthesis_status_pending_initial(self) -> None:
+        """Wall initial prompt keys on PENDING_INITIAL (Wind has proposed, Wall validates).
 
-    def test_door_initial_prompt_references_synthesis_status_present(self) -> None:
-        """Door initial prompt branches on PRESENT (consumes existing contract)."""
-        prompt = format_door_user_prompt(topic="T", thread_id="2026-05-21-t")
+        CRS Finding 2 (rework): the prior PRESENT branch in ``format_wall_user_prompt``
+        was dead code because the initial Wall turn always sees PENDING_INITIAL. The
+        consensus turn (``format_wall_approval_prompt``) carries the PRESENT branch.
+        """
+        prompt = format_wall_user_prompt(
+            topic="T", thread_id="2026-05-21-t", path_contract_enabled=True
+        )
         assert "SYNTHESIS_STATUS" in prompt
-        assert "PRESENT" in prompt
+        assert "PENDING_INITIAL" in prompt
+
+    def test_wall_initial_prompt_does_not_carry_present_consensus_branch(self) -> None:
+        """The initial-only Wall prompt MUST NOT instruct the agent to emit a
+        NEW verdict revision under PRESENT — that path is unreachable at the
+        initial turn. Consensus PRESENT lives in ``format_wall_approval_prompt``.
+        """
+        prompt = format_wall_user_prompt(
+            topic="T", thread_id="2026-05-21-t", path_contract_enabled=True
+        )
+        # The "NEW verdict revision" instruction language belongs only to the
+        # consensus prompt (Wall approval).
+        assert "NEW verdict revision" not in prompt
+        assert "appending a NEW verdict" not in prompt
+
+    def test_door_initial_prompt_references_synthesis_status_pending_initial(self) -> None:
+        """Door initial prompt branches on PENDING_INITIAL.
+
+        CRS Finding 1 (rework): the context compiler emits PENDING_INITIAL on
+        Door's initial turn (synthesis is unset; turn_count == 2 → still < 3).
+        Keying on PRESENT was the bug that prompted CRS BLOCKED.
+        """
+        prompt = format_door_user_prompt(
+            topic="T", thread_id="2026-05-21-t", path_contract_enabled=True
+        )
+        assert "SYNTHESIS_STATUS" in prompt
+        assert "PENDING_INITIAL" in prompt
 
 
 class TestWindInitialPromptInvariantNamingFindingA:
@@ -233,14 +275,18 @@ class TestWindInitialPromptInvariantNamingFindingA:
 
     def test_wind_initial_prompt_does_not_advertise_closed_enum(self) -> None:
         """Wind prompt must not instruct the agent to pick from the superseded enum."""
-        prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
+        prompt = format_wind_user_prompt(
+            topic="T", thread_id="2026-05-21-t", path_contract_enabled=True
+        )
         assert "halting, single_wall_coherence, re_approval, per_turn_role_contract" not in prompt
         assert "closed enum" not in prompt
         assert "pick from: halting" not in prompt
 
     def test_wind_initial_prompt_advertises_topic_specific_snake_case(self) -> None:
         """Wind prompt must teach the agent Wall-discipline naming convention."""
-        prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
+        prompt = format_wind_user_prompt(
+            topic="T", thread_id="2026-05-21-t", path_contract_enabled=True
+        )
         assert "snake_case" in prompt
         assert "invariants_touched" in prompt
         assert "topic-specific" in prompt or "topic specific" in prompt
@@ -258,10 +304,53 @@ class TestPerInvariantContentRuleSurfacedToAgents:
 
     def test_wind_initial_prompt_warns_about_per_invariant_obligation(self) -> None:
         """Wind initial prompt must surface that invariants are independently scored."""
-        prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
+        prompt = format_wind_user_prompt(
+            topic="T", thread_id="2026-05-21-t", path_contract_enabled=True
+        )
         # The path may touch multiple invariants; Wall scores each independently.
         text = prompt.lower()
         assert "each" in text and "invariant" in text
+
+
+class TestOffModeByteIdentity:
+    """RFC-0001 #221 CRS Finding 3 — off-mode prompt byte-identity.
+
+    When ``path_contract_enabled`` is ``False`` (the default), Wind/Wall/Door
+    prompts MUST NOT carry any path_contract instruction block. This preserves
+    byte-identity for callers that have the feature disabled (pre-#218 prompt
+    shape) and avoids wasting tokens / confusing the LLM in standard debates.
+
+    Signal: presence of the ``[RFC-0001 — path_contract`` header marks the
+    injected block. Its absence in off-mode is the byte-identity guarantee.
+    """
+
+    def test_wind_off_mode_has_no_path_contract_block(self) -> None:
+        prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
+        assert "[RFC-0001 — path_contract" not in prompt
+        assert "PATH_CONTRACT_FRAME" not in prompt
+        assert "invariants_touched" not in prompt
+        assert "SYNTHESIS_STATUS" not in prompt
+
+    def test_wall_off_mode_has_no_path_contract_block(self) -> None:
+        prompt = format_wall_user_prompt(topic="T", thread_id="2026-05-21-t")
+        assert "[RFC-0001 — path_contract" not in prompt
+        assert "PATH_CONTRACT_VERDICT" not in prompt
+        assert "HARD_pass" not in prompt
+        assert "SYNTHESIS_STATUS" not in prompt
+
+    def test_door_off_mode_has_no_path_contract_block(self) -> None:
+        prompt = format_door_user_prompt(topic="T", thread_id="2026-05-21-t")
+        assert "[RFC-0001 — path_contract" not in prompt
+        assert "PATH_CONTRACT_FRAME" not in prompt
+        assert "PATH_CONTRACT_VERDICT" not in prompt
+        assert "SYNTHESIS_STATUS" not in prompt
+
+    def test_wind_off_mode_still_includes_topic_and_thread(self) -> None:
+        """Byte-identity for off-mode does not strip topic/thread injection."""
+        prompt = format_wind_user_prompt(topic="UNIQUE_TOPIC_42", thread_id="2026-05-21-unique")
+        assert "UNIQUE_TOPIC_42" in prompt
+        assert "2026-05-21-unique" in prompt
+        assert "DEBATE_STATE" in prompt
 
 
 class TestPromptConsistency:
