@@ -234,10 +234,7 @@ class TestWindInitialPromptInvariantNamingFindingA:
     def test_wind_initial_prompt_does_not_advertise_closed_enum(self) -> None:
         """Wind prompt must not instruct the agent to pick from the superseded enum."""
         prompt = format_wind_user_prompt(topic="T", thread_id="2026-05-21-t")
-        assert (
-            "halting, single_wall_coherence, re_approval, per_turn_role_contract"
-            not in prompt
-        )
+        assert "halting, single_wall_coherence, re_approval, per_turn_role_contract" not in prompt
         assert "closed enum" not in prompt
         assert "pick from: halting" not in prompt
 

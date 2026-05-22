@@ -285,10 +285,7 @@ class TestWindConsensusPerInvariantContentRule:
         prompt = format_wind_approval_prompt(topic="T", thread_id="2026-05-21-t")
         assert "HARD_fail" in prompt
         # The per-invariant phrasing must be explicit (substitution disallowed).
-        assert (
-            "each HARD_fail invariant" in prompt
-            or "every HARD_fail invariant" in prompt
-        )
+        assert "each HARD_fail invariant" in prompt or "every HARD_fail invariant" in prompt
 
 
 class TestWindConsensusSentinelGatedOnHardFail:
