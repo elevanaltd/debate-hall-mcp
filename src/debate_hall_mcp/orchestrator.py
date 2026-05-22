@@ -268,9 +268,7 @@ class DebateOrchestrator:
         # off-mode byte-identity acceptance criterion).
         from debate_hall_mcp import features as _features
 
-        path_contract_on = _features.is_enabled(
-            "path_contract", {"tier_config": self.tier_config}
-        )
+        path_contract_on = _features.is_enabled("path_contract", {"tier_config": self.tier_config})
         path_contracts_block = (
             render_path_contracts_block(debate_state.get("path_contracts") or [])
             if path_contract_on

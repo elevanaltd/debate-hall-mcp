@@ -134,11 +134,7 @@ class TestIsEnabledReadsRealTierSettingsField:
     def _ctx(self, path_contract_enabled: bool) -> features.FeatureContext:
         settings = TierSettings(path_contract_enabled=path_contract_enabled)
         role = RoleConfig(provider="cli", cli="claude")
-        return {
-            "tier_config": TierConfig(
-                wind=role, wall=role, door=role, settings=settings
-            )
-        }
+        return {"tier_config": TierConfig(wind=role, wall=role, door=role, settings=settings)}
 
     def test_returns_true_when_field_true(self) -> None:
         assert features.is_enabled("path_contract", self._ctx(True)) is True
@@ -151,9 +147,7 @@ class TestIsEnabledReadsRealTierSettingsField:
         # wrapper must return False — this is the rollout-sequence step 1
         # ("Flag-off in main") invariant from the #201 issue body.
         role = RoleConfig(provider="cli", cli="claude")
-        tier_config = TierConfig(
-            wind=role, wall=role, door=role, settings=TierSettings()
-        )
+        tier_config = TierConfig(wind=role, wall=role, door=role, settings=TierSettings())
         ctx: features.FeatureContext = {"tier_config": tier_config}
         assert features.is_enabled("path_contract", ctx) is False
 
@@ -201,9 +195,7 @@ class TestIsEnabledHardening:
         # Inject a non-bool to simulate a malformed runtime mutation.
         object.__setattr__(settings, "path_contract_enabled", "true")
         role = RoleConfig(provider="cli", cli="claude")
-        tier_config = TierConfig(
-            wind=role, wall=role, door=role, settings=settings
-        )
+        tier_config = TierConfig(wind=role, wall=role, door=role, settings=settings)
         ctx: features.FeatureContext = {"tier_config": tier_config}
         assert features.is_enabled("path_contract", ctx) is False
 
@@ -212,9 +204,7 @@ class TestIsEnabledHardening:
         settings = TierSettings()
         object.__setattr__(settings, "path_contract_enabled", 1)
         role = RoleConfig(provider="cli", cli="claude")
-        tier_config = TierConfig(
-            wind=role, wall=role, door=role, settings=settings
-        )
+        tier_config = TierConfig(wind=role, wall=role, door=role, settings=settings)
         ctx: features.FeatureContext = {"tier_config": tier_config}
         assert features.is_enabled("path_contract", ctx) is False
 
@@ -251,9 +241,7 @@ class TestFormatDebateStateRespectsPathContractFlag:
         assert "</PATH_CONTRACTS>" not in result
         assert "SYNTHESIS_STATUS::" not in result
 
-    def test_flag_off_byte_identical_to_empty_list_envelope(
-        self, tmp_path: Path
-    ) -> None:
+    def test_flag_off_byte_identical_to_empty_list_envelope(self, tmp_path: Path) -> None:
         # The whole point of off-mode: a debate that happens to have
         # accumulated path_contracts (e.g. left over from a treatment
         # build) MUST produce the same envelope as a fresh debate with
@@ -262,14 +250,10 @@ class TestFormatDebateStateRespectsPathContractFlag:
         with_contracts = orchestrator._format_debate_state(
             _base_state(path_contracts=[_contract_frame_only("path_1")])
         )
-        without_contracts = orchestrator._format_debate_state(
-            _base_state(path_contracts=[])
-        )
+        without_contracts = orchestrator._format_debate_state(_base_state(path_contracts=[]))
         assert with_contracts == without_contracts
 
-    def test_flag_on_emits_path_contracts_block_when_list_non_empty(
-        self, tmp_path: Path
-    ) -> None:
+    def test_flag_on_emits_path_contracts_block_when_list_non_empty(self, tmp_path: Path) -> None:
         orchestrator = _make_orchestrator(tmp_path, path_contract_enabled=True)
         state = _base_state(path_contracts=[_contract_frame_only("path_1")])
 
@@ -279,9 +263,7 @@ class TestFormatDebateStateRespectsPathContractFlag:
         assert "</PATH_CONTRACTS>" in result
         assert "SYNTHESIS_STATUS::" in result
 
-    def test_flag_on_with_empty_list_still_omits_block(
-        self, tmp_path: Path
-    ) -> None:
+    def test_flag_on_with_empty_list_still_omits_block(self, tmp_path: Path) -> None:
         # The pre-existing #218 joint emission contract: empty list ⇒
         # no block, regardless of flag state. This guards against
         # accidentally emitting empty <PATH_CONTRACTS></PATH_CONTRACTS>
@@ -329,6 +311,5 @@ class TestNoDirectAttributeReads:
         assert offenders == [], (
             "Direct `.path_contract_enabled` attribute reads found outside "
             "features.py. All call sites must route through "
-            "features.is_enabled('path_contract', ctx):\n  "
-            + "\n  ".join(offenders)
+            "features.is_enabled('path_contract', ctx):\n  " + "\n  ".join(offenders)
         )
