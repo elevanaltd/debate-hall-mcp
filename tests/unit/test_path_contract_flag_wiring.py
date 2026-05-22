@@ -275,6 +275,38 @@ class TestIsEnabledHardening:
             for record in caplog.records
         ), f"Expected warning log naming the non-bool flag-value reason, got: {caplog.records}"
 
+    def test_warning_logs_do_not_leak_raw_caller_supplied_value(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # CE PR #222 review finding (re-block): the warning log in the
+        # non-bool-flag-value branch previously formatted the raw caller-
+        # supplied value via ``%r`` — turning a diagnostic log into a
+        # data-exfiltration channel for arbitrary caller payload.
+        # PROD::I4 (VERIFIABLE_EVENT_LEDGER) audit surface MUST NOT carry
+        # raw caller-controlled values; only the type name is permitted.
+        #
+        # This test injects a sentinel string via ``object.__setattr__``
+        # (the same defense-in-depth bypass path the prior test exercises)
+        # and asserts the sentinel does NOT appear anywhere in the captured
+        # log text. The type name (``str``) MUST still appear so operators
+        # retain diagnostic value.
+        sentinel = "INJECTED_SECRET_SENTINEL_xyz_do_not_leak"
+        settings = TierSettings()
+        object.__setattr__(settings, "path_contract_enabled", sentinel)
+        role = RoleConfig(provider="cli", cli="claude")
+        tier_config = TierConfig(wind=role, wall=role, door=role, settings=settings)
+        ctx: features.FeatureContext = {"tier_config": tier_config}
+        with caplog.at_level(logging.WARNING, logger="debate_hall_mcp.features"):
+            assert features.is_enabled("path_contract", ctx) is False
+        assert sentinel not in caplog.text, (
+            f"Warning log leaked raw caller-supplied value. "
+            f"Sentinel {sentinel!r} found in caplog.text: {caplog.text!r}"
+        )
+        # Diagnostic value preserved: the type name must still be logged.
+        assert (
+            "str" in caplog.text
+        ), f"Type-only diagnostic missing from warning log: {caplog.text!r}"
+
 
 # ---------------------------------------------------------------------------
 # 4. Orchestrator gating — off-mode byte-identity (#202 acceptance criterion)
