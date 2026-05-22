@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 
 class RoleConfig(BaseModel):
@@ -139,14 +139,17 @@ class TierSettings(BaseModel):
         default=True,
         description="Show token counts per turn in VTP transcript injection (observability, opt-out)",
     )
-    path_contract_enabled: bool = Field(
+    path_contract_enabled: StrictBool = Field(
         default=False,
         description=(
             "RFC-0001 path_contract Wind learning loop feature flag "
             "(§6 step 4, §11.2 row 6). Default OFF; A/B treatment build "
             "sets ON via tiers.yaml. Access via features.is_enabled("
             "'path_contract', ctx) — NEVER read this attribute directly "
-            "from call sites (#201 single-source-of-truth invariant)."
+            "from call sites (#201 single-source-of-truth invariant). "
+            "Declared StrictBool (PR #222 CE review) so Pydantic refuses "
+            "non-bool inputs at construction (PROD::I2 — semantic validity "
+            "precedes processing; no silent coercion of 'true'/1/'yes')."
         ),
     )
 
