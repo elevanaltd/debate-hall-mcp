@@ -171,11 +171,20 @@ def is_enabled(flag_name: str, context: FeatureContext) -> bool:
     # warning naming the reason so operators can diagnose silent disables.
     tier_config = context.get("tier_config") if isinstance(context, dict) else None
     settings = getattr(tier_config, "settings", None)
+    # CE PR #222 re-block: warning logs MUST NOT format raw caller-supplied
+    # values (e.g. via %r). Logs are part of the PROD::I4
+    # (VERIFIABLE_EVENT_LEDGER) audit surface; embedding arbitrary caller
+    # payload turns diagnostics into a data-exfiltration channel. Across
+    # all three fail-safe-off branches below we log ONLY type names — the
+    # operator retains diagnostic value (the type mismatch) without the
+    # raw value leaking.
     if settings is None:
         logger.warning(
-            "features.is_enabled(%r): fail-safe-off — tier_config.settings is None; "
-            "returning False (PROD::I2 strict parsing, PROD::I5 fail-safe-off).",
+            "features.is_enabled(%r): fail-safe-off — tier_config.settings type=%s "
+            "(expected TierSettings, got None); returning False "
+            "(PROD::I2 strict parsing, PROD::I5 fail-safe-off).",
             flag_name,
+            type(settings).__name__,
         )
         return False
     # CE PR #222 finding #2: narrow to TierSettings (the canonical settings
@@ -185,8 +194,8 @@ def is_enabled(flag_name: str, context: FeatureContext) -> bool:
     # types, register them as an explicit tuple here.
     if not isinstance(settings, TierSettings):
         logger.warning(
-            "features.is_enabled(%r): fail-safe-off — settings is %s, "
-            "expected TierSettings; returning False.",
+            "features.is_enabled(%r): fail-safe-off — settings type=%s "
+            "(expected TierSettings); returning False.",
             flag_name,
             type(settings).__name__,
         )
@@ -202,14 +211,17 @@ def is_enabled(flag_name: str, context: FeatureContext) -> bool:
     # defense-in-depth against bypass construction (object.__setattr__,
     # ``model_construct``, future fields that allow extra=True, etc.).
     if not isinstance(value, bool):
+        # NB: ``value`` is caller-controlled; we log ONLY its type name to
+        # avoid leaking arbitrary payload into the audit log (CE PR #222
+        # re-block). ``attr`` is derived from the registered flag name and
+        # is therefore safe to log literally.
         logger.warning(
-            "features.is_enabled(%r): fail-safe-off — %s.%s is %r (type %s), "
-            "expected bool; returning False (defense-in-depth against bypass "
-            "construction).",
+            "features.is_enabled(%r): fail-safe-off — %s.%s value type=%s "
+            "(expected bool); returning False (defense-in-depth against "
+            "bypass construction).",
             flag_name,
             type(settings).__name__,
             attr,
-            value,
             type(value).__name__,
         )
         return False
