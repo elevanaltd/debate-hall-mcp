@@ -430,7 +430,52 @@ CLOSING_AUTHORITY::[
 """
 
 
-def format_wind_user_prompt(topic: str, thread_id: str) -> str:
+def _wind_initial_path_contract_block() -> str:
+    """RFC-0001 path_contract block for Wind's INITIAL turn (PENDING_INITIAL)."""
+    return """
+[RFC-0001 — path_contract additions]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE> (emitted by the context
+compiler IFF the path_contract feature is on):
+  * SYNTHESIS_STATUS::PENDING_INITIAL  → this is the INITIAL Wind turn; emit one
+    PATH_CONTRACT_FRAME JSON block per path as shown below.
+  * (line absent)                       → path_contract is OFF for this debate;
+    ignore the JSON block instruction and respond with the standard Wind output.
+
+At the end of your response, for EACH path you proposed, append a fenced JSON block
+labeled with a heading. Use this exact shape so Wall and Door can parse it:
+
+### PATH_CONTRACT_FRAME (path_1)
+```json
+{
+  "path_id": "path_1",
+  "path_label": "Obvious | Adjacent | Heretical",
+  "assumed_problem": "the version of the problem this path addresses",
+  "success_criterion": "how we'd know this path worked",
+  "accepted_failure_mode": "what this path explicitly trades away",
+  "invariants_touched": ["topic-specific snake_case names, semantically distinct per orthogonal concern"]
+}
+```
+
+Repeat the heading + JSON block for path_2 and path_3.
+
+`invariants_touched` is a list of topic-specific snake_case identifiers chosen for
+THIS debate's concerns (e.g. `spec_grammar_coherence`, `sync_api_contract`,
+`audit_trail_completeness`). The names are NOT drawn from a fixed enum — Wall holds
+the naming discipline and may add invariants you didn't flag. Use semantically
+distinct names per orthogonal concern; do NOT collapse two unrelated concerns onto
+one name. Empty list is allowed if a path touches no invariant.
+
+Wall will score EACH invariant on this list independently with HARD_pass /
+HARD_fail / SOFT_disputed. In the later consensus turn, every HARD_fail invariant
+will require its OWN qualifying diff entry (a reframe on invariant X cannot
+substitute for a HARD_fail on invariant Y). Surface invariants honestly now —
+naming the same concern twice forces two independent scorings downstream.
+"""
+
+
+def format_wind_user_prompt(
+    topic: str, thread_id: str, *, path_contract_enabled: bool = False
+) -> str:
     """Format user prompt for Wind (PATHOS) agent in auto-orchestration.
 
     Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
@@ -439,10 +484,14 @@ def format_wind_user_prompt(topic: str, thread_id: str) -> str:
     Args:
         topic: The debate topic to explore
         thread_id: Thread ID for reference
+        path_contract_enabled: When True (RFC-0001 feature on), inject the
+            PATH_CONTRACT_FRAME instruction block. When False (default), the
+            prompt is byte-identical to the pre-#218 shape (CRS Finding 3).
 
     Returns:
         Formatted user prompt with thread reference and task instructions
     """
+    path_contract_section = _wind_initial_path_contract_block() if path_contract_enabled else ""
     return f"""You are participating in a Wind/Wall/Door debate.
 
 Topic: {topic}
@@ -461,31 +510,55 @@ As Wind, you bring PATHOS - divergent thinking and creative expansion:
 
 Do NOT provide a single final answer or render judgment on which option is best.
 Your role is to EXPAND possibilities before Wall validates and Door synthesizes.
-
-[RFC-0001 — path_contract additions]
-At the end of your response, for EACH path you proposed, append a fenced JSON block
-labeled with a heading. Use this exact shape so Wall and Door can parse it:
-
-### PATH_CONTRACT_FRAME (path_1)
-```json
-{{
-  "path_id": "path_1",
-  "path_label": "Obvious | Adjacent | Heretical",
-  "assumed_problem": "the version of the problem this path addresses",
-  "success_criterion": "how we'd know this path worked",
-  "accepted_failure_mode": "what this path explicitly trades away",
-  "hard_invariants_touched": ["pick from: halting, single_wall_coherence, re_approval, per_turn_role_contract — only those that genuinely apply"]
-}}
-```
-
-Repeat the heading + JSON block for path_2 and path_3. Use the closed enum values
-verbatim for hard_invariants_touched. Empty list is allowed if a path touches no
-invariant.
-
+{path_contract_section}
 Respond using the OCTAVE response format defined in your system prompt."""
 
 
-def format_wall_user_prompt(topic: str, thread_id: str) -> str:
+def _wall_initial_path_contract_block() -> str:
+    """RFC-0001 path_contract block for Wall's INITIAL turn (PENDING_INITIAL only).
+
+    The PRESENT branch belongs to ``format_wall_approval_prompt`` (the consensus
+    turn). Including it here would be dead code because the initial Wall turn
+    always sees SYNTHESIS_STATUS::PENDING_INITIAL (Wind has just spoken; no
+    synthesis exists yet). CRS Finding 2 (PR #221 rework).
+    """
+    return """
+[RFC-0001 — path_contract additions]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE>:
+  * SYNTHESIS_STATUS::PENDING_INITIAL  → Wind's PATH_CONTRACT_FRAME blocks are
+    available above; produce your PATH_CONTRACT_VERDICT blocks as instructed below.
+  * (line absent)                       → path_contract is OFF for this debate;
+    ignore the JSON block instruction and respond with the standard Wall output.
+
+Wind's response includes one PATH_CONTRACT_FRAME JSON block per path. For EACH path,
+append a fenced JSON block labeled with a heading, scoring every invariant Wind
+flagged in that path's `invariants_touched` list. You MAY add invariants Wind did
+not flag if your discipline catches an orthogonal concern Wind missed; use the
+same topic-specific snake_case naming convention.
+
+IMPORTANT — heading format: use the LITERAL heading text below exactly. Do not
+substitute the path's label (Obvious / Adjacent / Heretical) for the heading;
+downstream tooling locates these blocks by the literal `PATH_CONTRACT_VERDICT
+(path_N)` heading.
+
+### PATH_CONTRACT_VERDICT (path_1)
+```json
+{
+  "path_id": "path_1",
+  "verdicts": [
+    {"invariant": "halting", "status": "HARD_pass | HARD_fail | SOFT_disputed", "rationale": "one sentence of evidence"}
+  ]
+}
+```
+
+Status values are a closed set: HARD_pass, HARD_fail, SOFT_disputed.
+HARD verdicts are non-negotiable. SOFT_disputed are tradeable — Wind may push back.
+"""
+
+
+def format_wall_user_prompt(
+    topic: str, thread_id: str, *, path_contract_enabled: bool = False
+) -> str:
     """Format user prompt for Wall (ETHOS) agent in auto-orchestration.
 
     Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
@@ -494,10 +567,14 @@ def format_wall_user_prompt(topic: str, thread_id: str) -> str:
     Args:
         topic: The debate topic to validate
         thread_id: Thread ID for reference
+        path_contract_enabled: When True, inject the PATH_CONTRACT_VERDICT
+            instruction block keyed on PENDING_INITIAL. When False (default),
+            the prompt is byte-identical to the pre-#218 shape (CRS Finding 3).
 
     Returns:
         Formatted user prompt with thread reference and task instructions
     """
+    path_contract_section = _wall_initial_path_contract_block() if path_contract_enabled else ""
     return f"""You are participating in a Wind/Wall/Door debate.
 
 Topic: {topic}
@@ -517,34 +594,40 @@ As Wall, you bring ETHOS - rigorous validation and constraint identification:
 
 Do NOT explore new possibilities or synthesize solutions.
 Your role is to VALIDATE before Door synthesizes.
-
-[RFC-0001 — path_contract additions]
-Wind's response includes one PATH_CONTRACT_FRAME JSON block per path. For EACH path,
-append a fenced JSON block labeled with a heading, scoring every invariant Wind
-flagged in that path's `hard_invariants_touched` list.
-
-IMPORTANT — heading format: use the LITERAL heading text below exactly. Do not
-substitute the path's label (Obvious / Adjacent / Heretical) for the heading;
-downstream tooling locates these blocks by the literal `PATH_CONTRACT_VERDICT
-(path_N)` heading.
-
-### PATH_CONTRACT_VERDICT (path_1)
-```json
-{{
-  "path_id": "path_1",
-  "verdicts": [
-    {{"invariant": "halting", "status": "HARD_pass | HARD_fail | SOFT_disputed", "rationale": "one sentence of evidence"}}
-  ]
-}}
-```
-
-Status values are a closed set: HARD_pass, HARD_fail, SOFT_disputed.
-HARD verdicts are non-negotiable. SOFT_disputed are tradeable — Wind may push back.
-
+{path_contract_section}
 Respond using the OCTAVE response format defined in your system prompt."""
 
 
-def format_door_user_prompt(topic: str, thread_id: str) -> str:
+def _door_initial_path_contract_block() -> str:
+    """RFC-0001 path_contract block for Door's INITIAL synthesis (PENDING_INITIAL).
+
+    CRS Finding 1 (PR #221 rework): the context compiler emits
+    SYNTHESIS_STATUS::PENDING_INITIAL on Door's initial turn (synthesis is
+    unset; turn_count == 2 → still < 3 per ``derive_synthesis_status``). The
+    prior implementation keyed on PRESENT, which never matched — the agent
+    would see PENDING_INITIAL and lack instructions for it.
+    """
+    return """
+[RFC-0001 — path_contract awareness, INITIAL synthesis]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE>:
+  * SYNTHESIS_STATUS::PENDING_INITIAL — this is the INITIAL Door turn. The
+    <PATH_CONTRACTS> sub-block carries FRAME and VERDICT revisions only; you
+    are producing the synthesis that flips SYNTHESIS_STATUS to PRESENT on the
+    next envelope.
+  * (line absent) — path_contract is OFF for this debate; ignore path_contract
+    references and produce a standard Door synthesis.
+
+Wind has emitted PATH_CONTRACT_FRAME blocks; Wall has emitted PATH_CONTRACT_VERDICT blocks.
+At this initial synthesis turn, no PATH_CONTRACT_DIFF exists yet (Wind emits it later in the
+consensus phase). Read FRAME and VERDICT for context, but DO NOT cite or invent
+`accepted`/`disputed`/`reframed` entries — those become available only in the consensus
+refinement turn, where a separate synthesis prompt enforces the citation rule.
+"""
+
+
+def format_door_user_prompt(
+    topic: str, thread_id: str, *, path_contract_enabled: bool = False
+) -> str:
     """Format user prompt for Door (LOGOS) agent in auto-orchestration.
 
     Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
@@ -553,10 +636,14 @@ def format_door_user_prompt(topic: str, thread_id: str) -> str:
     Args:
         topic: The debate topic to synthesize
         thread_id: Thread ID for reference
+        path_contract_enabled: When True, inject the path_contract awareness
+            block keyed on PENDING_INITIAL. When False (default), the prompt
+            is byte-identical to the pre-#218 shape (CRS Finding 3).
 
     Returns:
         Formatted user prompt with thread reference and task instructions
     """
+    path_contract_section = _door_initial_path_contract_block() if path_contract_enabled else ""
     return f"""You are participating in a Wind/Wall/Door debate.
 
 Topic: {topic}
@@ -576,19 +663,68 @@ As Door, you bring LOGOS - convergent integration and structural synthesis:
 
 Do NOT simply average or compromise between positions.
 Your role is to INTEGRATE and create something that honors both while transcending the apparent conflict.
-
-[RFC-0001 — path_contract awareness, INITIAL synthesis]
-Wind has emitted PATH_CONTRACT_FRAME blocks; Wall has emitted PATH_CONTRACT_VERDICT blocks.
-At this initial synthesis turn, no PATH_CONTRACT_DIFF exists yet (Wind emits it later in the
-consensus phase). Read FRAME and VERDICT for context, but DO NOT cite or invent
-`accepted`/`disputed`/`reframed` entries — those become available only in the consensus
-refinement turn, where a separate synthesis prompt enforces the citation rule.
-
+{path_contract_section}
 Respond using the OCTAVE response format defined in your system prompt."""
 
 
+def _door_consensus_path_contract_block() -> str:
+    """RFC-0001 path_contract citation rule for Door's CONSENSUS refinement.
+
+    Covers PRESENT (refining the still-on-table synthesis) and
+    PENDING_REFINEMENT (the prior synthesis was withdrawn after rejection).
+    """
+    return """
+[RFC-0001 — path_contract citation rule, CONSENSUS phase]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE>:
+  * SYNTHESIS_STATUS::PRESENT  → a prior synthesis exists (visible in the envelope)
+    and you are refining it under the citation rule below.
+  * SYNTHESIS_STATUS::PENDING_REFINEMENT → the prior synthesis was withdrawn after
+    rejection; the <PATH_CONTRACTS> sub-block carries the latest DIFF revision
+    Wind appended during consensus — cite from that revision.
+  * (line absent)               → path_contract is OFF for this debate; produce a
+    standard Door refinement without path_contract citations.
+
+Wind has now emitted PATH_CONTRACT_DIFF blocks containing accepted / disputed /
+reframed entries (in addition to the earlier PATH_CONTRACT_FRAME and PATH_CONTRACT_VERDICT
+blocks). Your refined synthesis must cite EVERY non-empty category (accepted /
+disputed / reframed) across the paths' contracts. If a category is empty for all
+paths, do NOT invent entries — instead briefly note its absence (e.g. "no constraints
+disputed; Wind accepted Wall's verdict in full").
+
+Additional rule (per-invariant): for EACH HARD_fail verdict on a path, your
+synthesis must cite, for that path, EITHER a `reframed` entry that addresses the
+failure OR an `accepted` entry whose `terminal_rationale` explains why the failure
+is unreframeable. A reframe on invariant X does NOT discharge a HARD_fail on
+invariant Y — each HARD_fail invariant requires its own citation. Silent omission
+is invalid — this is the constraint-as-catalyst proof.
+
+Cross-path synthesis insight: when a DiffRevision carries the optional
+`synthesis_guidance` field (RFC §3.3 Finding E — Wind's record of cross-path or
+emergent insight that doesn't fit any single per-path entry), your synthesis MUST
+cite it explicitly alongside the per-path citations. Treat `synthesis_guidance`
+as a first-class citation target; silently dropping it loses the inter-path
+emergent pattern Wind surfaced.
+
+Reference contract entries explicitly in your synthesis text using the form
+`[path_N.accepted: <invariant>]`, `[path_N.disputed: <invariant>]`, or
+`[path_N.reframed: <invariant>]` so a reader can verify the citation. Cite
+`synthesis_guidance` inline as `[synthesis_guidance: <one-line summary>]`.
+
+If a path's PATH_CONTRACT_DIFF carries `divergence_marker: NO_NEW_DIVERGENCE`,
+acknowledge it explicitly (e.g. "path_N had no new divergence; original frame stands")
+rather than fabricating citations for empty categories. NO_NEW_DIVERGENCE may
+coexist with non-empty `disputed` (RFC §3.3 Finding D); cite any disputed entries
+present even when the sentinel is set.
+"""
+
+
 def format_door_consensus_prompt(
-    topic: str, thread_id: str, rejector: str, feedback: str | None
+    topic: str,
+    thread_id: str,
+    rejector: str,
+    feedback: str | None,
+    *,
+    path_contract_enabled: bool = False,
 ) -> str:
     """Format user prompt for Door (LOGOS) refinement in the CONSENSUS phase.
 
@@ -609,11 +745,15 @@ def format_door_consensus_prompt(
         thread_id: Thread ID for state access (VTP)
         rejector: The role that rejected (Wind or Wall)
         feedback: Feedback from the rejector (may be None)
+        path_contract_enabled: When True, inject the path_contract citation
+            rule block. When False (default), the prompt is byte-identical to
+            the pre-#218 shape (CRS Finding 3).
 
     Returns:
         Formatted user prompt for Door's consensus-phase refinement turn
     """
     feedback_text = feedback if feedback else "No specific feedback provided."
+    path_contract_section = _door_consensus_path_contract_block() if path_contract_enabled else ""
     return f"""You are participating in a Wind/Wall/Door debate REFINEMENT PHASE (consensus).
 
 Topic: {topic}
@@ -632,54 +772,26 @@ As Door (LOGOS), create a refined synthesis that:
 - Maintains integration of Wind's possibilities and Wall's constraints
 - Demonstrates how this refinement improves the emergent solution
 - Preserves concrete, actionable implementation steps
-
-[RFC-0001 — path_contract citation rule, CONSENSUS phase]
-Wind has now emitted PATH_CONTRACT_DIFF blocks containing accepted / disputed /
-reframed entries (in addition to the earlier PATH_CONTRACT_FRAME and PATH_CONTRACT_VERDICT
-blocks). Your refined synthesis must cite EVERY non-empty category (accepted /
-disputed / reframed) across the paths' contracts. If a category is empty for all
-paths, do NOT invent entries — instead briefly note its absence (e.g. "no constraints
-disputed; Wind accepted Wall's verdict in full").
-
-Additional rule: when any path has a HARD_fail verdict in Wall's output, your
-synthesis must cite, for that path, EITHER a `reframed` entry that addresses the
-failure OR an `accepted` entry whose `terminal_rationale` explains why the failure
-is unreframeable. Silent omission is invalid — this is the constraint-as-catalyst proof.
-
-Reference contract entries explicitly in your synthesis text using the form
-`[path_N.accepted: <invariant>]`, `[path_N.disputed: <invariant>]`, or
-`[path_N.reframed: <invariant>]` so a reader can verify the citation.
-
-If a path's PATH_CONTRACT_DIFF carries `divergence_marker: NO_NEW_DIVERGENCE`,
-acknowledge it explicitly (e.g. "path_N had no new divergence; original frame stands")
-rather than fabricating citations for empty categories.
-
+{path_contract_section}
 Respond with your refined synthesis using the OCTAVE response format."""
 
 
-def format_wind_approval_prompt(topic: str, thread_id: str) -> str:
-    """Format user prompt for Wind (PATHOS) consensus approval review.
-
-    Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
-    the prompt via <DEBATE_STATE> tags. Agents receive state passively.
-
-    Args:
-        topic: The debate topic
-        thread_id: Thread ID for reference
-
-    Returns:
-        Formatted user prompt for consensus review
-    """
-    return f"""You are participating in a Wind/Wall/Door debate CONSENSUS PHASE.
-
-Topic: {topic}
-Thread ID: {thread_id}
-Your Role: Wind (PATHOS) - Consensus Reviewer + Path Refiner
-
-The current debate state including your prior PATH_CONTRACT_FRAME blocks, Wall's
-PATH_CONTRACT_VERDICT blocks, and Door's synthesis is provided above in <DEBATE_STATE> tags.
-
+def _wind_consensus_path_contract_block() -> str:
+    """RFC-0001 path_contract block for Wind's consensus approval turn."""
+    return """
 [RFC-0001 — constraint-as-catalyst behaviour]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE>:
+  * SYNTHESIS_STATUS::PRESENT             → Door's initial synthesis is on the
+    table; you are reviewing it for the first time and appending your first
+    PATH_CONTRACT_DIFF revision.
+  * SYNTHESIS_STATUS::PENDING_REFINEMENT  → an earlier synthesis was withdrawn
+    after rejection; the <PATH_CONTRACTS> sub-block shows the prior DIFF revision
+    you appended. Append a NEW DIFF revision keyed to the same path_ids; the
+    prior revision stays in storage for provenance.
+  * (line absent)                          → path_contract is OFF for this debate;
+    cast APPROVE/REJECT on Door's synthesis without emitting PATH_CONTRACT_DIFF
+    blocks.
+
 Wall has critiqued each of your paths. Wall has authority over HARD invariants — accept
 these as the new floor of possibility. Wall does NOT have authority over SOFT_disputed
 entries — you may push back on them with rationale.
@@ -698,18 +810,18 @@ For EACH path, append a fenced JSON block labeled with a heading:
 
 ### PATH_CONTRACT_DIFF (path_1)
 ```json
-{{
+{
   "path_id": "path_1",
   "accepted": [
-    {{"invariant": "halting", "rationale": "...", "terminal_rationale": "<only when accepting a HARD_fail with no creative reframe>"}}
+    {"invariant": "halting", "rationale": "...", "terminal_rationale": "<only when accepting a HARD_fail with no creative reframe>"}
   ],
   "disputed": [
-    {{"invariant": "single_wall_coherence", "rationale": "why this SOFT_disputed verdict opens a richer path if relaxed"}}
+    {"invariant": "single_wall_coherence", "rationale": "why this SOFT_disputed verdict opens a richer path if relaxed"}
   ],
   "reframed": [
-    {{"invariant": "re_approval", "new_possibility": "the NEW possibility this constraint reveals — must be substantively different from the original path"}}
+    {"invariant": "re_approval", "new_possibility": "the NEW possibility this constraint reveals — must be substantively different from the original path"}
   ]
-}}
+}
 ```
 
 If a path has no HARD_fail verdicts and you genuinely have nothing new to add, emit
@@ -720,14 +832,14 @@ SOFT_disputed — never when any verdict is HARD_fail.
 
 ### PATH_CONTRACT_DIFF (path_N)
 ```json
-{{
+{
   "path_id": "path_N",
   "accepted": [],
   "disputed": [],
   "reframed": [],
   "divergence_marker": "NO_NEW_DIVERGENCE",
   "rationale": "<one sentence on why no new possibility opens>"
-}}
+}
 ```
 
 Honesty over performative ideation.
@@ -739,27 +851,123 @@ INVALID for HARD_fail paths — for any path with one or more HARD_fail verdicts
 produce a real diff (an `accepted` entry with `terminal_rationale` explaining why the
 failure is unreframeable, OR a `reframed` entry with `new_possibility` that addresses
 the failure). The sentinel cannot substitute for constraint-as-catalyst proof.
+"""
 
-Then APPROVE / REJECT Door's synthesis as before:
 
+def format_wind_approval_prompt(
+    topic: str, thread_id: str, *, path_contract_enabled: bool = False
+) -> str:
+    """Format user prompt for Wind (PATHOS) consensus approval review.
+
+    Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
+    the prompt via <DEBATE_STATE> tags. Agents receive state passively.
+
+    Args:
+        topic: The debate topic
+        thread_id: Thread ID for reference
+        path_contract_enabled: When True, inject the constraint-as-catalyst
+            PATH_CONTRACT_DIFF instruction block. When False (default), the
+            prompt is byte-identical to the pre-#218 shape (CRS Finding 3).
+
+    Returns:
+        Formatted user prompt for consensus review
+    """
+    if path_contract_enabled:
+        path_contract_section = _wind_consensus_path_contract_block()
+        state_reference = (
+            "The current debate state including your prior PATH_CONTRACT_FRAME blocks, "
+            "Wall's\nPATH_CONTRACT_VERDICT blocks, and Door's synthesis is provided above "
+            "in <DEBATE_STATE> tags."
+        )
+        approve_criterion = (
+            "- APPROVE - if Door's synthesis honors Wind's expansion AND cites your diff entries\n"
+            "- REJECT - if the synthesis fails to capture creative potential or ignores your reframes"
+        )
+        example_block = (
+            "\nExample:\nAPPROVE\n\n[your three PATH_CONTRACT_DIFF blocks here]\n\n"
+            "The synthesis successfully integrates the reframed possibilities while respecting\n"
+            "Wall's HARD constraints."
+        )
+    else:
+        path_contract_section = ""
+        state_reference = (
+            "The current debate state including Door's synthesis is provided above in "
+            "<DEBATE_STATE> tags."
+        )
+        approve_criterion = (
+            "- APPROVE - if Door's synthesis honors Wind's creative expansion\n"
+            "- REJECT - if the synthesis fails to capture creative potential"
+        )
+        example_block = (
+            "\nExample:\nAPPROVE\n\n"
+            "The synthesis successfully integrates the creative possibilities while respecting\n"
+            "the boundaries of the discussion."
+        )
+    return f"""You are participating in a Wind/Wall/Door debate CONSENSUS PHASE.
+
+Topic: {topic}
+Thread ID: {thread_id}
+Your Role: Wind (PATHOS) - Consensus Reviewer + Path Refiner
+
+{state_reference}
+{path_contract_section}
 RESPONSE FORMAT:
 Start your response with exactly one of:
-- APPROVE - if Door's synthesis honors Wind's expansion AND cites your diff entries
-- REJECT - if the synthesis fails to capture creative potential or ignores your reframes
+{approve_criterion}
 
 If you REJECT, provide specific feedback on what is missing or needs refinement.
 Door will use your feedback to create a refined synthesis.
-
-Example:
-APPROVE
-
-[your three PATH_CONTRACT_DIFF blocks here]
-
-The synthesis successfully integrates the reframed possibilities while respecting
-Wall's HARD constraints."""
+{example_block}"""
 
 
-def format_wall_approval_prompt(topic: str, thread_id: str) -> str:
+def _wall_consensus_path_contract_block() -> str:
+    """RFC-0001 path_contract block for Wall's CONSENSUS approval turn.
+
+    CRS Finding 2 (PR #221 rework): Wall's consensus turn was previously
+    overlooked. The path_contract verdict-revision instructions that were
+    misplaced inside ``format_wall_user_prompt`` (initial-only → dead code)
+    belong here, covering both PRESENT (initial review) and PENDING_REFINEMENT
+    (after a prior synthesis was withdrawn).
+    """
+    return """
+[RFC-0001 — path_contract verdict revision, CONSENSUS phase]
+Branch on the SYNTHESIS_STATUS line inside <DEBATE_STATE>:
+  * SYNTHESIS_STATUS::PRESENT          → Door's synthesis is on the table and you
+    are appending a NEW PATH_CONTRACT_VERDICT revision re-validating Wind's
+    PATH_CONTRACT_DIFF entries against the synthesis. The prior verdict revision
+    stays in storage for provenance.
+  * SYNTHESIS_STATUS::PENDING_REFINEMENT → a prior synthesis was withdrawn after
+    rejection. The <PATH_CONTRACTS> sub-block carries the latest DIFF revision
+    Wind appended; append a NEW verdict revision keyed to the same path_ids that
+    scores Wind's reframes against your constraint discipline.
+  * (line absent)                       → path_contract is OFF for this debate;
+    cast APPROVE/REJECT on Door's synthesis without emitting PATH_CONTRACT_VERDICT
+    blocks.
+
+For EACH path, append a fenced JSON block labeled with a heading. Score every
+invariant under your discipline — HARD_fail any reframed entry whose
+`new_possibility` does not actually address the original failure; HARD_pass any
+that does; SOFT_disputed where the trade-off is real but tradeable.
+
+### PATH_CONTRACT_VERDICT (path_1)
+```json
+{
+  "path_id": "path_1",
+  "verdicts": [
+    {"invariant": "halting", "status": "HARD_pass | HARD_fail | SOFT_disputed", "rationale": "one sentence of evidence against the refined synthesis"}
+  ]
+}
+```
+
+Use the LITERAL heading text `PATH_CONTRACT_VERDICT (path_N)` so downstream
+tooling can locate the blocks. Status values are the closed set: HARD_pass,
+HARD_fail, SOFT_disputed.
+"""
+
+
+def format_wall_approval_prompt(
+    topic: str, thread_id: str, *, path_contract_enabled: bool = False
+) -> str:
     """Format user prompt for Wall (ETHOS) consensus approval review.
 
     Per VTP (Virtual Tool Preload), the orchestrator injects debate state into
@@ -768,10 +976,16 @@ def format_wall_approval_prompt(topic: str, thread_id: str) -> str:
     Args:
         topic: The debate topic
         thread_id: Thread ID for reference
+        path_contract_enabled: When True, inject the consensus-phase
+            PATH_CONTRACT_VERDICT revision instruction block (CRS Finding 2
+            rework — these instructions were previously absent from Wall's
+            consensus turn). When False (default), the prompt is byte-identical
+            to the pre-#218 shape (CRS Finding 3).
 
     Returns:
         Formatted user prompt for consensus review
     """
+    path_contract_section = _wall_consensus_path_contract_block() if path_contract_enabled else ""
     return f"""You are participating in a Wind/Wall/Door debate CONSENSUS PHASE.
 
 Topic: {topic}
@@ -787,7 +1001,7 @@ As Wall (ETHOS), evaluate whether the synthesis:
 - Addresses the risks with appropriate mitigations
 - Maintains structural integrity and feasibility
 - Does not violate hard constraints
-
+{path_contract_section}
 RESPONSE FORMAT:
 Start your response with exactly one of:
 - APPROVE - if the synthesis properly addresses constraints
