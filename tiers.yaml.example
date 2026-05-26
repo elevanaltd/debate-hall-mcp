@@ -62,6 +62,11 @@ standard:
     max_refinement_loops: 3
     provider_timeout: 300
     show_token_counts: true  # Show token counts per turn in VTP transcript (default: true, opt-out with false)
+    # RFC-0001 path_contract Wind learning loop (§6 step 4, §11.2 row 6).
+    # Default: false. The A/B treatment build sets this to true; the control
+    # build keeps it false. Production code MUST NOT read this directly —
+    # access via debate_hall_mcp.features.is_enabled("path_contract", ctx).
+    # path_contract_enabled: false
     fallback:
       enabled: true
       provider: openrouter

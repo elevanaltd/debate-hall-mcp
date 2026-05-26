@@ -259,7 +259,21 @@ class DebateOrchestrator:
         # envelope is byte-identical to the pre-#199 shape. #198's prompt
         # branches depend on this joint emission contract — SYNTHESIS_STATUS
         # only matters when contracts are being tracked.
-        path_contracts_block = render_path_contracts_block(debate_state.get("path_contracts") or [])
+        #
+        # PR #201 — flag gate (RFC §6 step 4, §11.2 row 6):
+        # Route through features.is_enabled('path_contract', ctx) so an
+        # off-flag debate produces a byte-identical envelope to a fresh
+        # one EVEN IF path_contracts has been populated (defence-in-depth
+        # against state-leak through the rendering boundary; the #202
+        # off-mode byte-identity acceptance criterion).
+        from debate_hall_mcp import features as _features
+
+        path_contract_on = _features.is_enabled("path_contract", {"tier_config": self.tier_config})
+        path_contracts_block = (
+            render_path_contracts_block(debate_state.get("path_contracts") or [])
+            if path_contract_on
+            else ""
+        )
         if path_contracts_block:
             # Insert SYNTHESIS_STATUS just before the </DEBATE_STATE> closer,
             # alongside the contracts block, so both appear jointly inside the
