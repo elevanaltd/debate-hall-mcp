@@ -48,9 +48,11 @@ requires the ``typing_extensions`` flavour for runtime introspection of
 
 from __future__ import annotations
 
+import logging
+
 from typing_extensions import Literal, TypedDict  # noqa: UP035
 
-from debate_hall_mcp.config import TierConfig
+from debate_hall_mcp.config import TierConfig, TierSettings
 
 __all__ = [
     "FLAG_REGISTRY",
@@ -59,6 +61,8 @@ __all__ = [
     "LifecyclePolicy",
     "is_enabled",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class LifecyclePolicy(TypedDict):
@@ -128,9 +132,27 @@ def is_enabled(flag_name: str, context: FeatureContext) -> bool:
 
     1. ``flag_name`` MUST be registered in :data:`FLAG_REGISTRY`; unknown
        flags raise :class:`KeyError` (refuse-to-degrade).
-    2. Look up ``context["tier_config"].settings.<flag_name>_enabled``; if
-       present, return its boolean value.
-    3. Otherwise, return :data:`FLAG_REGISTRY` ``[flag_name]["default"]``.
+    2. The context's ``tier_config.settings`` is validated:
+
+       * ``None`` ⇒ fail-safe-off (return ``False``)
+       * not a :class:`debate_hall_mcp.config.TierSettings` instance ⇒
+         fail-safe-off (rejects dicts, plain objects, mocks, AND wrong
+         Pydantic models with a same-named field — CE PR #222 finding #2).
+
+       This is the CE hardening from #220 review (carry-forward to #201)
+       plus the PR #222 narrowing. Per PROD::I2 (UNIVERSAL_OCTAVE_BINDING —
+       "semantic validity precedes processing; junk in = rejection out"),
+       a malformed settings object must not silently flip the feature
+       state. Per PROD::I4 (VERIFIABLE_EVENT_LEDGER), each fail-safe-off
+       branch logs a warning naming the rejection reason.
+    3. Look up ``<flag_name>_enabled`` on the settings object. The
+       attribute's value MUST be a real ``bool`` — truthy non-bool values
+       (``1``, ``"true"``, ``[1]``) ⇒ fail-safe-off. Strict identity, not
+       coercion, mirrors PROD::I5 (SOVEREIGN_SAFETY_OVERRIDE): the
+       kill-switch only fires on an unambiguous ``True``.
+    4. If the attribute is absent (legacy ``TierSettings`` lacking the
+       field — the pre-#201 state), return ``FLAG_REGISTRY[flag_name][
+       "default"]`` (which is itself a real ``bool``).
 
     Raises:
         KeyError: If ``flag_name`` is not registered in :data:`FLAG_REGISTRY`.
@@ -143,6 +165,64 @@ def is_enabled(flag_name: str, context: FeatureContext) -> bool:
             f"Unknown feature flag: {flag_name!r}. "
             f"Register it in FLAG_REGISTRY (debate_hall_mcp.features)."
         )
-    settings = context["tier_config"].settings
+
+    # Hardening step 2 — validate the settings carrier (CE PR #222 review).
+    # PROD::I4 (VERIFIABLE_EVENT_LEDGER): each fail-safe-off branch logs a
+    # warning naming the reason so operators can diagnose silent disables.
+    tier_config = context.get("tier_config") if isinstance(context, dict) else None
+    settings = getattr(tier_config, "settings", None)
+    # CE PR #222 re-block: warning logs MUST NOT format raw caller-supplied
+    # values (e.g. via %r). Logs are part of the PROD::I4
+    # (VERIFIABLE_EVENT_LEDGER) audit surface; embedding arbitrary caller
+    # payload turns diagnostics into a data-exfiltration channel. Across
+    # all three fail-safe-off branches below we log ONLY type names — the
+    # operator retains diagnostic value (the type mismatch) without the
+    # raw value leaking.
+    if settings is None:
+        logger.warning(
+            "features.is_enabled(%r): fail-safe-off — tier_config.settings type=%s "
+            "(expected TierSettings, got None); returning False "
+            "(PROD::I2 strict parsing, PROD::I5 fail-safe-off).",
+            flag_name,
+            type(settings).__name__,
+        )
+        return False
+    # CE PR #222 finding #2: narrow to TierSettings (the canonical settings
+    # type for this wrapper). Accepting any pydantic.BaseModel is too
+    # permissive — a wrong settings model with a same-named field would
+    # otherwise pass and return True. If future flags need other settings
+    # types, register them as an explicit tuple here.
+    if not isinstance(settings, TierSettings):
+        logger.warning(
+            "features.is_enabled(%r): fail-safe-off — settings type=%s "
+            "(expected TierSettings); returning False.",
+            flag_name,
+            type(settings).__name__,
+        )
+        return False
+
     attr = f"{flag_name}_enabled"
-    return bool(getattr(settings, attr, FLAG_REGISTRY[flag_name]["default"]))
+    default = FLAG_REGISTRY[flag_name]["default"]
+    value = getattr(settings, attr, default)
+
+    # Hardening step 3 — strict bool, no truthy coercion. With StrictBool
+    # on TierSettings.path_contract_enabled (CE PR #222 finding #1), normal
+    # construction cannot land a non-bool here. This branch is retained as
+    # defense-in-depth against bypass construction (object.__setattr__,
+    # ``model_construct``, future fields that allow extra=True, etc.).
+    if not isinstance(value, bool):
+        # NB: ``value`` is caller-controlled; we log ONLY its type name to
+        # avoid leaking arbitrary payload into the audit log (CE PR #222
+        # re-block). ``attr`` is derived from the registered flag name and
+        # is therefore safe to log literally.
+        logger.warning(
+            "features.is_enabled(%r): fail-safe-off — %s.%s value type=%s "
+            "(expected bool); returning False (defense-in-depth against "
+            "bypass construction).",
+            flag_name,
+            type(settings).__name__,
+            attr,
+            type(value).__name__,
+        )
+        return False
+    return value
