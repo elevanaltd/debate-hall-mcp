@@ -21,10 +21,13 @@ import time
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import fasteners  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:
+    from debate_hall_mcp.config import TierConfig
 
 from debate_hall_mcp.path_contract import (
     DiffRevision,
@@ -66,6 +69,37 @@ class ConcurrencyError(Exception):
         self.expected_hash = expected_hash
         self.actual_hash = actual_hash
         self.thread_id = thread_id
+
+
+class PathContractValidationError(Exception):
+    """Raised when ``append_diff_revision`` rejects a diff per #200 validator.
+
+    Carries the structured ``ValidatorFailure`` list so callers can group by
+    ``failure_type`` discriminator (RFC §6 item 3, #203 A/B harness) without
+    parsing the message string.
+
+    This is the rejection signal for the validate-before-persist boundary
+    (CE's #219 directive): when ``features.is_enabled("path_contract", ...)``
+    is True and ``validate_diff_revision`` returns any failure, the diff
+    MUST NOT enter the append-only ledger (PROD::I4 — invalid contracts
+    cannot be edited, only tombstoned).
+
+    Attributes:
+        failures: Non-empty list of validator failures that caused rejection.
+    """
+
+    def __init__(self, failures: list[Any]) -> None:
+        # ``failures`` is typed as list[Any] here to avoid importing
+        # ValidatorFailure at module-load time (the validator module imports
+        # events, which imports back into state — a top-level cross-import
+        # would form a cycle). Callers should treat ``failures`` as
+        # ``list[debate_hall_mcp.path_contract_validator.ValidatorFailure]``.
+        types = sorted({getattr(f, "failure_type", "<unknown>") for f in failures})
+        super().__init__(
+            f"path_contract validator rejected diff revision; "
+            f"{len(failures)} failure(s), types={types}"
+        )
+        self.failures = failures
 
 
 class IntegrityError(Exception):
@@ -734,6 +768,8 @@ class DebateRoom(BaseModel):
         value: PathDiff,
         divergence_marker: str | None = None,
         synthesis_guidance: str | None = None,
+        tier_config: "TierConfig | None" = None,
+        state_dir: Path | None = None,
     ) -> DiffRevision:
         """Append a Wind-owned diff revision to ``path_id``'s history.
 
@@ -755,6 +791,23 @@ class DebateRoom(BaseModel):
                 expected sentinel set.
             synthesis_guidance: Optional free-text cross-path insight
                 (Finding E). Carried through verbatim.
+            tier_config: Optional tier configuration. When supplied AND
+                ``features.is_enabled("path_contract", ...)`` returns True
+                for this config, the candidate revision is passed through
+                ``path_contract_validator.validate_diff_revision`` BEFORE
+                the in-memory ledger is mutated (CE's #219 deferred
+                follow-up, RFC §3.2 / §3.3 Finding C). When ``None`` (the
+                default) OR the flag is OFF, the validator is NOT invoked
+                and the API stays byte-identical to its pre-wiring
+                behavior — preserves the contract for every legacy caller
+                that doesn't yet opt in.
+            state_dir: Optional directory for ``VALIDATOR_FAILURE`` event
+                emission on rejection. Required when ``tier_config`` is
+                supplied AND the flag is ON so the rejection is auditable
+                on the I4 ledger per RFC §6 item 3. If ``None`` while the
+                validator gate runs, no events are emitted (the
+                ``PathContractValidationError`` still surfaces the
+                failures to the caller — silent-drop is impossible).
 
         Returns:
             The appended :class:`DiffRevision` wrapper.
@@ -762,6 +815,12 @@ class DebateRoom(BaseModel):
         Raises:
             ValueError: If ``divergence_marker`` is supplied with a
                 value other than ``"NO_NEW_DIVERGENCE"``.
+            PathContractValidationError: If the path_contract feature
+                flag is enabled for ``tier_config`` AND
+                ``validate_diff_revision`` returns a non-empty failure
+                list. The diff is NOT persisted — PROD::I4
+                (VERIFIABLE_EVENT_LEDGER) requires that invalid
+                contracts never enter the append-only history.
         """
         if divergence_marker is not None and divergence_marker != "NO_NEW_DIVERGENCE":
             raise ValueError(
@@ -780,6 +839,35 @@ class DebateRoom(BaseModel):
             revision["divergence_marker"] = "NO_NEW_DIVERGENCE"
         if synthesis_guidance is not None:
             revision["synthesis_guidance"] = synthesis_guidance
+
+        # Validate-before-persist gate (CE's #219 directive). Lazy imports
+        # break the would-be cycle state → validator → events → state that a
+        # top-level import would create. The byte-identity guarantee for
+        # off-mode callers is preserved by the early-return when either
+        # ``tier_config`` is absent or the feature flag resolves to False.
+        if tier_config is not None:
+            from debate_hall_mcp import features as _features
+            from debate_hall_mcp.path_contract_validator import (
+                emit_validator_failures,
+                validate_diff_revision,
+            )
+
+            if _features.is_enabled("path_contract", {"tier_config": tier_config}):
+                failures = validate_diff_revision(contract, revision)
+                if failures:
+                    # Emit one VALIDATOR_FAILURE event per failure on the
+                    # I4 ledger (RFC §6 item 3). If no state_dir was
+                    # provided we cannot persist events — the failures
+                    # still surface via the exception, so silent-drop is
+                    # impossible by construction.
+                    if state_dir is not None:
+                        emit_validator_failures(
+                            thread_id=self.thread_id,
+                            failures=failures,
+                            state_dir=state_dir,
+                        )
+                    raise PathContractValidationError(failures)
+
         contract["diff_history"].append(revision)
         return revision
 

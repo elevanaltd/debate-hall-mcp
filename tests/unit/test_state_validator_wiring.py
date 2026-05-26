@@ -23,11 +23,7 @@ from unittest.mock import patch
 import pytest
 
 from debate_hall_mcp.config import RoleConfig, TierConfig, TierSettings
-from debate_hall_mcp.path_contract import (
-    DiffRevision,
-    PathDiff,
-    VerdictRevision,
-)
+from debate_hall_mcp.path_contract import PathDiff
 from debate_hall_mcp.path_contract_validator import (
     MISSING_REQUIRED_ENTRY,
     ValidatorFailure,
