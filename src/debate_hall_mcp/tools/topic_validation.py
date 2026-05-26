@@ -7,7 +7,7 @@ Extracted to avoid circular imports between init.py and orchestrate.py.
 """
 
 # M4: Maximum topic length (reasonable limit for debate topics)
-MAX_TOPIC_LENGTH = 5000
+MAX_TOPIC_LENGTH = 12000
 
 
 def validate_topic(topic: str) -> None:

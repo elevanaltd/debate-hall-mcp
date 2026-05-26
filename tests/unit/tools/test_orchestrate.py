@@ -295,8 +295,8 @@ class TestM4InputValidation:
 
     @pytest.mark.anyio
     async def test_raises_error_for_topic_exceeding_max_length(self) -> None:
-        """run_debate should raise ValueError for topic exceeding 5000 chars."""
-        long_topic = "x" * 5001
+        """run_debate should raise ValueError for topic exceeding 12000 chars."""
+        long_topic = "x" * 12001
         with pytest.raises(ValueError, match="Topic exceeds maximum length"):
             await run_debate(topic=long_topic)
 
@@ -304,8 +304,8 @@ class TestM4InputValidation:
     async def test_accepts_topic_at_max_length(
         self, temp_state_dir: Path, mock_tier_config: TierConfig, mock_debate_result: DebateResult
     ) -> None:
-        """run_debate should accept a topic exactly at 5000 chars."""
-        topic_5000_chars = "x" * 5000
+        """run_debate should accept a topic exactly at 12000 chars."""
+        topic_max_chars = "x" * 12000
         with (
             patch("debate_hall_mcp.tools.orchestrate.load_tier_config") as mock_load_config,
             patch("debate_hall_mcp.tools.orchestrate.get_state_dir") as mock_get_state_dir,
@@ -320,7 +320,7 @@ class TestM4InputValidation:
             mock_orchestrator.run = AsyncMock(return_value=mock_debate_result)
             mock_orchestrator_class.return_value = mock_orchestrator
 
-            result = await run_debate(topic=topic_5000_chars)
+            result = await run_debate(topic=topic_max_chars)
 
         # Should succeed without error
         assert result["thread_id"] is not None
