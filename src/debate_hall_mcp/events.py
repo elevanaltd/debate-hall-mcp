@@ -33,7 +33,7 @@ from filelock import FileLock
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from ulid import ULID
 
-from debate_hall_mcp.state import _validate_thread_id_for_filesystem
+from debate_hall_mcp._thread_id import _validate_thread_id_for_filesystem
 
 logger = logging.getLogger(__name__)
 

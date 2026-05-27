@@ -341,11 +341,11 @@ class TestCycleBrokenNoLazyImports:
 
     def test_state_reexports_helper_for_backward_compatibility(self) -> None:
         """``state.py`` re-exports the helper so legacy imports keep working."""
-        from debate_hall_mcp.state import (  # noqa: PLC0415
-            _validate_thread_id_for_filesystem as state_helper,
-        )
         from debate_hall_mcp._thread_id import (  # noqa: PLC0415
             _validate_thread_id_for_filesystem as canonical_helper,
+        )
+        from debate_hall_mcp.state import (  # noqa: PLC0415
+            _validate_thread_id_for_filesystem as state_helper,
         )
 
         assert state_helper is canonical_helper

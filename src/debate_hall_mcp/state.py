@@ -29,6 +29,15 @@ from pydantic import BaseModel, Field, field_validator
 if TYPE_CHECKING:
     from debate_hall_mcp.config import TierConfig
 
+from debate_hall_mcp import features
+
+# Re-export via ``as`` alias so mypy recognizes this as an explicit
+# public re-export (backward compatibility for callers like
+# ``tools.interject`` / ``tools.orchestrate`` that historically imported
+# the helper from ``state``). Canonical home is ``_thread_id``.
+from debate_hall_mcp._thread_id import (
+    _validate_thread_id_for_filesystem as _validate_thread_id_for_filesystem,
+)
 from debate_hall_mcp.path_contract import (
     DiffRevision,
     FrameRevision,
@@ -43,6 +52,11 @@ from debate_hall_mcp.path_contract import (
 )
 from debate_hall_mcp.path_contract import (
     InvariantVerdict as _InvariantVerdict,
+)
+from debate_hall_mcp.path_contract_validator import (
+    ValidatorFailure,
+    emit_validator_failures,
+    validate_diff_revision,
 )
 
 
@@ -85,16 +99,16 @@ class PathContractValidationError(Exception):
     cannot be edited, only tombstoned).
 
     Attributes:
-        failures: Non-empty list of validator failures that caused rejection.
+        failures: Non-empty list of validator failures that caused
+            rejection. Element type is the concrete
+            :class:`debate_hall_mcp.path_contract_validator.ValidatorFailure`
+            dataclass — the prior ``list[Any]`` workaround for the
+            state→validator→events→state import cycle is retired now that
+            the cycle is broken at its root (see :mod:`debate_hall_mcp._thread_id`).
     """
 
-    def __init__(self, failures: list[Any]) -> None:
-        # ``failures`` is typed as list[Any] here to avoid importing
-        # ValidatorFailure at module-load time (the validator module imports
-        # events, which imports back into state — a top-level cross-import
-        # would form a cycle). Callers should treat ``failures`` as
-        # ``list[debate_hall_mcp.path_contract_validator.ValidatorFailure]``.
-        types = sorted({getattr(f, "failure_type", "<unknown>") for f in failures})
+    def __init__(self, failures: list[ValidatorFailure]) -> None:
+        types = sorted({f.failure_type for f in failures})
         super().__init__(
             f"path_contract validator rejected diff revision; "
             f"{len(failures)} failure(s), types={types}"
@@ -128,8 +142,12 @@ class IntegrityError(Exception):
         self.computed_hash = computed_hash
 
 
-# Security: Patterns that indicate path traversal or directory injection
-PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
+# Note: ``PATH_UNSAFE_PATTERNS`` and ``_validate_thread_id_for_filesystem``
+# were moved to :mod:`debate_hall_mcp._thread_id` so ``events.py`` can
+# import the validation helper without forming a
+# state→validator→events→state cycle (CRS #2 on PR #224 follow-up).
+# ``_validate_thread_id_for_filesystem`` is re-imported above for backward
+# compatibility with callers that still import it from ``state``.
 
 # Environment variable for state directory (Issue #33)
 STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
@@ -778,6 +796,45 @@ class DebateRoom(BaseModel):
         revision (the schema's ``NotRequired`` keys are not coerced to
         ``None``).
 
+        Two operating modes — joint integrity + audit contract:
+        ------------------------------------------------------
+
+        **Off-mode** (``tier_config is None``): validator is NOT invoked.
+        The append always proceeds (subject to the structural
+        ``divergence_marker`` check). This is the legacy contract,
+        preserved byte-identically for every caller that has not yet
+        opted in to the path-contract validator.
+
+        **On-mode** (``tier_config is not None``): ``state_dir`` is
+        REQUIRED — asymmetric kwargs (``tier_config`` set,
+        ``state_dir=None``) raise ``TypeError`` at function entry. The
+        rationale is audit completeness: when validation runs, every
+        rejection MUST be able to emit a ``VALIDATOR_FAILURE`` event on
+        the I4 ledger (PROD::I4 — VERIFIABLE_EVENT_LEDGER). Allowing
+        ``tier_config`` without ``state_dir`` would create a silent-
+        audit-drop branch on rejection; we collapse that branch at the
+        API boundary instead of guarding it post-hoc.
+
+        When the path-contract feature flag is OFF for the supplied
+        ``tier_config``, the validator is still NOT invoked (so the
+        ``state_dir`` is unused in practice for that call); the kwarg
+        symmetry check fires regardless of flag state because the
+        contract is a static API shape, not a runtime-conditional.
+
+        When the flag is ON and ``validate_diff_revision`` returns
+        failures, BOTH happen unconditionally:
+
+        * **Integrity** — ``PathContractValidationError`` is raised; the
+          diff is NOT persisted (PROD::I4 forbids editing the append-only
+          history, so an invalid contract is blocked BEFORE it lands).
+        * **Audit** — one ``VALIDATOR_FAILURE`` event per
+          ``ValidatorFailure`` is appended to the I4 ledger via
+          ``emit_validator_failures`` (RFC §6 item 3, #203 A/B harness).
+
+        Both are joint, not alternatives. The exception is propagation
+        for the caller's transactional decision; the events are the
+        ledger's audit record. Neither replaces the other.
+
         Args:
             path_id: Path identifier; the contract is auto-created on
                 first append.
@@ -797,31 +854,45 @@ class DebateRoom(BaseModel):
                 ``path_contract_validator.validate_diff_revision`` BEFORE
                 the in-memory ledger is mutated (CE's #219 deferred
                 follow-up, RFC §3.2 / §3.3 Finding C). When ``None`` (the
-                default) OR the flag is OFF, the validator is NOT invoked
-                and the API stays byte-identical to its pre-wiring
-                behavior — preserves the contract for every legacy caller
-                that doesn't yet opt in.
-            state_dir: Optional directory for ``VALIDATOR_FAILURE`` event
-                emission on rejection. Required when ``tier_config`` is
-                supplied AND the flag is ON so the rejection is auditable
-                on the I4 ledger per RFC §6 item 3. If ``None`` while the
-                validator gate runs, no events are emitted (the
-                ``PathContractValidationError`` still surfaces the
-                failures to the caller — silent-drop is impossible).
+                default) the validator is NOT invoked and the API stays
+                byte-identical to its pre-wiring behavior — preserves the
+                contract for every legacy caller that doesn't yet opt in.
+            state_dir: Directory for ``VALIDATOR_FAILURE`` event emission
+                on rejection. REQUIRED when ``tier_config`` is supplied
+                (see the joint integrity+audit contract above). Allowed
+                to be ``None`` only when ``tier_config`` is also
+                ``None``.
 
         Returns:
             The appended :class:`DiffRevision` wrapper.
 
         Raises:
+            TypeError: If ``tier_config`` is supplied without
+                ``state_dir``. Asymmetric kwargs are rejected at function
+                entry to keep audit emission unconditional whenever
+                validation runs.
             ValueError: If ``divergence_marker`` is supplied with a
                 value other than ``"NO_NEW_DIVERGENCE"``.
             PathContractValidationError: If the path_contract feature
                 flag is enabled for ``tier_config`` AND
                 ``validate_diff_revision`` returns a non-empty failure
-                list. The diff is NOT persisted — PROD::I4
-                (VERIFIABLE_EVENT_LEDGER) requires that invalid
-                contracts never enter the append-only history.
+                list. The diff is NOT persisted and
+                ``VALIDATOR_FAILURE`` events are emitted to the ledger
+                BEFORE the exception is raised (joint integrity+audit).
         """
+        # Audit-completeness precondition (CRS #1 / cubic P2 on PR #224):
+        # when validation can run, the ledger MUST be reachable. We collapse
+        # the conditional-audit branch at the API boundary instead of
+        # checking after rejection — that way every rejection emits a
+        # VALIDATOR_FAILURE event by construction (PROD::I4).
+        if tier_config is not None and state_dir is None:
+            raise TypeError(
+                "state_dir is required when tier_config is supplied; "
+                "audit emission of VALIDATOR_FAILURE events on rejection "
+                "MUST be unconditional whenever validation can run "
+                "(PROD::I4 — VERIFIABLE_EVENT_LEDGER)."
+            )
+
         if divergence_marker is not None and divergence_marker != "NO_NEW_DIVERGENCE":
             raise ValueError(
                 "divergence_marker must equal 'NO_NEW_DIVERGENCE' when set "
@@ -840,33 +911,30 @@ class DebateRoom(BaseModel):
         if synthesis_guidance is not None:
             revision["synthesis_guidance"] = synthesis_guidance
 
-        # Validate-before-persist gate (CE's #219 directive). Lazy imports
-        # break the would-be cycle state → validator → events → state that a
-        # top-level import would create. The byte-identity guarantee for
-        # off-mode callers is preserved by the early-return when either
-        # ``tier_config`` is absent or the feature flag resolves to False.
-        if tier_config is not None:
-            from debate_hall_mcp import features as _features
-            from debate_hall_mcp.path_contract_validator import (
-                emit_validator_failures,
-                validate_diff_revision,
-            )
-
-            if _features.is_enabled("path_contract", {"tier_config": tier_config}):
-                failures = validate_diff_revision(contract, revision)
-                if failures:
-                    # Emit one VALIDATOR_FAILURE event per failure on the
-                    # I4 ledger (RFC §6 item 3). If no state_dir was
-                    # provided we cannot persist events — the failures
-                    # still surface via the exception, so silent-drop is
-                    # impossible by construction.
-                    if state_dir is not None:
-                        emit_validator_failures(
-                            thread_id=self.thread_id,
-                            failures=failures,
-                            state_dir=state_dir,
-                        )
-                    raise PathContractValidationError(failures)
+        # Validate-before-persist gate (CE's #219 directive). The imports
+        # for ``features``, ``validate_diff_revision``, and
+        # ``emit_validator_failures`` now live at module top — the
+        # state→validator→events→state cycle was broken structurally by
+        # extracting ``_validate_thread_id_for_filesystem`` into
+        # ``debate_hall_mcp._thread_id``, so lazy imports are no longer
+        # needed (CRS #2 on PR #224 follow-up).
+        if tier_config is not None and features.is_enabled(
+            "path_contract", {"tier_config": tier_config}
+        ):
+            # ``state_dir`` is non-None here by the precondition above
+            # (the asymmetric-kwargs raise short-circuits before this
+            # branch can be reached without it).
+            assert state_dir is not None  # noqa: S101 — invariant from precondition
+            failures = validate_diff_revision(contract, revision)
+            if failures:
+                # Audit FIRST, then raise. Both are unconditional in
+                # on-mode (joint integrity+audit contract).
+                emit_validator_failures(
+                    thread_id=self.thread_id,
+                    failures=failures,
+                    state_dir=state_dir,
+                )
+                raise PathContractValidationError(failures)
 
         contract["diff_history"].append(revision)
         return revision
@@ -972,23 +1040,6 @@ def verify_all_turn_content_hashes(
             )
 
     return results
-
-
-def _validate_thread_id_for_filesystem(thread_id: str) -> None:
-    """Validate thread_id is safe for filesystem operations.
-
-    Security: Rejects path traversal sequences and directory separators
-    to prevent file system injection attacks.
-
-    Args:
-        thread_id: Thread identifier to validate
-
-    Raises:
-        ValueError: If thread_id contains path-unsafe characters
-    """
-    for pattern in PATH_UNSAFE_PATTERNS:
-        if pattern in thread_id:
-            raise ValueError(f"Invalid thread_id '{thread_id}': contains path-unsafe characters")
 
 
 def _get_read_write_lock(lock_file: Path) -> fasteners.InterProcessReaderWriterLock:
