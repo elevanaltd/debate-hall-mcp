@@ -201,3 +201,192 @@ class TestOnModeRejectionSemantics:
         content = events_file.read_text(encoding="utf-8")
         assert "validator_failure" in content
         assert MISSING_REQUIRED_ENTRY in content
+
+
+class TestAsymmetricKwargsRejected:
+    """When ``tier_config`` is supplied, ``state_dir`` MUST also be supplied.
+
+    Rationale (CRS #1 / cubic P2 on PR #224 follow-up): audit completeness is
+    a structural invariant, not a transport-conditional convenience. If
+    validation runs, every rejection MUST be capable of emitting a
+    ``VALIDATOR_FAILURE`` event on the I4 ledger (PROD::I4). Allowing
+    ``tier_config`` without ``state_dir`` creates a silent-audit-drop branch
+    on rejection. We collapse that branch at the API boundary by raising at
+    function entry instead of inside the post-validation path.
+    """
+
+    def test_tier_config_without_state_dir_raises_typeerror(self) -> None:
+        """``tier_config`` without ``state_dir`` is an asymmetric kwarg combo.
+
+        The function must raise ``TypeError`` at entry (before any contract
+        mutation, before any validator dispatch) so the caller cannot
+        accidentally request validation while denying the ledger its audit
+        surface.
+        """
+        room = DebateRoom(
+            thread_id="2026-05-26-asymmetric-kwargs",
+            topic="asymmetric kwargs rejected",
+            mode=DebateMode.FIXED,
+        )
+
+        with pytest.raises(TypeError, match=r"state_dir.*required.*tier_config"):
+            room.append_diff_revision(
+                path_id="p1",
+                written_at=_ts(1),
+                value=_empty_diff_value(),
+                tier_config=_tier_config(path_contract_enabled=True),
+                # state_dir intentionally omitted
+            )
+
+    def test_tier_config_without_state_dir_raises_even_when_flag_off(self) -> None:
+        """The asymmetric-kwargs check fires BEFORE the flag check.
+
+        The contract is a static API shape — ``tier_config`` + missing
+        ``state_dir`` is invalid regardless of the runtime flag value.
+        Deferring the check until after the flag resolves would leave a
+        latent bug that only surfaces when the flag flips on.
+        """
+        room = DebateRoom(
+            thread_id="2026-05-26-asymmetric-flag-off",
+            topic="asymmetric kwargs with flag off",
+            mode=DebateMode.FIXED,
+        )
+
+        with pytest.raises(TypeError, match=r"state_dir.*required.*tier_config"):
+            room.append_diff_revision(
+                path_id="p1",
+                written_at=_ts(1),
+                value=_empty_diff_value(),
+                tier_config=_tier_config(path_contract_enabled=False),
+                # state_dir intentionally omitted
+            )
+
+    def test_no_tier_config_no_state_dir_still_works(self) -> None:
+        """Off-mode (no ``tier_config``) is the only path that may omit ``state_dir``.
+
+        Preserves byte-identity with legacy callers that never opted in.
+        """
+        room = DebateRoom(
+            thread_id="2026-05-26-off-mode-no-state-dir",
+            topic="off-mode legacy",
+            mode=DebateMode.FIXED,
+        )
+        _seed_hard_fail_verdict(room, "p1", "inv_a")
+
+        # No raise, no validation, append proceeds.
+        room.append_diff_revision(
+            path_id="p1",
+            written_at=_ts(1),
+            value=_empty_diff_value(),
+        )
+        assert len(room.path_contracts[0]["diff_history"]) == 1
+
+
+class TestValidationErrorFailuresTyped:
+    """The ``failures`` attribute on ``PathContractValidationError`` carries
+    concrete ``ValidatorFailure`` instances, not ``Any``.
+
+    CRS #2 / cubic P2: ``list[Any]`` erasure was a workaround for the
+    state→validator→events→state cycle. With the cycle broken, the type
+    can be concrete and the workaround removed.
+    """
+
+    def test_failures_are_validator_failure_instances(self, tmp_path: Path) -> None:
+        """Every element of ``failures`` is a ``ValidatorFailure`` dataclass."""
+        room = DebateRoom(
+            thread_id="2026-05-26-typed-failures",
+            topic="typed failures",
+            mode=DebateMode.FIXED,
+        )
+        _seed_hard_fail_verdict(room, "p1", "inv_a")
+
+        with pytest.raises(PathContractValidationError) as exc_info:
+            room.append_diff_revision(
+                path_id="p1",
+                written_at=_ts(1),
+                value=_empty_diff_value(),
+                tier_config=_tier_config(path_contract_enabled=True),
+                state_dir=tmp_path,
+            )
+
+        for failure in exc_info.value.failures:
+            assert isinstance(
+                failure, ValidatorFailure
+            ), f"failures must be ValidatorFailure instances, got {type(failure)}"
+
+
+class TestCycleBrokenNoLazyImports:
+    """The state→validator→events→state cycle is broken at the root.
+
+    CRS #2: ``_validate_thread_id_for_filesystem`` was extracted out of
+    ``state.py`` so ``events.py`` can import it without going through
+    ``state.py``. Once the cycle is broken, the lazy imports inside
+    ``append_diff_revision`` are unnecessary and removed.
+    """
+
+    def test_thread_id_helper_lives_in_dedicated_module(self) -> None:
+        """The helper is importable from its dedicated module.
+
+        This is the structural proof that the cycle root has been
+        relocated — if this import fails, the extraction never happened.
+        """
+        from debate_hall_mcp._thread_id import (  # noqa: PLC0415
+            _validate_thread_id_for_filesystem,
+        )
+
+        # And it actually works.
+        _validate_thread_id_for_filesystem("safe-thread-id")
+        with pytest.raises(ValueError, match="path-unsafe"):
+            _validate_thread_id_for_filesystem("../escape")
+
+    def test_state_reexports_helper_for_backward_compatibility(self) -> None:
+        """``state.py`` re-exports the helper so legacy imports keep working."""
+        from debate_hall_mcp.state import (  # noqa: PLC0415
+            _validate_thread_id_for_filesystem as state_helper,
+        )
+        from debate_hall_mcp._thread_id import (  # noqa: PLC0415
+            _validate_thread_id_for_filesystem as canonical_helper,
+        )
+
+        assert state_helper is canonical_helper
+
+    def test_events_imports_helper_from_dedicated_module(self) -> None:
+        """``events.py`` imports the helper from ``_thread_id``, not ``state``.
+
+        Structural assertion: the source of ``events.py`` does NOT contain
+        ``from debate_hall_mcp.state import _validate_thread_id_for_filesystem``;
+        it imports from the new dedicated module instead. This is the
+        observable proof that the cycle is broken at the source.
+        """
+        import inspect  # noqa: PLC0415
+
+        from debate_hall_mcp import events  # noqa: PLC0415
+
+        source = inspect.getsource(events)
+        assert (
+            "from debate_hall_mcp.state import _validate_thread_id_for_filesystem" not in source
+        ), "events.py must NOT import _validate_thread_id_for_filesystem from state"
+        assert (
+            "from debate_hall_mcp._thread_id import _validate_thread_id_for_filesystem" in source
+        ), "events.py must import _validate_thread_id_for_filesystem from _thread_id"
+
+    def test_append_diff_revision_has_no_lazy_validator_imports(self) -> None:
+        """With the cycle broken, the function body no longer needs lazy imports.
+
+        Structural assertion on the source of ``DebateRoom.append_diff_revision``:
+        ``from debate_hall_mcp.path_contract_validator import`` should NOT
+        appear inside the function body — it must live at module top.
+        """
+        import inspect  # noqa: PLC0415
+
+        from debate_hall_mcp.state import DebateRoom  # noqa: PLC0415
+
+        body = inspect.getsource(DebateRoom.append_diff_revision)
+        assert "from debate_hall_mcp.path_contract_validator import" not in body, (
+            "append_diff_revision must NOT contain lazy validator imports; "
+            "the cycle is broken so the imports belong at module top."
+        )
+        assert "from debate_hall_mcp import features" not in body, (
+            "append_diff_revision must NOT contain a lazy features import; "
+            "import at module top now that the cycle is gone."
+        )
