@@ -288,7 +288,7 @@ async def run_debate(
     7. Returns the result
 
     Args:
-        topic: The debate topic to explore (1-5000 chars, non-empty)
+        topic: The debate topic to explore (1-12000 chars, non-empty)
         tier: Tier configuration name (default: "standard")
         thread_id: Optional thread ID (auto-generated if not provided)
         state_dir: Directory for state files (defaults to ./debates)

@@ -100,6 +100,14 @@ def debate_get(
     # Session type is always included (Issue #175)
     result["session_type"] = room.session_type.value
 
+    # Path contracts are always surfaced (RFC-0001 #197 / #199): the
+    # orchestrator's ``_format_debate_state`` reads ``path_contracts``
+    # off this dict and feeds it to ``render_path_contracts_block``.
+    # Always-emit-empty preserves the renderer's feature-off byte-identity
+    # guarantee (empty list ⇒ no <PATH_CONTRACTS> block emitted) while
+    # giving downstream consumers a stable key to depend on.
+    result["path_contracts"] = list(room.path_contracts)
+
     # For non-debate sessions, include participants and committee_metadata
     if room.session_type != SessionType.DEBATE:
         if room.participants is not None:

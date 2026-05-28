@@ -12,9 +12,9 @@ from debate_hall_mcp.tools.topic_validation import MAX_TOPIC_LENGTH, validate_to
 class TestValidateTopic:
     """Tests for validate_topic function."""
 
-    def test_max_topic_length_is_5000(self) -> None:
-        """MAX_TOPIC_LENGTH should be 5000."""
-        assert MAX_TOPIC_LENGTH == 5000
+    def test_max_topic_length_is_12000(self) -> None:
+        """MAX_TOPIC_LENGTH should be 12000."""
+        assert MAX_TOPIC_LENGTH == 12000
 
     def test_raises_error_for_empty_topic(self) -> None:
         """validate_topic should raise ValueError for empty string."""
@@ -27,16 +27,16 @@ class TestValidateTopic:
             validate_topic("   ")
 
     def test_raises_error_for_topic_exceeding_max_length(self) -> None:
-        """validate_topic should raise ValueError for topic exceeding 5000 chars."""
-        long_topic = "x" * 5001
+        """validate_topic should raise ValueError for topic exceeding 12000 chars."""
+        long_topic = "x" * 12001
         with pytest.raises(ValueError, match="Topic exceeds maximum length"):
             validate_topic(long_topic)
 
     def test_accepts_topic_at_max_length(self) -> None:
-        """validate_topic should accept a topic exactly at 5000 chars."""
-        topic_5000 = "x" * 5000
+        """validate_topic should accept a topic exactly at 12000 chars."""
+        topic_max = "x" * 12000
         # Should not raise
-        validate_topic(topic_5000)
+        validate_topic(topic_max)
 
     def test_accepts_valid_topic(self) -> None:
         """validate_topic should accept a normal-length topic."""

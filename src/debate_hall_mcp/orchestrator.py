@@ -49,6 +49,7 @@ from debate_hall_mcp.prompts import (
     RACI_CONSULTED_PROMPT,
     RACI_INFORMED_PROMPT,
     RACI_RESPONSIBLE_PROMPT,
+    format_door_consensus_prompt,
     format_door_user_prompt,
     format_raci_advice_prompt,
     format_raci_observation_prompt,
@@ -215,6 +216,11 @@ class DebateOrchestrator:
         Returns:
             Formatted string with DEBATE_STATE tags
         """
+        from debate_hall_mcp.context_compiler import (
+            derive_synthesis_status,
+            render_path_contracts_block,
+        )
+
         lines = ["<DEBATE_STATE>"]
         lines.append(f"THREAD_ID::{debate_state['thread_id']}")
         lines.append(f"TOPIC::{debate_state['topic']}")
@@ -241,6 +247,43 @@ class DebateOrchestrator:
                     lines.append(f"  {role_label} ({token_output} tokens):: {content}")
                 else:
                     lines.append(f"  {role_label}:: {content}")
+
+        # RFC-0001 #199: inject <PATH_CONTRACTS> sub-block (RFC §6 item 1)
+        # when path_contracts are present in the in-memory state. Absent/empty
+        # input renders nothing — preserves envelope byte-identity for the
+        # feature-off path (gated by #201/#205).
+        #
+        # PR #218 rework — joint emission contract (CE finding 1):
+        # ``SYNTHESIS_STATUS::<value>`` and ``<PATH_CONTRACTS>`` are emitted
+        # IFF path_contracts is non-empty. When the feature is off, the
+        # envelope is byte-identical to the pre-#199 shape. #198's prompt
+        # branches depend on this joint emission contract — SYNTHESIS_STATUS
+        # only matters when contracts are being tracked.
+        #
+        # PR #201 — flag gate (RFC §6 step 4, §11.2 row 6):
+        # Route through features.is_enabled('path_contract', ctx) so an
+        # off-flag debate produces a byte-identical envelope to a fresh
+        # one EVEN IF path_contracts has been populated (defence-in-depth
+        # against state-leak through the rendering boundary; the #202
+        # off-mode byte-identity acceptance criterion).
+        from debate_hall_mcp import features as _features
+
+        path_contract_on = _features.is_enabled("path_contract", {"tier_config": self.tier_config})
+        path_contracts_block = (
+            render_path_contracts_block(debate_state.get("path_contracts") or [])
+            if path_contract_on
+            else ""
+        )
+        if path_contracts_block:
+            # Insert SYNTHESIS_STATUS just before the </DEBATE_STATE> closer,
+            # alongside the contracts block, so both appear jointly inside the
+            # envelope without disturbing the pre-PR header line ordering.
+            synthesis_status = derive_synthesis_status(
+                synthesis=debate_state.get("synthesis"),
+                turn_count=int(debate_state.get("turn_count", 0)),
+            )
+            lines.append(f"SYNTHESIS_STATUS::{synthesis_status}")
+            lines.append(path_contracts_block)
 
         lines.append("</DEBATE_STATE>")
         return "\n".join(lines)
@@ -305,6 +348,12 @@ class DebateOrchestrator:
     ) -> str:
         """Create a prompt for Door to refine synthesis based on feedback.
 
+        Delegates to ``format_door_consensus_prompt`` (RFC-0001) which carries the
+        consensus-phase path_contract citation rule. This is the only place where
+        Door is asked to cite PATH_CONTRACT_DIFF entries; the initial Door prompt
+        (``format_door_user_prompt``) deliberately omits the citation rule because
+        no DIFF exists yet at that turn.
+
         Args:
             topic: The debate topic
             thread_id: Thread ID for state access
@@ -312,29 +361,9 @@ class DebateOrchestrator:
             feedback: Feedback from the rejector (may be None)
 
         Returns:
-            Formatted prompt for Door to refine synthesis
+            Formatted prompt for Door to refine synthesis (consensus phase)
         """
-        feedback_text = feedback if feedback else "No specific feedback provided."
-        return f"""You are participating in a Wind/Wall/Door debate REFINEMENT PHASE.
-
-Topic: {topic}
-Thread ID: {thread_id}
-Your Role: Door (LOGOS) - Synthesis Refiner
-
-The current debate state is provided above in <DEBATE_STATE> tags.
-
-{rejector} has REJECTED your synthesis with the following feedback:
-{feedback_text}
-
-Your task: Refine your synthesis to address {rejector}'s concerns.
-
-As Door (LOGOS), create a refined synthesis that:
-- Addresses the specific feedback from {rejector}
-- Maintains integration of Wind's possibilities and Wall's constraints
-- Demonstrates how this refinement improves the emergent solution
-- Preserves concrete, actionable implementation steps
-
-Respond with your refined synthesis using the OCTAVE response format."""
+        return format_door_consensus_prompt(topic, thread_id, rejector, feedback)
 
     async def _execute_role_turn(
         self,

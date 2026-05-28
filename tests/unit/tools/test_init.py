@@ -199,8 +199,8 @@ class TestInitDebateTopicValidation:
             )
 
     def test_raises_error_for_topic_exceeding_max_length(self, tmp_path: Path) -> None:
-        """debate_init should raise ValueError for topic exceeding 5000 chars."""
-        long_topic = "x" * 5001
+        """debate_init should raise ValueError for topic exceeding 12000 chars."""
+        long_topic = "x" * 12001
         with pytest.raises(ValueError, match="Topic exceeds maximum length"):
             debate_init(
                 thread_id="2025-01-01-long-topic",
@@ -209,11 +209,11 @@ class TestInitDebateTopicValidation:
             )
 
     def test_accepts_topic_at_max_length(self, tmp_path: Path) -> None:
-        """debate_init should accept a topic exactly at 5000 chars."""
-        topic_5000_chars = "x" * 5000
+        """debate_init should accept a topic exactly at 12000 chars."""
+        topic_max_chars = "x" * 12000
         result = debate_init(
             thread_id="2025-01-01-max-topic",
-            topic=topic_5000_chars,
+            topic=topic_max_chars,
             state_dir=tmp_path,
         )
         assert result["thread_id"] == "2025-01-01-max-topic"

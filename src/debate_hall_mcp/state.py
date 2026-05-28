@@ -21,10 +21,43 @@ import time
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import fasteners  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:
+    from debate_hall_mcp.config import TierConfig
+
+from debate_hall_mcp import features
+
+# Re-export via ``as`` alias so mypy recognizes this as an explicit
+# public re-export (backward compatibility for callers like
+# ``tools.interject`` / ``tools.orchestrate`` that historically imported
+# the helper from ``state``). Canonical home is ``_thread_id``.
+from debate_hall_mcp._thread_id import (
+    _validate_thread_id_for_filesystem as _validate_thread_id_for_filesystem,
+)
+from debate_hall_mcp.path_contract import (
+    DiffRevision,
+    FrameRevision,
+    PathContract,
+    PathDiff,
+    PathFrame,
+    VerdictRevision,
+    new_path_contract,
+)
+from debate_hall_mcp.path_contract import (
+    Invariant as _Invariant,
+)
+from debate_hall_mcp.path_contract import (
+    InvariantVerdict as _InvariantVerdict,
+)
+from debate_hall_mcp.path_contract_validator import (
+    ValidatorFailure,
+    emit_validator_failures,
+    validate_diff_revision,
+)
 
 
 class ConcurrencyError(Exception):
@@ -50,6 +83,37 @@ class ConcurrencyError(Exception):
         self.expected_hash = expected_hash
         self.actual_hash = actual_hash
         self.thread_id = thread_id
+
+
+class PathContractValidationError(Exception):
+    """Raised when ``append_diff_revision`` rejects a diff per #200 validator.
+
+    Carries the structured ``ValidatorFailure`` list so callers can group by
+    ``failure_type`` discriminator (RFC §6 item 3, #203 A/B harness) without
+    parsing the message string.
+
+    This is the rejection signal for the validate-before-persist boundary
+    (CE's #219 directive): when ``features.is_enabled("path_contract", ...)``
+    is True and ``validate_diff_revision`` returns any failure, the diff
+    MUST NOT enter the append-only ledger (PROD::I4 — invalid contracts
+    cannot be edited, only tombstoned).
+
+    Attributes:
+        failures: Non-empty list of validator failures that caused
+            rejection. Element type is the concrete
+            :class:`debate_hall_mcp.path_contract_validator.ValidatorFailure`
+            dataclass — the prior ``list[Any]`` workaround for the
+            state→validator→events→state import cycle is retired now that
+            the cycle is broken at its root (see :mod:`debate_hall_mcp._thread_id`).
+    """
+
+    def __init__(self, failures: list[ValidatorFailure]) -> None:
+        types = sorted({f.failure_type for f in failures})
+        super().__init__(
+            f"path_contract validator rejected diff revision; "
+            f"{len(failures)} failure(s), types={types}"
+        )
+        self.failures = failures
 
 
 class IntegrityError(Exception):
@@ -78,8 +142,12 @@ class IntegrityError(Exception):
         self.computed_hash = computed_hash
 
 
-# Security: Patterns that indicate path traversal or directory injection
-PATH_UNSAFE_PATTERNS = ["..", "/", "\\"]
+# Note: ``PATH_UNSAFE_PATTERNS`` and ``_validate_thread_id_for_filesystem``
+# were moved to :mod:`debate_hall_mcp._thread_id` so ``events.py`` can
+# import the validation helper without forming a
+# state→validator→events→state cycle (CRS #2 on PR #224 follow-up).
+# ``_validate_thread_id_for_filesystem`` is re-imported above for backward
+# compatibility with callers that still import it from ``state``.
 
 # Environment variable for state directory (Issue #33)
 STATE_DIR_ENV_VAR = "DEBATE_HALL_STATE_DIR"
@@ -601,6 +669,275 @@ class DebateRoom(BaseModel):
         default=None,
         description="Pre-compiled RACI turn manifest (populated by orchestrator for RACI mode)",
     )
+    path_contracts: list[PathContract] = Field(
+        default_factory=list,
+        description=(
+            "Per-path append-only contracts (RFC-0001 §3.1 / #196). "
+            "Always-emit-empty backward compat: legacy state files lacking "
+            "this key load with path_contracts=[]. The typed append API "
+            "(append_frame_revision / append_verdict_revision / "
+            "append_diff_revision) is the only sanctioned mutation surface "
+            "and enforces the PROD::I4 append-only invariant at the type "
+            "boundary by auto-assigning monotonic rev and stamping "
+            "ownership Literals."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Typed append API for path_contracts (RFC-0001 §3.1, PROD::I4).
+    #
+    # The trio below is the ONLY sanctioned mutation surface for
+    # path_contracts. Each method:
+    #
+    #   * auto-creates the PathContract for ``path_id`` on first use
+    #     (callers do not need to pre-register paths),
+    #   * assigns ``rev = len(history)`` so revision numbers are
+    #     strictly monotonic per (path_id, history-kind) without
+    #     callers having to track them,
+    #   * stamps ``written_by`` with the RFC §3.1 ownership Literal so
+    #     callers cannot spoof the owner (the validator in #200 would
+    #     reject a spoofed value, but defending in-depth at the write
+    #     boundary keeps the in-memory state authoritative),
+    #   * returns the appended revision (the wrapper TypedDict) so the
+    #     caller can immediately read the assigned ``rev`` or pass the
+    #     revision through downstream validation.
+    #
+    # Callers MUST NOT mutate ``path_contracts`` directly. Direct list
+    # mutation is not statically enforceable (Pydantic exposes the list
+    # by reference), but the ledger invariant (PROD::I4) is enforced
+    # downstream by the #200 validator's ownership and shape checks at
+    # consensus time, so the practical attack surface is bounded.
+    # ------------------------------------------------------------------
+
+    def _get_or_create_contract(self, path_id: str) -> PathContract:
+        """Return the PathContract for ``path_id``, creating it if absent."""
+        for contract in self.path_contracts:
+            if contract["path_id"] == path_id:
+                return contract
+        new_contract = new_path_contract(path_id)
+        self.path_contracts.append(new_contract)
+        return new_contract
+
+    def append_frame_revision(
+        self,
+        *,
+        path_id: str,
+        written_at: datetime,
+        value: PathFrame,
+    ) -> FrameRevision:
+        """Append a Wind-owned frame revision to ``path_id``'s history.
+
+        Args:
+            path_id: Path identifier; the contract is auto-created on
+                first append.
+            written_at: Authoring timestamp (timezone-aware UTC).
+            value: The :class:`PathFrame` payload Wind is asserting.
+
+        Returns:
+            The appended :class:`FrameRevision` wrapper (so callers can
+            read the auto-assigned ``rev``).
+        """
+        contract = self._get_or_create_contract(path_id)
+        rev_num = len(contract["frame_history"])
+        revision: FrameRevision = FrameRevision(
+            rev=rev_num,
+            written_at=written_at,
+            written_by="Wind",
+            value=value,
+        )
+        contract["frame_history"].append(revision)
+        return revision
+
+    def append_verdict_revision(
+        self,
+        *,
+        path_id: str,
+        written_at: datetime,
+        value: dict[_Invariant, _InvariantVerdict],
+    ) -> VerdictRevision:
+        """Append a Wall-owned verdict revision to ``path_id``'s history.
+
+        Args:
+            path_id: Path identifier; the contract is auto-created on
+                first append.
+            written_at: Authoring timestamp (timezone-aware UTC).
+            value: Mapping of invariant name -> InvariantVerdict for
+                every invariant Wall judges on this revision.
+
+        Returns:
+            The appended :class:`VerdictRevision` wrapper.
+        """
+        contract = self._get_or_create_contract(path_id)
+        rev_num = len(contract["verdict_history"])
+        revision: VerdictRevision = VerdictRevision(
+            rev=rev_num,
+            written_at=written_at,
+            written_by="Wall",
+            value=value,
+        )
+        contract["verdict_history"].append(revision)
+        return revision
+
+    def append_diff_revision(
+        self,
+        *,
+        path_id: str,
+        written_at: datetime,
+        value: PathDiff,
+        divergence_marker: str | None = None,
+        synthesis_guidance: str | None = None,
+        tier_config: "TierConfig | None" = None,
+        state_dir: Path | None = None,
+    ) -> DiffRevision:
+        """Append a Wind-owned diff revision to ``path_id``'s history.
+
+        Optional fields ``divergence_marker`` and ``synthesis_guidance``
+        flow through when supplied; absent inputs stay absent on the
+        revision (the schema's ``NotRequired`` keys are not coerced to
+        ``None``).
+
+        Two operating modes — joint integrity + audit contract:
+        ------------------------------------------------------
+
+        **Off-mode** (``tier_config is None``): validator is NOT invoked.
+        The append always proceeds (subject to the structural
+        ``divergence_marker`` check). This is the legacy contract,
+        preserved byte-identically for every caller that has not yet
+        opted in to the path-contract validator.
+
+        **On-mode** (``tier_config is not None``): ``state_dir`` is
+        REQUIRED — asymmetric kwargs (``tier_config`` set,
+        ``state_dir=None``) raise ``TypeError`` at function entry. The
+        rationale is audit completeness: when validation runs, every
+        rejection MUST be able to emit a ``VALIDATOR_FAILURE`` event on
+        the I4 ledger (PROD::I4 — VERIFIABLE_EVENT_LEDGER). Allowing
+        ``tier_config`` without ``state_dir`` would create a silent-
+        audit-drop branch on rejection; we collapse that branch at the
+        API boundary instead of guarding it post-hoc.
+
+        When the path-contract feature flag is OFF for the supplied
+        ``tier_config``, the validator is still NOT invoked (so the
+        ``state_dir`` is unused in practice for that call); the kwarg
+        symmetry check fires regardless of flag state because the
+        contract is a static API shape, not a runtime-conditional.
+
+        When the flag is ON and ``validate_diff_revision`` returns
+        failures, BOTH happen unconditionally:
+
+        * **Integrity** — ``PathContractValidationError`` is raised; the
+          diff is NOT persisted (PROD::I4 forbids editing the append-only
+          history, so an invalid contract is blocked BEFORE it lands).
+        * **Audit** — one ``VALIDATOR_FAILURE`` event per
+          ``ValidatorFailure`` is appended to the I4 ledger via
+          ``emit_validator_failures`` (RFC §6 item 3, #203 A/B harness).
+
+        Both are joint, not alternatives. The exception is propagation
+        for the caller's transactional decision; the events are the
+        ledger's audit record. Neither replaces the other.
+
+        Args:
+            path_id: Path identifier; the contract is auto-created on
+                first append.
+            written_at: Authoring timestamp (timezone-aware UTC).
+            value: The :class:`PathDiff` payload (accepted / disputed /
+                reframed buckets).
+            divergence_marker: Optional sentinel. When set, MUST equal
+                ``"NO_NEW_DIVERGENCE"`` per the schema's ``Literal``;
+                any other value raises ``ValueError`` here so the
+                persisted shape cannot drift from the validator's
+                expected sentinel set.
+            synthesis_guidance: Optional free-text cross-path insight
+                (Finding E). Carried through verbatim.
+            tier_config: Optional tier configuration. When supplied AND
+                ``features.is_enabled("path_contract", ...)`` returns True
+                for this config, the candidate revision is passed through
+                ``path_contract_validator.validate_diff_revision`` BEFORE
+                the in-memory ledger is mutated (CE's #219 deferred
+                follow-up, RFC §3.2 / §3.3 Finding C). When ``None`` (the
+                default) the validator is NOT invoked and the API stays
+                byte-identical to its pre-wiring behavior — preserves the
+                contract for every legacy caller that doesn't yet opt in.
+            state_dir: Directory for ``VALIDATOR_FAILURE`` event emission
+                on rejection. REQUIRED when ``tier_config`` is supplied
+                (see the joint integrity+audit contract above). Allowed
+                to be ``None`` only when ``tier_config`` is also
+                ``None``.
+
+        Returns:
+            The appended :class:`DiffRevision` wrapper.
+
+        Raises:
+            TypeError: If ``tier_config`` is supplied without
+                ``state_dir``. Asymmetric kwargs are rejected at function
+                entry to keep audit emission unconditional whenever
+                validation runs.
+            ValueError: If ``divergence_marker`` is supplied with a
+                value other than ``"NO_NEW_DIVERGENCE"``.
+            PathContractValidationError: If the path_contract feature
+                flag is enabled for ``tier_config`` AND
+                ``validate_diff_revision`` returns a non-empty failure
+                list. The diff is NOT persisted and
+                ``VALIDATOR_FAILURE`` events are emitted to the ledger
+                BEFORE the exception is raised (joint integrity+audit).
+        """
+        # Audit-completeness precondition (CRS #1 / cubic P2 on PR #224):
+        # when validation can run, the ledger MUST be reachable. We collapse
+        # the conditional-audit branch at the API boundary instead of
+        # checking after rejection — that way every rejection emits a
+        # VALIDATOR_FAILURE event by construction (PROD::I4).
+        if tier_config is not None and state_dir is None:
+            raise TypeError(
+                "state_dir is required when tier_config is supplied; "
+                "audit emission of VALIDATOR_FAILURE events on rejection "
+                "MUST be unconditional whenever validation can run "
+                "(PROD::I4 — VERIFIABLE_EVENT_LEDGER)."
+            )
+
+        if divergence_marker is not None and divergence_marker != "NO_NEW_DIVERGENCE":
+            raise ValueError(
+                "divergence_marker must equal 'NO_NEW_DIVERGENCE' when set "
+                f"(got {divergence_marker!r}); see RFC-0001 §3.1 ``DiffRevision``."
+            )
+        contract = self._get_or_create_contract(path_id)
+        rev_num = len(contract["diff_history"])
+        revision: DiffRevision = DiffRevision(
+            rev=rev_num,
+            written_at=written_at,
+            written_by="Wind",
+            value=value,
+        )
+        if divergence_marker is not None:
+            revision["divergence_marker"] = "NO_NEW_DIVERGENCE"
+        if synthesis_guidance is not None:
+            revision["synthesis_guidance"] = synthesis_guidance
+
+        # Validate-before-persist gate (CE's #219 directive). The imports
+        # for ``features``, ``validate_diff_revision``, and
+        # ``emit_validator_failures`` now live at module top — the
+        # state→validator→events→state cycle was broken structurally by
+        # extracting ``_validate_thread_id_for_filesystem`` into
+        # ``debate_hall_mcp._thread_id``, so lazy imports are no longer
+        # needed (CRS #2 on PR #224 follow-up).
+        if tier_config is not None and features.is_enabled(
+            "path_contract", {"tier_config": tier_config}
+        ):
+            # ``state_dir`` is non-None here by the precondition above
+            # (the asymmetric-kwargs raise short-circuits before this
+            # branch can be reached without it).
+            assert state_dir is not None  # noqa: S101 — invariant from precondition
+            failures = validate_diff_revision(contract, revision)
+            if failures:
+                # Audit FIRST, then raise. Both are unconditional in
+                # on-mode (joint integrity+audit contract).
+                emit_validator_failures(
+                    thread_id=self.thread_id,
+                    failures=failures,
+                    state_dir=state_dir,
+                )
+                raise PathContractValidationError(failures)
+
+        contract["diff_history"].append(revision)
+        return revision
 
 
 def calculate_turn_hash(
@@ -703,23 +1040,6 @@ def verify_all_turn_content_hashes(
             )
 
     return results
-
-
-def _validate_thread_id_for_filesystem(thread_id: str) -> None:
-    """Validate thread_id is safe for filesystem operations.
-
-    Security: Rejects path traversal sequences and directory separators
-    to prevent file system injection attacks.
-
-    Args:
-        thread_id: Thread identifier to validate
-
-    Raises:
-        ValueError: If thread_id contains path-unsafe characters
-    """
-    for pattern in PATH_UNSAFE_PATTERNS:
-        if pattern in thread_id:
-            raise ValueError(f"Invalid thread_id '{thread_id}': contains path-unsafe characters")
 
 
 def _get_read_write_lock(lock_file: Path) -> fasteners.InterProcessReaderWriterLock:

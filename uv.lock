@@ -347,6 +347,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "python-ulid" },
     { name = "pyyaml" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -380,6 +381,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
+    { name = "typing-extensions", specifier = ">=4.12" },
 ]
 provides-extras = ["dev"]
 
