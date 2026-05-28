@@ -6,7 +6,8 @@ tool boundaries (M4: CE Review mitigation).
 Extracted to avoid circular imports between init.py and orchestrate.py.
 """
 
-# M4: Maximum topic length (reasonable limit for debate topics)
+# M4: Maximum topic length (character count, not tokens — topic is replayed per
+# panelist per turn, so token-cost trade-off is documented in CHANGELOG.md).
 MAX_TOPIC_LENGTH = 12000
 
 
