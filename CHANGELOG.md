@@ -8,7 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 ### Changed
-- Upgraded octave-mcp dependency from v1.9.2 to v1.13.1
+- Upgraded octave-mcp dependency from v1.9.2 to v1.15.0
 - Increased `MAX_TOPIC_LENGTH` from 1000 to 12000 characters for `run_debate` and `init_debate` topics (raised in two steps: 1000→5000, then 5000→12000) to support richer pasted problem statements; prefer `context_files` for large supporting material since topic content is replayed per panelist per turn
 - Extracted topic validation into shared `topic_validation.py` module (DRY)
 
