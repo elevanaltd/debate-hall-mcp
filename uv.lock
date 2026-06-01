@@ -368,7 +368,7 @@ requires-dist = [
     { name = "inline-snapshot", marker = "extra == 'dev'", specifier = ">=0.15.0" },
     { name = "mcp", specifier = ">=1.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
-    { name = "octave-mcp", specifier = ">=1.13.1" },
+    { name = "octave-mcp", specifier = ">=1.15.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
@@ -674,7 +674,7 @@ wheels = [
 
 [[package]]
 name = "octave-mcp"
-version = "1.13.1"
+version = "1.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -687,9 +687,9 @@ dependencies = [
     { name = "python-multipart" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ba/ff/c41e8e64c942b09f327b30dc4ea6482a36c5552399c74833e0f9bcbf0ed4/octave_mcp-1.13.1.tar.gz", hash = "sha256:8110136797f0bd1c7ff293268018d418eda6d3378646abd048902d15b127aedd", size = 366847, upload-time = "2026-05-28T22:05:13.978Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/a6/3472a5bc8b3689b745817eeb9b3fa6792699e9dc8aacbbd2ed7cc293a5a7/octave_mcp-1.15.0.tar.gz", hash = "sha256:660c8969b61fb0df473de8934e26f1ed463b6ed92fec542aaab5ccf736509a9a", size = 387208, upload-time = "2026-06-01T08:22:44.371Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2b/58/3e11f0f92c331cf2254453c44ff149fd355dc3bee3e854291e51686817ff/octave_mcp-1.13.1-py3-none-any.whl", hash = "sha256:f0acb6005be87683d57328e060c4b9d3d17c340b5caa630fd9accbb23d9efdfd", size = 394772, upload-time = "2026-05-28T22:05:12.527Z" },
+    { url = "https://files.pythonhosted.org/packages/81/3a/9b351a30bd1af1f27013b587a4bd244d2b2345c2e0bd9b0023cf315a304c/octave_mcp-1.15.0-py3-none-any.whl", hash = "sha256:e5212e673c3fcd609e488f61223a05e8fe4520f22609c9cde1de4d182210d551", size = 415089, upload-time = "2026-06-01T08:22:42.615Z" },
 ]
 
 [[package]]
