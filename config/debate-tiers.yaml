@@ -1,0 +1,71 @@
+# Debate Hall — ready-to-use tier configuration
+#
+# This file ships with the repo so `run_debate` works straight after cloning.
+# `.mcp.json` points DEBATE_HALL_TIERS_FILE at this file, so you do NOT need to
+# create your own tiers.yaml. The only thing you must provide is an API key:
+#
+#     export OPENROUTER_API_KEY=sk-or-...        # get one at https://openrouter.ai
+#
+# Then just ask Claude Code:  "run a debate on <your question>"  (or use /debate)
+#
+# Models below are OpenRouter slugs. If a run errors with "model not found",
+# open https://openrouter.ai/models and swap in the current Opus / Gemini / GPT
+# slug — nothing else needs to change.
+
+# -----------------------------------------------------------------------------
+# standard — three DIFFERENT frontier models genuinely debating each other.
+# This is the default and what you want for "find me the genius solution".
+# -----------------------------------------------------------------------------
+standard:
+  wind:                                   # explores / generates options
+    provider: openrouter
+    model: anthropic/claude-opus-4.7
+    role: ideator
+  wall:                                   # challenges / pressure-tests
+    provider: openrouter
+    model: google/gemini-3.1-pro-preview
+    role: validator
+  door:                                   # synthesises the third-way answer
+    provider: openrouter
+    model: openai/gpt-5.5
+    role: synthesizer
+  settings:
+    consensus_required: true
+    max_turns: 12
+    max_refinement_loops: 3
+    provider_timeout: 300
+    show_token_counts: true
+    fallback:
+      enabled: true
+      provider: openrouter
+      model: anthropic/claude-sonnet-4.6
+      timeout: 60
+
+# -----------------------------------------------------------------------------
+# fast — cheaper / quicker. Good for low-stakes or "just give me a quick take".
+# Ask for it explicitly: "run a FAST debate on ..." (or /debate handles it).
+# -----------------------------------------------------------------------------
+fast:
+  wind:
+    provider: openrouter
+    model: anthropic/claude-haiku-4.5
+    role: wind-agent
+    timeout: 60
+  wall:
+    provider: openrouter
+    model: openai/gpt-5.4-mini
+    role: wall-agent
+    timeout: 60
+  door:
+    provider: openrouter
+    model: google/gemini-3-flash-preview
+    role: door-agent
+    timeout: 60
+  settings:
+    consensus_required: false
+    max_turns: 6
+    max_refinement_loops: 1
+    provider_timeout: 60
+    show_token_counts: true
+    fallback:
+      enabled: false
