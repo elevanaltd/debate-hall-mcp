@@ -19,7 +19,7 @@
 standard:
   wind:                                   # explores / generates options
     provider: openrouter
-    model: anthropic/claude-opus-4.7
+    model: anthropic/claude-opus-4.8
     role: ideator
   wall:                                   # challenges / pressure-tests
     provider: openrouter
