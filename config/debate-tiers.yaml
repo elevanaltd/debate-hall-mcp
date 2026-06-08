@@ -1,8 +1,9 @@
 # Debate Hall — ready-to-use tier configuration
 #
-# This file ships with the repo so `run_debate` works straight after cloning.
-# `.mcp.json` points DEBATE_HALL_TIERS_FILE at this file, so you do NOT need to
-# create your own tiers.yaml. The only thing you must provide is an API key:
+# This file ships with the repo as the reference tier config. `setup-mcp.sh`
+# copies it to ~/.debate-hall/tiers.yaml (user-global) so run_debate works from
+# ANY directory, including fresh `pip install debate-hall-mcp` setups. The only
+# thing you must provide is an API key, exported in the shell you launch from:
 #
 #     export OPENROUTER_API_KEY=sk-or-...        # get one at https://openrouter.ai
 #
