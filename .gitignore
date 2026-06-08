@@ -1,7 +1,9 @@
 # Claude Code local settings (user-specific, not committed)
 /.claude/settings.json
 /.claude/settings.local.json
-/.claude/commands/
+# User-specific commands stay local, except the shipped /debate command
+/.claude/commands/*
+!/.claude/commands/debate.md
 
 # NOTE: .claude/rules/ IS committed (team conventions per Boris's best practices)
 

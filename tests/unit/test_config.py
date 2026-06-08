@@ -671,3 +671,43 @@ class TestTierConfigLoader:
         # Should use project-local (max_turns=999), not home (max_turns=1)
         assert config.settings.max_turns == 999
         assert config.wind.model == "project-model"
+
+
+class TestShippedTierConfig:
+    """Smoke tests for config/debate-tiers.yaml committed to the repo."""
+
+    def test_shipped_config_loads_standard_and_fast(self) -> None:
+        """config/debate-tiers.yaml must parse without error and contain both tiers."""
+        from debate_hall_mcp.config import _load_tiers_from_yaml
+
+        repo_root = Path(__file__).parent.parent.parent
+        config_file = repo_root / "config" / "debate-tiers.yaml"
+        assert config_file.exists(), f"Shipped tier config not found: {config_file}"
+
+        tiers = _load_tiers_from_yaml(config_file)
+        assert "standard" in tiers, "Shipped config missing 'standard' tier"
+        assert "fast" in tiers, "Shipped config missing 'fast' tier"
+
+    def test_shipped_config_standard_tier_valid(self) -> None:
+        """standard tier in shipped config has required wind/wall/door roles."""
+        from debate_hall_mcp.config import _load_tiers_from_yaml
+
+        repo_root = Path(__file__).parent.parent.parent
+        tiers = _load_tiers_from_yaml(repo_root / "config" / "debate-tiers.yaml")
+
+        standard = tiers["standard"]
+        assert standard.wind.provider == "openrouter"
+        assert standard.wall.provider == "openrouter"
+        assert standard.door.provider == "openrouter"
+
+    def test_shipped_config_fast_tier_valid(self) -> None:
+        """fast tier in shipped config has required wind/wall/door roles."""
+        from debate_hall_mcp.config import _load_tiers_from_yaml
+
+        repo_root = Path(__file__).parent.parent.parent
+        tiers = _load_tiers_from_yaml(repo_root / "config" / "debate-tiers.yaml")
+
+        fast = tiers["fast"]
+        assert fast.wind.provider == "openrouter"
+        assert fast.wall.provider == "openrouter"
+        assert fast.door.provider == "openrouter"

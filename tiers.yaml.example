@@ -46,7 +46,7 @@
 standard:
   wind:
     provider: openrouter
-    model: anthropic/claude-opus-4.7
+    model: anthropic/claude-opus-4.8
     role: ideator
   wall:
     provider: openrouter
