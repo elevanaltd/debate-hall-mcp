@@ -42,3 +42,9 @@ export OPENROUTER_API_KEY=sk-or-...   # get one at https://openrouter.ai
 
 Then run `claude` **from the repo root** so the server picks up the bundled
 tier config, and ask it to run a debate.
+
+> **Important**: `DEBATE_HALL_TIERS_FILE` in `.mcp.json` is a relative path
+> (`config/debate-tiers.yaml`). The MCP server resolves it against its working
+> directory, which is wherever you launched `claude`. If you launch from a
+> subdirectory, the config will not be found and `run_debate` will fail with a
+> `TierConfigNotFoundError`. Always launch `claude` from the repo root.
