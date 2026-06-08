@@ -530,6 +530,54 @@ configure_gemini() {
 }
 
 # ----------------------------------------------------------------------------
+# Global Tier Config Provisioning
+# ----------------------------------------------------------------------------
+
+# Install a user-global tier config so run_debate works from ANY directory.
+#
+# The MCP server resolves its tier config via a ladder (see config.py):
+#   1. DEBATE_HALL_TIERS_FILE  2. ./tiers.yaml  3. <package-root>/tiers.yaml
+#   4. ~/.debate-hall/tiers.yaml
+# For a non-editable `pip install debate-hall-mcp`, rungs 1-3 are absent, so
+# ~/.debate-hall/tiers.yaml (rung 4) is the only thing that makes debates work
+# from other repos. We seed it from the repo's shipped reference config.
+#
+# Non-destructive: an existing user config is never overwritten.
+install_global_tiers_config() {
+    local script_dir
+    script_dir=$(get_script_dir)
+    local source_config="$script_dir/config/debate-tiers.yaml"
+    local dest_dir="$HOME/.debate-hall"
+    local dest_config="$dest_dir/tiers.yaml"
+
+    if [[ ! -f "$source_config" ]]; then
+        print_warning "Shipped tier config not found at $source_config - skipping global tier setup"
+        return 0
+    fi
+
+    if [[ -f "$dest_config" ]]; then
+        print_info "Existing global tier config kept: $dest_config"
+        return 0
+    fi
+
+    if mkdir -p "$dest_dir" && cp "$source_config" "$dest_config"; then
+        print_success "Installed global tier config: $dest_config"
+    else
+        print_warning "Could not install global tier config to $dest_config"
+    fi
+    return 0
+}
+
+# Remind the user that the OpenRouter API key must live in the launching shell's
+# environment (the MCP server inherits it). We never write the key anywhere.
+print_api_key_reminder() {
+    echo ""
+    print_info "Reminder: export your OpenRouter API key in the shell where you launch Claude Code:"
+    echo "    export OPENROUTER_API_KEY=sk-or-...   # get one at https://openrouter.ai"
+    print_info "The MCP server inherits it from the environment; it is never written to disk by this script."
+}
+
+# ----------------------------------------------------------------------------
 # Uninstall Functions
 # ----------------------------------------------------------------------------
 
@@ -650,7 +698,8 @@ interactive_setup() {
             ensure_venv_exists && configure_claude_desktop
             ;;
         2)
-            ensure_venv_exists && configure_claude_code
+            ensure_venv_exists && configure_claude_code && install_global_tiers_config
+            print_api_key_reminder
             ;;
         3)
             ensure_venv_exists && configure_codex
@@ -664,7 +713,9 @@ interactive_setup() {
             configure_claude_code || true
             configure_codex || true
             configure_gemini || true
+            install_global_tiers_config
             print_success "Setup complete!"
+            print_api_key_reminder
             ;;
         6)
             ensure_venv_exists && show_config
@@ -697,7 +748,8 @@ main() {
             ensure_venv_exists && configure_claude_desktop
             ;;
         --claude-code)
-            ensure_venv_exists && configure_claude_code
+            ensure_venv_exists && configure_claude_code && install_global_tiers_config
+            print_api_key_reminder
             ;;
         --codex)
             ensure_venv_exists && configure_codex
@@ -711,7 +763,9 @@ main() {
             configure_claude_code || true
             configure_codex || true
             configure_gemini || true
+            install_global_tiers_config
             print_success "All clients configured!"
+            print_api_key_reminder
             ;;
         --show-config)
             ensure_venv_exists && show_config
