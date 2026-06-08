@@ -469,7 +469,8 @@ if 'mcpServers' not in config:
 
 config['mcpServers'][server_name] = {
     'command': python_cmd,
-    'args': [server_path]
+    'args': [server_path],
+    'env': {'GITHUB_TOOLS_ENABLED': 'false'},
 }
 
 with open('$temp_file', 'w') as f:
@@ -538,9 +539,10 @@ configure_gemini() {
 # The MCP server resolves its tier config via a ladder (see config.py):
 #   1. DEBATE_HALL_TIERS_FILE  2. ./tiers.yaml  3. <package-root>/tiers.yaml
 #   4. ~/.debate-hall/tiers.yaml
-# For a non-editable `pip install debate-hall-mcp`, rungs 1-3 are absent, so
-# ~/.debate-hall/tiers.yaml (rung 4) is the only thing that makes debates work
-# from other repos. We seed it from the repo's shipped reference config.
+# The repo ships config/debate-tiers.yaml and tiers.yaml.example, but NOT a
+# repo-root tiers.yaml, so rungs 2-3 do not resolve when claude is launched from
+# some other repo. Seeding rung 4 (~/.debate-hall/tiers.yaml) from the shipped
+# reference config is what makes debates work from any directory.
 #
 # Non-destructive: an existing user config is never overwritten.
 install_global_tiers_config() {
@@ -698,8 +700,11 @@ interactive_setup() {
             ensure_venv_exists && configure_claude_desktop
             ;;
         2)
-            ensure_venv_exists && configure_claude_code && install_global_tiers_config
-            print_api_key_reminder
+            if ensure_venv_exists && configure_claude_code && install_global_tiers_config; then
+                print_api_key_reminder
+            else
+                print_error "Claude Code setup did not complete - nothing was configured"
+            fi
             ;;
         3)
             ensure_venv_exists && configure_codex
@@ -714,7 +719,7 @@ interactive_setup() {
             configure_codex || true
             configure_gemini || true
             install_global_tiers_config
-            print_success "Setup complete!"
+            print_info "Setup finished (review any warnings above for clients that were skipped)"
             print_api_key_reminder
             ;;
         6)
@@ -748,8 +753,11 @@ main() {
             ensure_venv_exists && configure_claude_desktop
             ;;
         --claude-code)
-            ensure_venv_exists && configure_claude_code && install_global_tiers_config
-            print_api_key_reminder
+            if ensure_venv_exists && configure_claude_code && install_global_tiers_config; then
+                print_api_key_reminder
+            else
+                exit 1
+            fi
             ;;
         --codex)
             ensure_venv_exists && configure_codex
@@ -764,7 +772,7 @@ main() {
             configure_codex || true
             configure_gemini || true
             install_global_tiers_config
-            print_success "All clients configured!"
+            print_info "Setup finished (review any warnings above for clients that were skipped)"
             print_api_key_reminder
             ;;
         --show-config)
