@@ -4,7 +4,7 @@
       "command": "debate-hall-mcp",
       "env": {
         "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY}",
-        "DEBATE_HALL_TIERS_FILE": "${DEBATE_HALL_TIERS_FILE:-config/debate-tiers.yaml}",
+        "DEBATE_HALL_TIERS_FILE": "config/debate-tiers.yaml",
         "GITHUB_TOOLS_ENABLED": "false"
       }
     }
