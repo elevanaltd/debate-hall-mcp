@@ -32,19 +32,30 @@ There is also a `/debate <your question>` slash command that does exactly this.
 
 ## Setup (one time)
 
-`.mcp.json` and `config/debate-tiers.yaml` are already committed, so the only
-thing needed is an API key. From the repo root:
+Debate Hall is configured **user-global**, so `run_debate` is available from
+**any** project directory — you launch `claude` from whatever repo you want to
+think about, **not** from `debate-hall-mcp`. Clone the repo, then run the
+remaining commands from inside it:
 
 ```bash
-pip install -e .                      # or: pip install debate-hall-mcp
+git clone https://github.com/elevanaltd/debate-hall-mcp.git
+cd debate-hall-mcp
+pip install -e .                      # editable install from this clone
 export OPENROUTER_API_KEY=sk-or-...   # get one at https://openrouter.ai
+./setup-mcp.sh --claude-code          # run once
 ```
 
-Then run `claude` **from the repo root** so the server picks up the bundled
-tier config, and ask it to run a debate.
+`setup-mcp.sh` registers the server in your user-global Claude Code config
+(`~/.claude.json`) and installs a default tier config to
+`~/.debate-hall/tiers.yaml`. That global tiers file is what makes debates work
+from any directory. You can edit `~/.debate-hall/tiers.yaml` to add or tweak
+tiers (e.g. `premium` / `ultra`).
 
-> **Important**: `DEBATE_HALL_TIERS_FILE` in `.mcp.json` is a relative path
-> (`config/debate-tiers.yaml`). The MCP server resolves it against its working
-> directory, which is wherever you launched `claude`. If you launch from a
-> subdirectory, the config will not be found and `run_debate` will fail with a
-> `TierConfigNotFoundError`. Always launch `claude` from the repo root.
+**Keep the clone in place.** The user-global registration points at this clone's
+`server.py`, so if you move or delete the directory, re-run
+`./setup-mcp.sh --claude-code` from the new location.
+
+After this, just `cd` into any repo, run `claude`, and ask it to run a debate.
+The MCP server inherits `OPENROUTER_API_KEY` from the shell you launch `claude`
+in — `setup-mcp.sh` never writes the key anywhere, so make sure it is exported
+in that environment.

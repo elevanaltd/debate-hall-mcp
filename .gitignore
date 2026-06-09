@@ -1,6 +1,9 @@
 # Claude Code local settings (user-specific, not committed)
 /.claude/settings.json
 /.claude/settings.local.json
+# Local MCP config — debate-hall is configured user-global (~/.claude.json) via
+# setup-mcp.sh; a per-repo .mcp.json may exist locally but must never be tracked.
+/.mcp.json
 # User-specific commands stay local, except the shipped /debate command
 /.claude/commands/*
 !/.claude/commands/debate.md
