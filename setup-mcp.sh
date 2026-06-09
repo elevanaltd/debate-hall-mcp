@@ -570,13 +570,75 @@ install_global_tiers_config() {
     return 0
 }
 
-# Remind the user that the OpenRouter API key must live in the launching shell's
-# environment (the MCP server inherits it). We never write the key anywhere.
+# Remind the user how to provide the OpenRouter API key when we do not store it.
+# The server loads it either from the shell environment or from the clone's .env
+# (loaded automatically by absolute path), so either of these works.
 print_api_key_reminder() {
     echo ""
-    print_info "Reminder: export your OpenRouter API key in the shell where you launch Claude Code:"
-    echo "    export OPENROUTER_API_KEY=sk-or-...   # get one at https://openrouter.ai"
-    print_info "The MCP server inherits it from the environment; it is never written to disk by this script."
+    print_info "Provide your OpenRouter API key one of these ways (get one at https://openrouter.ai):"
+    echo "    export OPENROUTER_API_KEY=sk-or-...        # per-shell, ephemeral"
+    echo "    echo 'OPENROUTER_API_KEY=sk-or-...' >> $(get_script_dir)/.env   # persistent (chmod 600)"
+    print_info "The server loads .env from this clone automatically, so the key works from any directory."
+}
+
+# Opt-in: store the OpenRouter API key in the clone's .env so the server picks it
+# up automatically (by absolute path) from any launch directory. Non-destructive,
+# validated, written chmod 600, and never prompts on a non-TTY (CI/automation).
+# Always returns 0 — this is convenience and must never abort the setup chain.
+provision_api_key() {
+    local env_file
+    env_file="$(get_script_dir)/.env"
+
+    # Non-interactive (no TTY): never prompt — would hang automation/CI.
+    if [[ ! -t 0 ]]; then
+        print_api_key_reminder
+        return 0
+    fi
+
+    # Already configured (env var or already in .env): keep, do not clobber.
+    if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+        print_info "OPENROUTER_API_KEY is already set in your environment — leaving it as is."
+        return 0
+    fi
+    if [[ -f "$env_file" ]] && grep -q "^OPENROUTER_API_KEY=" "$env_file" 2>/dev/null; then
+        print_info "OPENROUTER_API_KEY is already present in $env_file — keeping it."
+        return 0
+    fi
+
+    # Opt-in prompt, default SKIP.
+    local ans=""
+    read -r -p "Store your OpenRouter API key in $env_file now? [y/N] " ans || ans=""
+    if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+        print_api_key_reminder
+        return 0
+    fi
+
+    # Read the secret silently; never echo it.
+    local key=""
+    read -r -s -p "Paste OpenRouter API key (sk-or-...): " key || key=""
+    echo ""
+    # Trim leading/trailing whitespace.
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+
+    if [[ ! "$key" =~ ^sk-or- ]]; then
+        print_warning "That doesn't look like an sk-or-... key — not stored."
+        print_api_key_reminder
+        return 0
+    fi
+
+    # Create with 0600 BEFORE writing the secret, then append (never truncate).
+    # The append is part of the guarded condition so a write failure routes to
+    # the warning branch instead of aborting the script under set -euo pipefail.
+    if touch "$env_file" && chmod 600 "$env_file" \
+       && printf 'OPENROUTER_API_KEY=%s\n' "$key" >> "$env_file"; then
+        chmod 600 "$env_file" || true
+        print_success "Stored OpenRouter key in $env_file (permissions 0600)"
+    else
+        print_warning "Could not write to $env_file — key not stored."
+        print_api_key_reminder
+    fi
+    return 0
 }
 
 # ----------------------------------------------------------------------------
@@ -701,7 +763,7 @@ interactive_setup() {
             ;;
         2)
             if ensure_venv_exists && configure_claude_code && install_global_tiers_config; then
-                print_api_key_reminder
+                provision_api_key
             else
                 print_error "Claude Code setup did not complete - nothing was configured"
             fi
@@ -720,7 +782,7 @@ interactive_setup() {
             configure_gemini || true
             install_global_tiers_config
             print_info "Setup finished (review any warnings above for clients that were skipped)"
-            print_api_key_reminder
+            provision_api_key
             ;;
         6)
             ensure_venv_exists && show_config
@@ -754,7 +816,7 @@ main() {
             ;;
         --claude-code)
             if ensure_venv_exists && configure_claude_code && install_global_tiers_config; then
-                print_api_key_reminder
+                provision_api_key
             else
                 exit 1
             fi
@@ -773,7 +835,7 @@ main() {
             configure_gemini || true
             install_global_tiers_config
             print_info "Setup finished (review any warnings above for clients that were skipped)"
-            print_api_key_reminder
+            provision_api_key
             ;;
         --show-config)
             ensure_venv_exists && show_config

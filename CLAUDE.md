@@ -41,8 +41,7 @@ remaining commands from inside it:
 git clone https://github.com/elevanaltd/debate-hall-mcp.git
 cd debate-hall-mcp
 pip install -e .                      # editable install from this clone
-export OPENROUTER_API_KEY=sk-or-...   # get one at https://openrouter.ai
-./setup-mcp.sh --claude-code          # run once
+./setup-mcp.sh --claude-code          # run once (offers to store your API key)
 ```
 
 `setup-mcp.sh` registers the server in your user-global Claude Code config
@@ -55,7 +54,12 @@ tiers (e.g. `premium` / `ultra`).
 `server.py`, so if you move or delete the directory, re-run
 `./setup-mcp.sh --claude-code` from the new location.
 
+**OpenRouter API key.** The server reads `OPENROUTER_API_KEY` from this clone's
+`.env`, which it loads automatically by absolute path — so the key works from
+any launch directory. This is the recommended persistent method:
+`./setup-mcp.sh --claude-code` offers to store it for you (opt-in, written
+`chmod 600`), or `cp .env.example .env` and edit. The `.env` is gitignored;
+keep it `chmod 600`. Alternatively, `export OPENROUTER_API_KEY=sk-or-...` in the
+shell you launch `claude` from for an ephemeral, per-shell key.
+
 After this, just `cd` into any repo, run `claude`, and ask it to run a debate.
-The MCP server inherits `OPENROUTER_API_KEY` from the shell you launch `claude`
-in — `setup-mcp.sh` never writes the key anywhere, so make sure it is exported
-in that environment.
