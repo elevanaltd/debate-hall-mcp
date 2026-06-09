@@ -628,12 +628,14 @@ provision_api_key() {
     fi
 
     # Create with 0600 BEFORE writing the secret, then append (never truncate).
-    if touch "$env_file" && chmod 600 "$env_file"; then
-        printf 'OPENROUTER_API_KEY=%s\n' "$key" >> "$env_file"
-        chmod 600 "$env_file"
+    # The append is part of the guarded condition so a write failure routes to
+    # the warning branch instead of aborting the script under set -euo pipefail.
+    if touch "$env_file" && chmod 600 "$env_file" \
+       && printf 'OPENROUTER_API_KEY=%s\n' "$key" >> "$env_file"; then
+        chmod 600 "$env_file" || true
         print_success "Stored OpenRouter key in $env_file (permissions 0600)"
     else
-        print_warning "Could not prepare $env_file — key not stored."
+        print_warning "Could not write to $env_file — key not stored."
         print_api_key_reminder
     fi
     return 0
