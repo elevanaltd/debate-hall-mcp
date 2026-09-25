@@ -87,7 +87,7 @@ fast:
     timeout: 60
   wall:
     provider: openrouter
-    model: openai/gpt-5.6-luna
+    model: openai/gpt-6-luna
     role: wall-agent
     timeout: 60
   door:
@@ -138,7 +138,7 @@ premium:
     role: edge-optimizer
   wall:
     provider: openrouter
-    model: openai/gpt-5.6-sol
+    model: openai/gpt-6-sol
     role: critical-engineer
   door:
     provider: openrouter
@@ -164,7 +164,7 @@ ultra:
     role: edge-optimizer
   wall:
     provider: openrouter
-    model: openai/gpt-5.6-sol
+    model: openai/gpt-6-sol
     role: critical-engineer
   door:
     provider: openrouter
@@ -224,7 +224,7 @@ ultra:
 #     timeout: 120
 #   wall:
 #     provider: openrouter
-#     model: openai/gpt-5.6-luna
+#     model: openai/gpt-6-luna
 #     timeout: 90
 #   door:
 #     provider: cli
