@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.0.0,<2",
     "pydantic>=2.0.0",
     "filelock>=3.20.3",  # Cross-platform file locking (Issue #48) - >=3.20.3 for TOCTOU CVE fix
     "fasteners>=0.19",  # Read/write file locking for concurrency (Issue #106)
@@ -46,6 +46,7 @@ dev = [
     "black==26.1.0",  # Pin to avoid CI/local formatting drift
     "inline-snapshot>=0.15.0",
     "types-PyYAML>=6.0",  # Type stubs for PyYAML (PEP 561 compliance)
+    "packaging>=23.0",  # Used directly by tests/unit/test_dependency_constraints.py (was only transitive via pytest/black)
 ]
 
 [project.scripts]
