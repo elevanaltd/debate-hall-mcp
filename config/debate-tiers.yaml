@@ -9,9 +9,12 @@
 #
 # Then just ask Claude Code:  "run a debate on <your question>"  (or use /debate)
 #
-# Models below are OpenRouter slugs. If a run errors with "model not found",
-# open https://openrouter.ai/models and swap in the current Opus / Gemini / GPT
-# slug — nothing else needs to change.
+# Models below are OpenRouter slugs, verified 2026-09-25. If a run errors with
+# "model not found", open https://openrouter.ai/models and swap in the current
+# Opus / Gemini / GPT slug — nothing else needs to change.
+#
+# Role names are hyphenated (critical-engineer, technical-architect).
+# Model heuristic (M019): Claude→Wind, GPT→Wall, Gemini→Door when practical.
 
 # -----------------------------------------------------------------------------
 # standard — three DIFFERENT frontier models genuinely debating each other.
@@ -20,15 +23,15 @@
 standard:
   wind:                                   # explores / generates options
     provider: openrouter
-    model: anthropic/claude-opus-4.8
+    model: anthropic/claude-opus-5.5
     role: ideator
   wall:                                   # challenges / pressure-tests
     provider: openrouter
-    model: google/gemini-3.1-pro-preview
+    model: openai/gpt-5.6-terra
     role: validator
   door:                                   # synthesises the third-way answer
     provider: openrouter
-    model: openai/gpt-5.5
+    model: google/gemini-3.1-pro-preview
     role: synthesizer
   settings:
     consensus_required: true
@@ -39,7 +42,7 @@ standard:
     fallback:
       enabled: true
       provider: openrouter
-      model: anthropic/claude-sonnet-4.6
+      model: anthropic/claude-sonnet-5
       timeout: 60
 
 # -----------------------------------------------------------------------------
@@ -54,12 +57,12 @@ fast:
     timeout: 60
   wall:
     provider: openrouter
-    model: openai/gpt-5.4-mini
+    model: openai/gpt-5.6-luna
     role: wall-agent
     timeout: 60
   door:
     provider: openrouter
-    model: google/gemini-3-flash-preview
+    model: google/gemini-3.8-flash
     role: door-agent
     timeout: 60
   settings:
@@ -70,3 +73,87 @@ fast:
     show_token_counts: true
     fallback:
       enabled: false
+
+# -----------------------------------------------------------------------------
+# system — specialist roles on the standard frontier trio.
+# -----------------------------------------------------------------------------
+system:
+  wind:
+    provider: openrouter
+    model: anthropic/claude-opus-5.5
+    role: edge-optimizer
+  wall:
+    provider: openrouter
+    model: openai/gpt-5.6-terra
+    role: critical-engineer
+  door:
+    provider: openrouter
+    model: google/gemini-3.1-pro-preview
+    role: technical-architect
+  settings:
+    consensus_required: true
+    max_turns: 16
+    max_refinement_loops: 5
+    provider_timeout: 600
+    show_token_counts: true
+    fallback:
+      enabled: true
+      provider: openrouter
+      model: anthropic/claude-sonnet-5
+      timeout: 120
+
+# -----------------------------------------------------------------------------
+# premium — Fable creative Wind + GPT Sol Wall + Gemini Pro Door.
+# -----------------------------------------------------------------------------
+premium:
+  wind:
+    provider: openrouter
+    model: anthropic/claude-fable-5.1
+    role: edge-optimizer
+  wall:
+    provider: openrouter
+    model: openai/gpt-5.6-sol
+    role: critical-engineer
+  door:
+    provider: openrouter
+    model: google/gemini-3.1-pro-preview
+    role: technical-architect
+  settings:
+    consensus_required: true
+    max_turns: 16
+    max_refinement_loops: 5
+    provider_timeout: 600
+    show_token_counts: true
+    fallback:
+      enabled: true
+      provider: openrouter
+      model: anthropic/claude-sonnet-5
+      timeout: 120
+
+# -----------------------------------------------------------------------------
+# ultra — alternate-provider frontier (DeepSeek Pro GA / GPT Sol / GLM Prime).
+# -----------------------------------------------------------------------------
+ultra:
+  wind:
+    provider: openrouter
+    model: deepseek/deepseek-v4-pro-0813
+    role: edge-optimizer
+  wall:
+    provider: openrouter
+    model: openai/gpt-5.6-sol
+    role: critical-engineer
+  door:
+    provider: openrouter
+    model: z-ai/glm-5.3-prime
+    role: technical-architect
+  settings:
+    consensus_required: true
+    max_turns: 16
+    max_refinement_loops: 5
+    provider_timeout: 600
+    show_token_counts: true
+    fallback:
+      enabled: true
+      provider: openrouter
+      model: deepseek/deepseek-v4-pro-0813
+      timeout: 120

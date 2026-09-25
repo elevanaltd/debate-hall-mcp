@@ -12,6 +12,7 @@
 #   cli        - External CLIs (requires claude/codex/gemini installed)
 #
 # For OpenRouter models: https://openrouter.ai/models
+# Model pins verified against OpenRouter catalog (2026-09-25).
 #
 # =============================================================================
 # TERMINOLOGY: Position vs Cognition vs Role
@@ -37,8 +38,13 @@
 # Specialist roles (ideator, edge-optimizer, critical-engineer, etc.) bring
 # domain expertise on top of their cognition mode.
 #
+# Role names are hyphenated (critical-engineer, technical-architect).
 # See agents/README.md for the full three-layer identity model explanation.
-
+#
+# Model assignment heuristic (M019 study): Claude→Wind, GPT→Wall, Gemini→Door
+# for multi-provider dialectic diversity. Higher tiers may swap families for
+# cost or capability while keeping three distinct providers when possible.
+#
 # =============================================================================
 # STANDARD TIERS (OpenRouter) - Ready to use with API key
 # =============================================================================
@@ -46,15 +52,15 @@
 standard:
   wind:
     provider: openrouter
-    model: anthropic/claude-opus-4.8
+    model: anthropic/claude-opus-5.5
     role: ideator
   wall:
     provider: openrouter
-    model: google/gemini-3.1-pro-preview
+    model: openai/gpt-5.6-terra
     role: validator
   door:
     provider: openrouter
-    model: openai/gpt-5.5
+    model: google/gemini-3.1-pro-preview
     role: synthesizer
   settings:
     consensus_required: true
@@ -70,7 +76,7 @@ standard:
     fallback:
       enabled: true
       provider: openrouter
-      model: anthropic/claude-sonnet-4.6
+      model: anthropic/claude-sonnet-5
       timeout: 60
 
 fast:
@@ -81,12 +87,12 @@ fast:
     timeout: 60
   wall:
     provider: openrouter
-    model: openai/gpt-5.4-mini
+    model: openai/gpt-5.6-luna
     role: wall-agent
     timeout: 60
   door:
     provider: openrouter
-    model: google/gemini-3-flash-preview
+    model: google/gemini-3.8-flash
     role: door-agent
     timeout: 60
   settings:
@@ -98,14 +104,15 @@ fast:
     fallback:
       enabled: false
 
-premium:
+# system — specialist roles on the same frontier trio as standard
+system:
   wind:
     provider: openrouter
-    model: ~anthropic/claude-opus-latest
+    model: anthropic/claude-opus-5.5
     role: edge-optimizer
   wall:
     provider: openrouter
-    model: openai/gpt-5.5
+    model: openai/gpt-5.6-terra
     role: critical-engineer
   door:
     provider: openrouter
@@ -116,11 +123,63 @@ premium:
     max_turns: 16
     max_refinement_loops: 5
     provider_timeout: 600
-    show_token_counts: true  # Show token counts per turn in VTP transcript (default: true, opt-out with false)
+    show_token_counts: true
     fallback:
       enabled: true
       provider: openrouter
-      model: anthropic/claude-sonnet-4.6
+      model: anthropic/claude-sonnet-5
+      timeout: 120
+
+# premium — highest Anthropic creative + GPT Sol + Gemini Pro
+premium:
+  wind:
+    provider: openrouter
+    model: anthropic/claude-fable-5.1
+    role: edge-optimizer
+  wall:
+    provider: openrouter
+    model: openai/gpt-5.6-sol
+    role: critical-engineer
+  door:
+    provider: openrouter
+    model: google/gemini-3.1-pro-preview
+    role: technical-architect
+  settings:
+    consensus_required: true
+    max_turns: 16
+    max_refinement_loops: 5
+    provider_timeout: 600
+    show_token_counts: true
+    fallback:
+      enabled: true
+      provider: openrouter
+      model: anthropic/claude-sonnet-5
+      timeout: 120
+
+# ultra — alternate-provider frontier (DeepSeek / GPT Sol / GLM Prime)
+ultra:
+  wind:
+    provider: openrouter
+    model: deepseek/deepseek-v4-pro-0813
+    role: edge-optimizer
+  wall:
+    provider: openrouter
+    model: openai/gpt-5.6-sol
+    role: critical-engineer
+  door:
+    provider: openrouter
+    model: z-ai/glm-5.3-prime
+    role: technical-architect
+  settings:
+    consensus_required: true
+    max_turns: 16
+    max_refinement_loops: 5
+    provider_timeout: 600
+    show_token_counts: true
+    fallback:
+      enabled: true
+      provider: openrouter
+      model: deepseek/deepseek-v4-pro-0813
       timeout: 120
 
 # =============================================================================
@@ -165,7 +224,7 @@ premium:
 #     timeout: 120
 #   wall:
 #     provider: openrouter
-#     model: openai/gpt-4.1-mini
+#     model: openai/gpt-5.6-luna
 #     timeout: 90
 #   door:
 #     provider: cli
@@ -195,15 +254,15 @@ premium:
 # security:
 #   wind:
 #     provider: openrouter
-#     model: anthropic/claude-sonnet-4.5
+#     model: anthropic/claude-sonnet-5
 #     prompt_file: security  # -> wind-security.oct.md
 #   wall:
 #     provider: openrouter
-#     model: anthropic/claude-sonnet-4.5
+#     model: openai/gpt-5.6-terra
 #     prompt_file: security  # -> wall-security.oct.md
 #   door:
 #     provider: openrouter
-#     model: anthropic/claude-sonnet-4.5
+#     model: google/gemini-3.1-pro-preview
 #     prompt_file: security  # -> door-security.oct.md
 #   settings:
 #     consensus_required: true
