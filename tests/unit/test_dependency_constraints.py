@@ -36,12 +36,16 @@ def test_mcp_dependency_excludes_v2() -> None:
     requirement = _mcp_requirement()
     specifier: SpecifierSet = requirement.specifier
 
-    # A version just inside 2.x must be rejected by the pinned specifier.
-    assert not specifier.contains("2.0.0", prereleases=True), (
-        f"mcp dependency specifier {specifier!s} permits mcp==2.0.0, which removed "
-        "mcp.server.fastmcp.FastMCP (see src/debate_hall_mcp/server.py). "
-        'Pin it with an upper bound, e.g. "mcp>=1.0.0,<2".'
-    )
+    # The entire 2.x line must be rejected, not just its first release —
+    # a specifier like ">=1.0.0,!=2.0.0,<3" would pass a single-version
+    # check yet still let mcp==2.0.1 (or any other 2.x point release) through.
+    representative_2x_versions = ["2.0.0", "2.0.1", "2.2.0", "2.99.99"]
+    for version in representative_2x_versions:
+        assert not specifier.contains(version, prereleases=True), (
+            f"mcp dependency specifier {specifier!s} permits mcp=={version}, which removed "
+            "mcp.server.fastmcp.FastMCP (see src/debate_hall_mcp/server.py). "
+            'Pin it with an upper bound, e.g. "mcp>=1.0.0,<2".'
+        )
 
     # A known-good 1.x release must still be permitted.
     assert specifier.contains("1.27.1", prereleases=True), (
