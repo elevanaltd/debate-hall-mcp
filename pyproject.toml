@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.0.0,<2",
     "pydantic>=2.0.0",
     "filelock>=3.20.3",  # Cross-platform file locking (Issue #48) - >=3.20.3 for TOCTOU CVE fix
     "fasteners>=0.19",  # Read/write file locking for concurrency (Issue #106)
