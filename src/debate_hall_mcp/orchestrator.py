@@ -29,7 +29,6 @@ Phase 4: Consensus Loop
 import asyncio
 import contextlib
 import logging
-import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -785,6 +784,10 @@ class DebateOrchestrator:
         - exhaustion: room turn budget spent before another refinement could run;
           closed via the engine's existing TerminationReason.EXHAUSTION (I3)
         """
+        # Same guard as debate_close() so both non-consensus paths validate identically:
+        # a blank synthesis raises (caller PAUSES) instead of closing silently.
+        if not synthesis or not synthesis.strip():
+            raise ValueError("Synthesis required for debate close")
         room = load_debate_state(thread_id, self.state_dir)
         room.consensus_metadata = consensus_metadata
         if status == "exhaustion":
@@ -861,7 +864,7 @@ class DebateOrchestrator:
                 max_turns=max_turns,
                 # The engine exhausts at turns//3 >= max_rounds; derive rounds so they
                 # never bind below the tier's max_turns (TierSettings has no max_rounds).
-                max_rounds=math.ceil(max_turns / 3),
+                max_rounds=(max_turns + 2) // 3,  # exact integer ceil(max_turns / 3)
                 state_dir=self.state_dir,
             )
             debate_initialized = True
