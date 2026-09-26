@@ -627,7 +627,8 @@ class TestShippedConfigsStillLoad:
 # Credential hygiene: raw provider messages never reach logs or error text
 # ---------------------------------------------------------------------------
 
-SECRET = "sk-or-v1-SECRET-TOKEN-abc123"
+# Unique, deliberately NOT key-shaped (secret scanners must not match it)
+SECRET = "LEAK-SENTINEL-7f3a9c"
 
 
 class TestFallbackCredentialHygiene:
@@ -744,6 +745,33 @@ class TestRefinementTurnBudget:
         assert room.status == DebateStatus.EXHAUSTION
         assert len(room.turns) == 4
         assert factory.primary["Door"].complete.await_count == door_calls_before
+
+
+class TestNonConsensusCloseValidation:
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("max_turns", "max_refinement_loops", "path"),
+        [(4, 3, "exhaustion"), (12, 0, "stalemate")],
+    )
+    async def test_blank_synthesis_is_rejected_on_both_non_consensus_paths(
+        self, state_dir: Path, max_turns: int, max_refinement_loops: int, path: str
+    ) -> None:
+        """Exhaustion and stalemate closes validate the synthesis identically."""
+        thread_id = f"2026-09-26-blank-synthesis-{path}"
+        factory = RoutingFactory()
+        _always_wall_rejects(factory)
+        factory.primary["Door"].complete.return_value = _response("   ", PRIMARY_MODELS["Door"])
+        config = _tier_config(
+            consensus_required=True,
+            max_turns=max_turns,
+            max_refinement_loops=max_refinement_loops,
+        )
+
+        orchestrator = DebateOrchestrator(config, state_dir, provider_factory=factory)
+        with pytest.raises(ValueError, match="Synthesis required"):
+            await orchestrator.run(topic=f"Blank {path}", thread_id=thread_id)
+
+        assert load_debate_state(thread_id, state_dir).status == DebateStatus.PAUSED
 
 
 # ---------------------------------------------------------------------------
