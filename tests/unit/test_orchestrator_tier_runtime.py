@@ -19,6 +19,7 @@ Fallback contract under test:
 """
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -62,6 +63,7 @@ def _tier_config(
     provider_timeout: int = 300,
     role_timeouts: dict[str, int | None] | None = None,
     fallback_timeout: int = 60,
+    max_refinement_loops: int = 3,
 ) -> TierConfig:
     role_timeouts = role_timeouts or {}
     return TierConfig(
@@ -86,7 +88,7 @@ def _tier_config(
         settings=TierSettings(
             consensus_required=consensus_required,
             max_turns=max_turns,
-            max_refinement_loops=3,
+            max_refinement_loops=max_refinement_loops,
             provider_timeout=provider_timeout,
             fallback=FallbackConfig(
                 enabled=fallback_enabled,
@@ -619,3 +621,151 @@ class TestShippedConfigsStillLoad:
     def test_tiers_yaml_example_loads(self) -> None:
         tiers = _load_tiers_from_yaml(REPO_ROOT / "tiers.yaml.example")
         assert tiers
+
+
+# ---------------------------------------------------------------------------
+# Credential hygiene: raw provider messages never reach logs or error text
+# ---------------------------------------------------------------------------
+
+SECRET = "sk-or-v1-SECRET-TOKEN-abc123"
+
+
+class TestFallbackCredentialHygiene:
+    @pytest.mark.anyio
+    async def test_fallback_warning_does_not_log_raw_error_message(
+        self, state_dir: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        factory = RoutingFactory()
+        factory.primary["Wind"].complete.side_effect = OpenRouterApiError(
+            f"OpenRouter API error: 401 - invalid key {SECRET}"
+        )
+        orchestrator = DebateOrchestrator(_tier_config(), state_dir, provider_factory=factory)
+
+        with caplog.at_level(logging.DEBUG, logger="debate_hall_mcp"):
+            await orchestrator.run(topic="Hygiene", thread_id="2026-09-26-hygiene-log")
+
+        assert "fallback" in caplog.text.lower()
+        assert "OpenRouterApiError" in caplog.text
+        assert SECRET not in caplog.text
+        events_text = " ".join(
+            str(e.payload) for e in load_events("2026-09-26-hygiene-log", state_dir)
+        )
+        assert SECRET not in events_text
+
+    @pytest.mark.anyio
+    async def test_fallback_error_message_has_no_raw_provider_text(
+        self, state_dir: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from debate_hall_mcp.orchestrator import ProviderFallbackError
+
+        factory = RoutingFactory()
+        factory.primary["Wind"].complete.side_effect = CliProviderError(f"stderr: {SECRET}")
+        factory.fallback.complete.side_effect = OpenRouterApiError(f"body: {SECRET}")
+        orchestrator = DebateOrchestrator(_tier_config(), state_dir, provider_factory=factory)
+
+        with (
+            caplog.at_level(logging.DEBUG, logger="debate_hall_mcp"),
+            pytest.raises(ProviderFallbackError) as exc_info,
+        ):
+            await orchestrator.run(topic="Hygiene 2", thread_id="2026-09-26-hygiene-exc")
+
+        message = str(exc_info.value)
+        assert SECRET not in message
+        assert "CliProviderError" in message
+        assert "OpenRouterApiError" in message
+        assert SECRET not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# I3: refinements stop at the room's turn budget and close as EXHAUSTION
+# ---------------------------------------------------------------------------
+
+
+def _always_wall_rejects(factory: RoutingFactory) -> None:
+    factory.primary["Wind"].complete.return_value = _response("APPROVE", PRIMARY_MODELS["Wind"])
+    factory.primary["Wall"].complete.return_value = _response(
+        "REJECT - still missing constraints", PRIMARY_MODELS["Wall"]
+    )
+
+
+class TestRefinementTurnBudget:
+    @pytest.mark.anyio
+    async def test_low_max_turns_closes_as_exhaustion_not_paused(self, state_dir: Path) -> None:
+        thread_id = "2026-09-26-budget-exhaustion"
+        factory = RoutingFactory()
+        _always_wall_rejects(factory)
+        config = _tier_config(consensus_required=True, max_turns=4, max_refinement_loops=3)
+
+        orchestrator = DebateOrchestrator(config, state_dir, provider_factory=factory)
+        result = await orchestrator.run(topic="Budget", thread_id=thread_id)
+
+        room = load_debate_state(thread_id, state_dir)
+        assert result.status == "exhaustion"
+        assert room.status == DebateStatus.EXHAUSTION
+        assert len(room.turns) == 4  # Wind, Wall, Door + one refinement
+        assert result.turn_count == 4
+        assert room.consensus_metadata is not None
+        assert room.consensus_metadata.consensus_reached is False
+        closed = [
+            e for e in load_events(thread_id, state_dir) if e.event_type == EventType.DEBATE_CLOSED
+        ]
+        assert closed[-1].payload["status"] == "exhaustion"
+
+    @pytest.mark.anyio
+    async def test_resume_at_turn_budget_closes_instead_of_looping(self, state_dir: Path) -> None:
+        thread_id = "2026-09-26-budget-resume"
+        factory = RoutingFactory()
+        _always_wall_rejects(factory)
+        # Pause the debate exactly at its turn budget: W, Wa, D, refinement D = 4 turns,
+        # then the next Wind vote fails with fallback disabled -> PAUSED.
+        factory.primary["Wind"].complete.side_effect = [
+            _response("wind turn", PRIMARY_MODELS["Wind"]),
+            _response("APPROVE", PRIMARY_MODELS["Wind"]),
+            MODEL_NOT_FOUND,
+        ]
+        config = _tier_config(
+            consensus_required=True, max_turns=4, max_refinement_loops=3, fallback_enabled=False
+        )
+        orchestrator = DebateOrchestrator(config, state_dir, provider_factory=factory)
+        with pytest.raises(OpenRouterApiError):
+            await orchestrator.run(topic="Budget resume", thread_id=thread_id)
+        room = load_debate_state(thread_id, state_dir)
+        assert room.status == DebateStatus.PAUSED
+        assert len(room.turns) == 4
+
+        # Resume: votes still happen (they are not turns) but no refinement fits
+        factory.primary["Wind"].complete.side_effect = None
+        factory.primary["Wind"].complete.return_value = _response("APPROVE", PRIMARY_MODELS["Wind"])
+        door_calls_before = factory.primary["Door"].complete.await_count
+        result = await orchestrator.resume(thread_id)
+
+        room = load_debate_state(thread_id, state_dir)
+        assert result.status == "exhaustion"
+        assert room.status == DebateStatus.EXHAUSTION
+        assert len(room.turns) == 4
+        assert factory.primary["Door"].complete.await_count == door_calls_before
+
+
+# ---------------------------------------------------------------------------
+# max_turns is the effective ceiling (max_rounds must not bind below it)
+# ---------------------------------------------------------------------------
+
+
+class TestMaxTurnsIsEffectiveCeiling:
+    @pytest.mark.anyio
+    async def test_max_turns_16_records_more_than_12_turns_and_caps_at_16(
+        self, state_dir: Path
+    ) -> None:
+        thread_id = "2026-09-26-max-turns-16"
+        factory = RoutingFactory()
+        _always_wall_rejects(factory)
+        config = _tier_config(consensus_required=True, max_turns=16, max_refinement_loops=20)
+
+        orchestrator = DebateOrchestrator(config, state_dir, provider_factory=factory)
+        result = await orchestrator.run(topic="Sixteen", thread_id=thread_id)
+
+        room = load_debate_state(thread_id, state_dir)
+        assert len(room.turns) == 16
+        assert result.status == "exhaustion"
+        assert room.max_turns == 16
+        assert room.max_rounds * 3 >= room.max_turns
