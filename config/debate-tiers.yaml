@@ -155,5 +155,5 @@ ultra:
     fallback:
       enabled: true
       provider: openrouter
-      model: deepseek/deepseek-v4-pro-0813
+      model: anthropic/claude-sonnet-5
       timeout: 120
