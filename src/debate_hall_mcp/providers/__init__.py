@@ -124,7 +124,7 @@ def create_provider(
             raise ProviderConfigError("OpenRouter provider requires 'model' field")
         from .openrouter import OpenRouterProvider
 
-        return OpenRouterProvider(model=role_config.model)
+        return OpenRouterProvider(model=role_config.model, timeout=effective_timeout)
 
     else:
         # This should not happen with Literal type, but handle defensively
