@@ -29,6 +29,7 @@ Phase 4: Consensus Loop
 import asyncio
 import contextlib
 import logging
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,6 +44,7 @@ from ulid import ULID
 
 from debate_hall_mcp.config import RoleConfig, TierConfig
 from debate_hall_mcp.consensus import parse_consensus_response
+from debate_hall_mcp.engine import DebateEngine, TerminationReason, is_debate_exhausted
 from debate_hall_mcp.events import EventType, append_event, build_turn_added_payload
 from debate_hall_mcp.prompts import (
     RACI_ACCOUNTABLE_PROMPT,
@@ -237,12 +239,17 @@ class DebateOrchestrator:
             if not fallback.enabled:
                 raise
             primary_model = role_config.model or role_config.cli or role_config.provider
+            failure = "timeout" if isinstance(primary_error, TimeoutError) else "provider_error"
+            # CREDENTIAL_HYGIENE: never log or store raw provider messages - CLI stderr
+            # and HTTP bodies can echo API keys/tokens. Category + class names only.
             logger.warning(
-                "%s primary provider %s failed (%s: %s); retrying once on fallback %s",
+                "%s primary %s/%s failed (%s: %s); retrying once on fallback %s/%s",
                 role,
+                role_config.provider,
                 primary_model,
+                failure,
                 type(primary_error).__name__,
-                primary_error,
+                fallback.provider,
                 fallback.model,
             )
             fallback_timeout = self._get_fallback_timeout()
@@ -266,17 +273,16 @@ class DebateOrchestrator:
                 )
             except Exception as fallback_error:
                 raise ProviderFallbackError(
-                    f"{role}: primary {primary_model} failed "
-                    f"({type(primary_error).__name__}); fallback {fallback.model} failed "
-                    f"({type(fallback_error).__name__}: {fallback_error})"
+                    f"{role}: primary {role_config.provider}/{primary_model} failed "
+                    f"({failure}: {type(primary_error).__name__}); fallback "
+                    f"{fallback.provider}/{fallback.model} failed "
+                    f"({type(fallback_error).__name__})"
                 ) from fallback_error
             # M3: error type and category only - raw messages may contain secrets.
             record: dict[str, Any] = {
                 "primary_provider": role_config.provider,
                 "primary_model": primary_model,
-                "failure": (
-                    "timeout" if isinstance(primary_error, TimeoutError) else "provider_error"
-                ),
+                "failure": failure,
                 "error_type": type(primary_error).__name__,
                 "fallback_provider": fallback.provider,
                 "fallback_model": fallback.model,
@@ -633,7 +639,8 @@ class DebateOrchestrator:
 
         Returns:
             Tuple of (final_status, final_turn_count, final_synthesis, consensus_metadata)
-            where status is "synthesis" or "stalemate"
+            where status is "synthesis", "stalemate" (max_refinement_loops exceeded) or
+            "exhaustion" (room turn budget spent before a refinement could run)
         """
         max_refinement_loops = self.tier_config.settings.max_refinement_loops
         timeout = self._get_provider_timeout()
@@ -642,6 +649,8 @@ class DebateOrchestrator:
         # Track vote states for ConsensusMetadata
         final_wind_approved: bool | None = None
         final_wall_approved: bool | None = None
+        # I3: a refinement needs a Door turn; stop when the room has no turn left
+        budget_exhausted = False
 
         while refinement_count <= max_refinement_loops:
             # Wind approval
@@ -675,6 +684,9 @@ class DebateOrchestrator:
                 # Reset Wall vote since we're starting a new consensus round
                 final_wall_approved = None
                 if refinement_count > max_refinement_loops:
+                    break
+                if self._turn_budget_exhausted(thread_id):
+                    budget_exhausted = True
                     break
 
                 # Door refines based on Wind's feedback
@@ -718,6 +730,9 @@ class DebateOrchestrator:
                 refinement_count += 1
                 if refinement_count > max_refinement_loops:
                     break
+                if self._turn_budget_exhausted(thread_id):
+                    budget_exhausted = True
+                    break
 
                 # Door refines based on Wall's feedback
                 refinement_prompt = self._create_refinement_prompt(
@@ -747,7 +762,56 @@ class DebateOrchestrator:
 
         if max_reached:
             return ("stalemate", turn_count, current_synthesis, consensus_metadata)
+        if budget_exhausted:
+            return ("exhaustion", turn_count, current_synthesis, consensus_metadata)
         return ("synthesis", turn_count, current_synthesis, consensus_metadata)
+
+    def _turn_budget_exhausted(self, thread_id: str) -> bool:
+        """True when the room cannot accept another turn (engine's I3 limits)."""
+        return is_debate_exhausted(load_debate_state(thread_id, self.state_dir))
+
+    def _close_without_consensus(
+        self,
+        thread_id: str,
+        topic: str,
+        status: str,
+        synthesis: str,
+        turn_count: int,
+        consensus_metadata: ConsensusMetadata | None,
+    ) -> DebateResult:
+        """Close a debate whose consensus loop ended without agreement.
+
+        - stalemate:  max_refinement_loops exceeded (existing debate_close path)
+        - exhaustion: room turn budget spent before another refinement could run;
+          closed via the engine's existing TerminationReason.EXHAUSTION (I3)
+        """
+        room = load_debate_state(thread_id, self.state_dir)
+        room.consensus_metadata = consensus_metadata
+        if status == "exhaustion":
+            DebateEngine(room).close_debate(TerminationReason.EXHAUSTION, synthesis=synthesis)
+            save_debate_state(room, self.state_dir)
+        else:
+            save_debate_state(room, self.state_dir)
+            debate_close(
+                thread_id=thread_id,
+                synthesis=synthesis,
+                status="stalemate",
+                state_dir=self.state_dir,
+                output_format="json",
+            )
+        append_event(
+            thread_id=thread_id,
+            event_type=EventType.DEBATE_CLOSED,
+            payload={"status": status, "synthesis_preview": synthesis[:100]},
+            state_dir=self.state_dir,
+        )
+        return DebateResult(
+            thread_id=thread_id,
+            topic=topic,
+            status=status,
+            turn_count=turn_count,
+            synthesis=synthesis,
+        )
 
     async def run(self, topic: str, thread_id: str | None = None) -> DebateResult:
         """Run a complete debate orchestration.
@@ -785,6 +849,7 @@ class DebateOrchestrator:
         # Track if debate was initialized (for M2: PAUSED on failure)
         debate_initialized = False
         timeout = self._get_provider_timeout()
+        max_turns = self.tier_config.settings.max_turns
 
         try:
             # 1. Initialize debate (use mediated mode for orchestrator control of turn sequence)
@@ -793,7 +858,10 @@ class DebateOrchestrator:
                 thread_id=thread_id,
                 topic=topic,
                 mode="mediated",
-                max_turns=self.tier_config.settings.max_turns,
+                max_turns=max_turns,
+                # The engine exhausts at turns//3 >= max_rounds; derive rounds so they
+                # never bind below the tier's max_turns (TierSettings has no max_rounds).
+                max_rounds=math.ceil(max_turns / 3),
                 state_dir=self.state_dir,
             )
             debate_initialized = True
@@ -852,35 +920,15 @@ class DebateOrchestrator:
                     door_provider=door_provider,
                 )
 
-                # Handle stalemate from consensus loop
-                if final_status == "stalemate":
-                    # Set consensus_metadata on room before closing
-                    room = load_debate_state(thread_id, self.state_dir)
-                    room.consensus_metadata = consensus_metadata
-                    save_debate_state(room, self.state_dir)
-
-                    debate_close(
-                        thread_id=thread_id,
-                        synthesis=current_synthesis,
-                        status="stalemate",
-                        state_dir=self.state_dir,
-                        output_format="json",
-                    )
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.DEBATE_CLOSED,
-                        payload={
-                            "status": "stalemate",
-                            "synthesis_preview": current_synthesis[:100],
-                        },
-                        state_dir=self.state_dir,
-                    )
-                    return DebateResult(
-                        thread_id=thread_id,
-                        topic=topic,
-                        status="stalemate",
-                        turn_count=turn_count,
-                        synthesis=current_synthesis,
+                # Stalemate (loops exceeded) or exhaustion (turn budget spent)
+                if final_status != "synthesis":
+                    return self._close_without_consensus(
+                        thread_id,
+                        topic,
+                        final_status,
+                        current_synthesis,
+                        turn_count,
+                        consensus_metadata,
                     )
 
             # 7. Set consensus_metadata on room before closing (if consensus was executed)
@@ -1049,35 +1097,15 @@ class DebateOrchestrator:
                     initial_refinement_count=initial_refinement_count,
                 )
 
-                # Handle stalemate from consensus loop
-                if final_status == "stalemate":
-                    # Set consensus_metadata on room before closing
-                    room = load_debate_state(thread_id, self.state_dir)
-                    room.consensus_metadata = consensus_metadata
-                    save_debate_state(room, self.state_dir)
-
-                    debate_close(
-                        thread_id=thread_id,
-                        synthesis=current_synthesis,
-                        status="stalemate",
-                        state_dir=self.state_dir,
-                        output_format="json",
-                    )
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.DEBATE_CLOSED,
-                        payload={
-                            "status": "stalemate",
-                            "synthesis_preview": current_synthesis[:100],
-                        },
-                        state_dir=self.state_dir,
-                    )
-                    return DebateResult(
-                        thread_id=thread_id,
-                        topic=topic,
-                        status="stalemate",
-                        turn_count=turn_count,
-                        synthesis=current_synthesis,
+                # Stalemate (loops exceeded) or exhaustion (turn budget spent)
+                if final_status != "synthesis":
+                    return self._close_without_consensus(
+                        thread_id,
+                        topic,
+                        final_status,
+                        current_synthesis,
+                        turn_count,
+                        consensus_metadata,
                     )
 
             # Set consensus_metadata on room before closing (if consensus was executed)
