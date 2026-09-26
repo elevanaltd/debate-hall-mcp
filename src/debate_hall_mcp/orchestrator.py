@@ -43,6 +43,7 @@ from ulid import ULID
 
 from debate_hall_mcp.config import RoleConfig, TierConfig
 from debate_hall_mcp.consensus import parse_consensus_response
+from debate_hall_mcp.engine import DebateEngine, TerminationReason, is_debate_exhausted
 from debate_hall_mcp.events import EventType, append_event, build_turn_added_payload
 from debate_hall_mcp.prompts import (
     RACI_ACCOUNTABLE_PROMPT,
@@ -66,6 +67,8 @@ from debate_hall_mcp.prompts import (
 )
 from debate_hall_mcp.prompts.loader import get_agent_prompt, get_prompt
 from debate_hall_mcp.providers import ModelProvider, ProviderResponse, create_provider
+from debate_hall_mcp.providers.cli import CliProviderError
+from debate_hall_mcp.providers.openrouter import OpenRouterApiError, OpenRouterConfigError
 from debate_hall_mcp.state import (
     ConsensusMetadata,
     DebateStatus,
@@ -86,6 +89,26 @@ DEFAULT_PROVIDER_TIMEOUT = 300
 
 # Type alias for provider factory function (injectable for testing)
 ProviderFactory = Callable[[RoleConfig], ModelProvider]
+
+# Transport/provider failures that trigger settings.fallback. Programming errors
+# (TypeError, ValueError, ...) are deliberately excluded: they would fail the
+# same way on the fallback model and must surface unchanged. Consensus-vote
+# PARSING failures never raise (they fail safe to REJECT) so never reach here.
+PROVIDER_FAILURES: tuple[type[Exception], ...] = (
+    TimeoutError,
+    OpenRouterApiError,
+    OpenRouterConfigError,
+    CliProviderError,
+)
+
+
+class ProviderFallbackError(Exception):
+    """Raised when a primary provider call failed and the single fallback attempt also failed."""
+
+
+def _fallback_extra(record: dict[str, Any] | None) -> dict[str, Any]:
+    """Event payload fields recording fallback use (empty when the primary succeeded)."""
+    return {"fallback": record} if record is not None else {}
 
 
 class DebateResult(BaseModel):
@@ -155,6 +178,120 @@ class DebateOrchestrator:
         if provider_timeout is not None and isinstance(provider_timeout, int):
             return int(provider_timeout)  # Explicit cast for mypy
         return DEFAULT_PROVIDER_TIMEOUT
+
+    @staticmethod
+    def _resolve_timeout(role_config: RoleConfig, default_timeout: float) -> float:
+        """Resolve the effective timeout for a role's provider call.
+
+        Precedence (single source of truth for primary calls):
+        1. RoleConfig.timeout            - role-level override, if set
+        2. settings.provider_timeout     - tier default (passed in as default_timeout)
+        3. DEFAULT_PROVIDER_TIMEOUT      - only when settings carry no value
+
+        The same value bounds the call twice: as the orchestrator's outer
+        asyncio.wait_for (total wall-clock) and as the provider's own transport
+        timeout (e.g. OpenRouter HTTP read timeout), so neither layer silently
+        overrides the other. Fallback calls use settings.fallback.timeout instead.
+        """
+        return role_config.timeout if role_config.timeout is not None else default_timeout
+
+    def _get_fallback_timeout(self) -> float:
+        """Timeout for the single fallback attempt (settings.fallback.timeout)."""
+        return self.tier_config.settings.fallback.timeout
+
+    def _create_provider(self, role_config: RoleConfig, default_timeout: float) -> ModelProvider:
+        """Create a provider whose transport timeout matches the effective timeout."""
+        effective = self._resolve_timeout(role_config, default_timeout)
+        return self._provider_factory(role_config.model_copy(update={"timeout": effective}))
+
+    async def _complete_with_fallback(
+        self,
+        role: str,
+        role_config: RoleConfig,
+        provider: ModelProvider,
+        system_prompt: str,
+        user_prompt: str,
+        default_timeout: float,
+    ) -> tuple[ProviderResponse, dict[str, Any] | None]:
+        """Call the role's provider; on transport failure retry ONCE on the fallback.
+
+        Returns the response plus a fallback audit record (None if the primary
+        succeeded). The record is attached to the turn/vote event so the ledger
+        shows which primary failed, why, and which model replaced it (I4).
+
+        Raises:
+            The primary error unchanged if fallback is disabled or the error is
+            not a PROVIDER_FAILURES type; ProviderFallbackError if the fallback
+            attempt also fails. Either way the caller's handler PAUSES the debate.
+        """
+        # Critical-Engineer: consulted for provider fallback, timeout, and finite-closure validation
+        # Finite closure (I3): exactly one primary attempt and at most one fallback
+        # attempt per call - no loop, no recursion, no fallback-of-fallback.
+        try:
+            response: ProviderResponse = await asyncio.wait_for(
+                provider.complete(system_prompt=system_prompt, user_prompt=user_prompt),
+                timeout=self._resolve_timeout(role_config, default_timeout),
+            )
+            return response, None
+        except PROVIDER_FAILURES as primary_error:
+            fallback = self.tier_config.settings.fallback
+            if not fallback.enabled:
+                raise
+            primary_model = role_config.model or role_config.cli or role_config.provider
+            failure = "timeout" if isinstance(primary_error, TimeoutError) else "provider_error"
+            # CREDENTIAL_HYGIENE: never log or store raw provider messages - CLI stderr
+            # and HTTP bodies can echo API keys/tokens. Category + class names only.
+            logger.warning(
+                "%s primary %s/%s failed (%s: %s); retrying once on fallback %s/%s",
+                role,
+                role_config.provider,
+                primary_model,
+                failure,
+                type(primary_error).__name__,
+                fallback.provider,
+                fallback.model,
+            )
+            fallback_timeout = self._get_fallback_timeout()
+            # Same role identity (role/prompt_file/cli) - only provider and model change.
+            # A 'cli' fallback reuses the role's own CLI with the fallback model; if the
+            # role has no CLI the factory raises and the debate PAUSES (no schema change).
+            fallback_config = role_config.model_copy(
+                update={
+                    "provider": fallback.provider,
+                    "model": fallback.model,
+                    "timeout": fallback_timeout,
+                }
+            )
+            try:
+                fallback_provider = self._provider_factory(fallback_config)
+                response = await asyncio.wait_for(
+                    fallback_provider.complete(
+                        system_prompt=system_prompt, user_prompt=user_prompt
+                    ),
+                    timeout=fallback_timeout,
+                )
+            except Exception as fallback_error:
+                raise ProviderFallbackError(
+                    f"{role}: primary {role_config.provider}/{primary_model} failed "
+                    f"({failure}: {type(primary_error).__name__}); fallback "
+                    f"{fallback.provider}/{fallback.model} failed "
+                    f"({type(fallback_error).__name__})"
+                ) from fallback_error
+            # M3: error type and category only - raw messages may contain secrets.
+            record: dict[str, Any] = {
+                "primary_provider": role_config.provider,
+                "primary_model": primary_model,
+                "failure": failure,
+                "error_type": type(primary_error).__name__,
+                "fallback_provider": fallback.provider,
+                "fallback_model": fallback.model,
+            }
+            return response, record
+
+    def _role_config(self, role: str) -> RoleConfig:
+        """RoleConfig for a Wind/Wall/Door role name."""
+        config: RoleConfig = getattr(self.tier_config, role.lower())
+        return config
 
     def _get_prompt(self, role: str) -> str:
         """Get prompt for a role, with layered resolution.
@@ -391,7 +528,8 @@ class DebateOrchestrator:
             provider: The provider instance for this role
             thread_id: Thread ID for the debate
             user_prompt: The formatted user prompt to send
-            timeout: Provider timeout in seconds
+            timeout: Tier default timeout (settings.provider_timeout); a role-level
+                RoleConfig.timeout overrides it inside _complete_with_fallback
 
         Returns:
             ProviderResponse from the provider
@@ -428,13 +566,14 @@ class DebateOrchestrator:
             enhanced_prompt += f"{self._context_block}\n\n"
         enhanced_prompt += f"{state_block}\n\n{user_prompt}"
 
-        # Call provider with timeout (M1: CE Review mitigation)
-        response: ProviderResponse = await asyncio.wait_for(
-            provider.complete(
-                system_prompt=self._get_prompt(role.lower()),
-                user_prompt=enhanced_prompt,
-            ),
-            timeout=timeout,
+        # Call provider with timeout (M1) and single tier fallback on transport failure
+        response, fallback_record = await self._complete_with_fallback(
+            role,
+            self._role_config(role),
+            provider,
+            system_prompt=self._get_prompt(role.lower()),
+            user_prompt=enhanced_prompt,
+            default_timeout=timeout,
         )
 
         # Record the debate turn
@@ -460,6 +599,7 @@ class DebateOrchestrator:
                 content_hash=turn_result["turn_hash"],
                 tokens_in=response.token_input,
                 tokens_out=response.token_output,
+                **_fallback_extra(fallback_record),
             ),
             state_dir=self.state_dir,
         )
@@ -498,7 +638,8 @@ class DebateOrchestrator:
 
         Returns:
             Tuple of (final_status, final_turn_count, final_synthesis, consensus_metadata)
-            where status is "synthesis" or "stalemate"
+            where status is "synthesis", "stalemate" (max_refinement_loops exceeded) or
+            "exhaustion" (room turn budget spent before a refinement could run)
         """
         max_refinement_loops = self.tier_config.settings.max_refinement_loops
         timeout = self._get_provider_timeout()
@@ -507,16 +648,19 @@ class DebateOrchestrator:
         # Track vote states for ConsensusMetadata
         final_wind_approved: bool | None = None
         final_wall_approved: bool | None = None
+        # I3: a refinement needs a Door turn; stop when the room has no turn left
+        budget_exhausted = False
 
         while refinement_count <= max_refinement_loops:
             # Wind approval
             wind_approval_prompt = format_wind_approval_prompt(topic, thread_id)
-            wind_approval_response: ProviderResponse = await asyncio.wait_for(
-                wind_provider.complete(
-                    system_prompt=self._get_prompt("wind"),
-                    user_prompt=wind_approval_prompt,
-                ),
-                timeout=timeout,
+            wind_approval_response, wind_fallback = await self._complete_with_fallback(
+                "Wind",
+                self.tier_config.wind,
+                wind_provider,
+                system_prompt=self._get_prompt("wind"),
+                user_prompt=wind_approval_prompt,
+                default_timeout=timeout,
             )
             wind_vote = parse_consensus_response(wind_approval_response.content)
             final_wind_approved = wind_vote.approved
@@ -525,7 +669,11 @@ class DebateOrchestrator:
             append_event(
                 thread_id=thread_id,
                 event_type=EventType.CONSENSUS_VOTE,
-                payload={"role": "Wind", "approved": wind_vote.approved},
+                payload={
+                    "role": "Wind",
+                    "approved": wind_vote.approved,
+                    **_fallback_extra(wind_fallback),
+                },
                 state_dir=self.state_dir,
             )
 
@@ -535,6 +683,9 @@ class DebateOrchestrator:
                 # Reset Wall vote since we're starting a new consensus round
                 final_wall_approved = None
                 if refinement_count > max_refinement_loops:
+                    break
+                if self._turn_budget_exhausted(thread_id):
+                    budget_exhausted = True
                     break
 
                 # Door refines based on Wind's feedback
@@ -550,12 +701,13 @@ class DebateOrchestrator:
 
             # Wall approval (only if Wind approved)
             wall_approval_prompt = format_wall_approval_prompt(topic, thread_id)
-            wall_approval_response: ProviderResponse = await asyncio.wait_for(
-                wall_provider.complete(
-                    system_prompt=self._get_prompt("wall"),
-                    user_prompt=wall_approval_prompt,
-                ),
-                timeout=timeout,
+            wall_approval_response, wall_fallback = await self._complete_with_fallback(
+                "Wall",
+                self.tier_config.wall,
+                wall_provider,
+                system_prompt=self._get_prompt("wall"),
+                user_prompt=wall_approval_prompt,
+                default_timeout=timeout,
             )
             wall_vote = parse_consensus_response(wall_approval_response.content)
             final_wall_approved = wall_vote.approved
@@ -564,7 +716,11 @@ class DebateOrchestrator:
             append_event(
                 thread_id=thread_id,
                 event_type=EventType.CONSENSUS_VOTE,
-                payload={"role": "Wall", "approved": wall_vote.approved},
+                payload={
+                    "role": "Wall",
+                    "approved": wall_vote.approved,
+                    **_fallback_extra(wall_fallback),
+                },
                 state_dir=self.state_dir,
             )
 
@@ -572,6 +728,9 @@ class DebateOrchestrator:
             if not wall_vote.approved:
                 refinement_count += 1
                 if refinement_count > max_refinement_loops:
+                    break
+                if self._turn_budget_exhausted(thread_id):
+                    budget_exhausted = True
                     break
 
                 # Door refines based on Wall's feedback
@@ -602,7 +761,60 @@ class DebateOrchestrator:
 
         if max_reached:
             return ("stalemate", turn_count, current_synthesis, consensus_metadata)
+        if budget_exhausted:
+            return ("exhaustion", turn_count, current_synthesis, consensus_metadata)
         return ("synthesis", turn_count, current_synthesis, consensus_metadata)
+
+    def _turn_budget_exhausted(self, thread_id: str) -> bool:
+        """True when the room cannot accept another turn (engine's I3 limits)."""
+        return is_debate_exhausted(load_debate_state(thread_id, self.state_dir))
+
+    def _close_without_consensus(
+        self,
+        thread_id: str,
+        topic: str,
+        status: str,
+        synthesis: str,
+        turn_count: int,
+        consensus_metadata: ConsensusMetadata | None,
+    ) -> DebateResult:
+        """Close a debate whose consensus loop ended without agreement.
+
+        - stalemate:  max_refinement_loops exceeded (existing debate_close path)
+        - exhaustion: room turn budget spent before another refinement could run;
+          closed via the engine's existing TerminationReason.EXHAUSTION (I3)
+        """
+        # Same guard as debate_close() so both non-consensus paths validate identically:
+        # a blank synthesis raises (caller PAUSES) instead of closing silently.
+        if not synthesis or not synthesis.strip():
+            raise ValueError("Synthesis required for debate close")
+        room = load_debate_state(thread_id, self.state_dir)
+        room.consensus_metadata = consensus_metadata
+        if status == "exhaustion":
+            DebateEngine(room).close_debate(TerminationReason.EXHAUSTION, synthesis=synthesis)
+            save_debate_state(room, self.state_dir)
+        else:
+            save_debate_state(room, self.state_dir)
+            debate_close(
+                thread_id=thread_id,
+                synthesis=synthesis,
+                status="stalemate",
+                state_dir=self.state_dir,
+                output_format="json",
+            )
+        append_event(
+            thread_id=thread_id,
+            event_type=EventType.DEBATE_CLOSED,
+            payload={"status": status, "synthesis_preview": synthesis[:100]},
+            state_dir=self.state_dir,
+        )
+        return DebateResult(
+            thread_id=thread_id,
+            topic=topic,
+            status=status,
+            turn_count=turn_count,
+            synthesis=synthesis,
+        )
 
     async def run(self, topic: str, thread_id: str | None = None) -> DebateResult:
         """Run a complete debate orchestration.
@@ -640,6 +852,7 @@ class DebateOrchestrator:
         # Track if debate was initialized (for M2: PAUSED on failure)
         debate_initialized = False
         timeout = self._get_provider_timeout()
+        max_turns = self.tier_config.settings.max_turns
 
         try:
             # 1. Initialize debate (use mediated mode for orchestrator control of turn sequence)
@@ -648,6 +861,10 @@ class DebateOrchestrator:
                 thread_id=thread_id,
                 topic=topic,
                 mode="mediated",
+                max_turns=max_turns,
+                # The engine exhausts at turns//3 >= max_rounds; derive rounds so they
+                # never bind below the tier's max_turns (TierSettings has no max_rounds).
+                max_rounds=(max_turns + 2) // 3,  # exact integer ceil(max_turns / 3)
                 state_dir=self.state_dir,
             )
             debate_initialized = True
@@ -661,9 +878,9 @@ class DebateOrchestrator:
             )
 
             # 2. Create providers
-            wind_provider = self._provider_factory(self.tier_config.wind)
-            wall_provider = self._provider_factory(self.tier_config.wall)
-            door_provider = self._provider_factory(self.tier_config.door)
+            wind_provider = self._create_provider(self.tier_config.wind, timeout)
+            wall_provider = self._create_provider(self.tier_config.wall, timeout)
+            door_provider = self._create_provider(self.tier_config.door, timeout)
 
             # 3. Wind turn (PATHOS - Ideation)
             wind_user_prompt = format_wind_user_prompt(topic, thread_id)
@@ -706,35 +923,15 @@ class DebateOrchestrator:
                     door_provider=door_provider,
                 )
 
-                # Handle stalemate from consensus loop
-                if final_status == "stalemate":
-                    # Set consensus_metadata on room before closing
-                    room = load_debate_state(thread_id, self.state_dir)
-                    room.consensus_metadata = consensus_metadata
-                    save_debate_state(room, self.state_dir)
-
-                    debate_close(
-                        thread_id=thread_id,
-                        synthesis=current_synthesis,
-                        status="stalemate",
-                        state_dir=self.state_dir,
-                        output_format="json",
-                    )
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.DEBATE_CLOSED,
-                        payload={
-                            "status": "stalemate",
-                            "synthesis_preview": current_synthesis[:100],
-                        },
-                        state_dir=self.state_dir,
-                    )
-                    return DebateResult(
-                        thread_id=thread_id,
-                        topic=topic,
-                        status="stalemate",
-                        turn_count=turn_count,
-                        synthesis=current_synthesis,
+                # Stalemate (loops exceeded) or exhaustion (turn budget spent)
+                if final_status != "synthesis":
+                    return self._close_without_consensus(
+                        thread_id,
+                        topic,
+                        final_status,
+                        current_synthesis,
+                        turn_count,
+                        consensus_metadata,
                     )
 
             # 7. Set consensus_metadata on room before closing (if consensus was executed)
@@ -842,9 +1039,9 @@ class DebateOrchestrator:
 
         try:
             # Create providers
-            wind_provider = self._provider_factory(self.tier_config.wind)
-            wall_provider = self._provider_factory(self.tier_config.wall)
-            door_provider = self._provider_factory(self.tier_config.door)
+            wind_provider = self._create_provider(self.tier_config.wind, timeout)
+            wall_provider = self._create_provider(self.tier_config.wall, timeout)
+            door_provider = self._create_provider(self.tier_config.door, timeout)
 
             # Determine existing turns by role
             existing_roles = {t.role for t in room.turns}
@@ -903,35 +1100,15 @@ class DebateOrchestrator:
                     initial_refinement_count=initial_refinement_count,
                 )
 
-                # Handle stalemate from consensus loop
-                if final_status == "stalemate":
-                    # Set consensus_metadata on room before closing
-                    room = load_debate_state(thread_id, self.state_dir)
-                    room.consensus_metadata = consensus_metadata
-                    save_debate_state(room, self.state_dir)
-
-                    debate_close(
-                        thread_id=thread_id,
-                        synthesis=current_synthesis,
-                        status="stalemate",
-                        state_dir=self.state_dir,
-                        output_format="json",
-                    )
-                    append_event(
-                        thread_id=thread_id,
-                        event_type=EventType.DEBATE_CLOSED,
-                        payload={
-                            "status": "stalemate",
-                            "synthesis_preview": current_synthesis[:100],
-                        },
-                        state_dir=self.state_dir,
-                    )
-                    return DebateResult(
-                        thread_id=thread_id,
-                        topic=topic,
-                        status="stalemate",
-                        turn_count=turn_count,
-                        synthesis=current_synthesis,
+                # Stalemate (loops exceeded) or exhaustion (turn budget spent)
+                if final_status != "synthesis":
+                    return self._close_without_consensus(
+                        thread_id,
+                        topic,
+                        final_status,
+                        current_synthesis,
+                        turn_count,
+                        consensus_metadata,
                     )
 
             # Set consensus_metadata on room before closing (if consensus was executed)
@@ -1006,9 +1183,9 @@ class DebateOrchestrator:
 
         try:
             # Create providers
-            wind_provider = self._provider_factory(self.tier_config.wind)
-            wall_provider = self._provider_factory(self.tier_config.wall)
-            door_provider = self._provider_factory(self.tier_config.door)
+            wind_provider = self._create_provider(self.tier_config.wind, timeout)
+            wall_provider = self._create_provider(self.tier_config.wall, timeout)
+            door_provider = self._create_provider(self.tier_config.door, timeout)
 
             # Determine existing turns by role
             existing_roles = {t.role for t in room.turns}
@@ -1164,9 +1341,9 @@ class DebateOrchestrator:
             )
 
             # 2. Create providers
-            wind_provider = self._provider_factory(self.tier_config.wind)
-            wall_provider = self._provider_factory(self.tier_config.wall)
-            door_provider = self._provider_factory(self.tier_config.door)
+            wind_provider = self._create_provider(self.tier_config.wind, timeout)
+            wall_provider = self._create_provider(self.tier_config.wall, timeout)
+            door_provider = self._create_provider(self.tier_config.door, timeout)
 
             # 3. Wind turn (Responsible - Proposes)
             wind_user_prompt = format_speed_wind_user_prompt(topic, thread_id)
@@ -1251,7 +1428,8 @@ class DebateOrchestrator:
             provider: The provider instance for this role
             thread_id: Thread ID for the debate
             user_prompt: The formatted Speed user prompt to send
-            timeout: Provider timeout in seconds
+            timeout: Tier default timeout (settings.provider_timeout); a role-level
+                RoleConfig.timeout overrides it inside _complete_with_fallback
 
         Returns:
             ProviderResponse from the provider
@@ -1280,13 +1458,14 @@ class DebateOrchestrator:
             enhanced_prompt += f"{self._context_block}\n\n"
         enhanced_prompt += f"{state_block}\n\n{user_prompt}"
 
-        # Call provider with timeout
-        response: ProviderResponse = await asyncio.wait_for(
-            provider.complete(
-                system_prompt=self._get_speed_prompt(role.lower()),
-                user_prompt=enhanced_prompt,
-            ),
-            timeout=timeout,
+        # Call provider with timeout and single tier fallback on transport failure
+        response, fallback_record = await self._complete_with_fallback(
+            role,
+            self._role_config(role),
+            provider,
+            system_prompt=self._get_speed_prompt(role.lower()),
+            user_prompt=enhanced_prompt,
+            default_timeout=timeout,
         )
 
         # Record the debate turn
@@ -1313,6 +1492,7 @@ class DebateOrchestrator:
                 tokens_in=response.token_input,
                 tokens_out=response.token_output,
                 mode="speed",
+                **_fallback_extra(fallback_record),
             ),
             state_dir=self.state_dir,
         )
@@ -1424,7 +1604,8 @@ class DebateOrchestrator:
             thread_id: Thread ID for the debate
             user_prompt: The formatted RACI user prompt
             system_prompt: The RACI system prompt for this turn type
-            timeout: Provider timeout in seconds
+            timeout: Tier default timeout (settings.provider_timeout); a role-level
+                RoleConfig.timeout overrides it inside _complete_with_fallback
 
         Returns:
             ProviderResponse from the provider
@@ -1447,13 +1628,15 @@ class DebateOrchestrator:
             enhanced_prompt += f"{self._context_block}\n\n"
         enhanced_prompt += f"{state_block}\n\n{user_prompt}"
 
-        # Call provider with timeout
-        response: ProviderResponse = await asyncio.wait_for(
-            provider.complete(
-                system_prompt=system_prompt,
-                user_prompt=enhanced_prompt,
-            ),
-            timeout=timeout,
+        # Call provider with timeout and single tier fallback on transport failure.
+        # RACI builds its single provider from the Wind role config.
+        response, fallback_record = await self._complete_with_fallback(
+            role,
+            self.tier_config.wind,
+            provider,
+            system_prompt=system_prompt,
+            user_prompt=enhanced_prompt,
+            default_timeout=timeout,
         )
 
         # Record the debate turn (use role name as the turn role)
@@ -1479,6 +1662,7 @@ class DebateOrchestrator:
                 tokens_in=response.token_input,
                 tokens_out=response.token_output,
                 mode="raci",
+                **_fallback_extra(fallback_record),
             ),
             state_dir=self.state_dir,
         )
@@ -1567,7 +1751,7 @@ class DebateOrchestrator:
 
             # 2. Create a single provider (RACI uses one provider for all roles)
             # Use the wind provider as the default for all RACI roles
-            provider = self._provider_factory(self.tier_config.wind)
+            provider = self._create_provider(self.tier_config.wind, timeout)
 
             # 3. Execute each turn in manifest sequence
             last_response: ProviderResponse | None = None
@@ -1741,7 +1925,7 @@ class DebateOrchestrator:
 
         try:
             # Create provider
-            provider = self._provider_factory(self.tier_config.wind)
+            provider = self._create_provider(self.tier_config.wind, timeout)
 
             # Execute remaining turns from manifest
             last_response: ProviderResponse | None = None

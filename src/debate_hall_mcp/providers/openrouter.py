@@ -24,7 +24,7 @@ from debate_hall_mcp.providers import ProviderResponse
 
 # Default timeout values (seconds)
 DEFAULT_CONNECT_TIMEOUT = 10  # Connection establishment timeout
-DEFAULT_READ_TIMEOUT = 120  # Response read timeout (model completion)
+DEFAULT_READ_TIMEOUT = 120  # Response read timeout when none is configured
 
 # Retry configuration
 MAX_RETRIES = 3  # Maximum number of retry attempts
@@ -55,16 +55,21 @@ class OpenRouterProvider:
     Attributes:
         model: Default model identifier to use
         api_url: OpenRouter API endpoint URL
+        read_timeout: HTTP read timeout in seconds (model completion)
     """
 
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, timeout: float | None = None) -> None:
         """Initialize OpenRouterProvider.
 
         Args:
             model: Model identifier (e.g., "anthropic/claude-3-opus")
+            timeout: HTTP read timeout in seconds. The orchestrator passes the
+                effective tier/role timeout here so the transport honours the
+                configured value; DEFAULT_READ_TIMEOUT applies only when None.
         """
         self.model = model
         self.api_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.read_timeout: float = timeout if timeout is not None else DEFAULT_READ_TIMEOUT
 
     def _get_api_key(self) -> str:
         """Get API key from environment.
@@ -156,7 +161,7 @@ class OpenRouterProvider:
         # Configure timeout with explicit connect and read timeouts
         timeout = httpx.Timeout(
             connect=DEFAULT_CONNECT_TIMEOUT,
-            read=DEFAULT_READ_TIMEOUT,
+            read=self.read_timeout,
             write=DEFAULT_CONNECT_TIMEOUT,
             pool=DEFAULT_CONNECT_TIMEOUT,
         )
@@ -188,7 +193,7 @@ class OpenRouterProvider:
                 except httpx.TimeoutException as e:
                     raise OpenRouterApiError(
                         f"OpenRouter request timed out after "
-                        f"{DEFAULT_CONNECT_TIMEOUT}s connect/{DEFAULT_READ_TIMEOUT}s read"
+                        f"{DEFAULT_CONNECT_TIMEOUT}s connect/{self.read_timeout}s read"
                     ) from e
 
                 except httpx.HTTPStatusError as e:
