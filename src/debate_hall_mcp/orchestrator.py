@@ -247,6 +247,8 @@ class DebateOrchestrator:
             )
             fallback_timeout = self._get_fallback_timeout()
             # Same role identity (role/prompt_file/cli) - only provider and model change.
+            # A 'cli' fallback reuses the role's own CLI with the fallback model; if the
+            # role has no CLI the factory raises and the debate PAUSES (no schema change).
             fallback_config = role_config.model_copy(
                 update={
                     "provider": fallback.provider,
@@ -521,7 +523,8 @@ class DebateOrchestrator:
             provider: The provider instance for this role
             thread_id: Thread ID for the debate
             user_prompt: The formatted user prompt to send
-            timeout: Provider timeout in seconds
+            timeout: Tier default timeout (settings.provider_timeout); a role-level
+                RoleConfig.timeout overrides it inside _complete_with_fallback
 
         Returns:
             ProviderResponse from the provider
@@ -1394,7 +1397,8 @@ class DebateOrchestrator:
             provider: The provider instance for this role
             thread_id: Thread ID for the debate
             user_prompt: The formatted Speed user prompt to send
-            timeout: Provider timeout in seconds
+            timeout: Tier default timeout (settings.provider_timeout); a role-level
+                RoleConfig.timeout overrides it inside _complete_with_fallback
 
         Returns:
             ProviderResponse from the provider
@@ -1569,7 +1573,8 @@ class DebateOrchestrator:
             thread_id: Thread ID for the debate
             user_prompt: The formatted RACI user prompt
             system_prompt: The RACI system prompt for this turn type
-            timeout: Provider timeout in seconds
+            timeout: Tier default timeout (settings.provider_timeout); a role-level
+                RoleConfig.timeout overrides it inside _complete_with_fallback
 
         Returns:
             ProviderResponse from the provider
