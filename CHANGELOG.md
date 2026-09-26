@@ -7,6 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+- Tier runtime settings are now honoured by the orchestrator (previously declared in tier YAML but ignored):
+  - `settings.fallback` is executed: when enabled, a role turn or consensus vote whose primary provider fails with a provider/API error (e.g. OpenRouter 404 model-not-found) or times out is retried **once** on the fallback provider/model with `fallback.timeout`, keeping the role's prompts. The turn's `model` records the fallback model and the `TURN_ADDED` / `CONSENSUS_VOTE` event carries a `fallback` record (primary model, failure category, error type, fallback model). If the fallback also fails the debate is PAUSED with `ProviderFallbackError`. Consensus-parsing failures still fail safe to REJECT and never trigger fallback.
+  - Timeout precedence is `RoleConfig.timeout` > `settings.provider_timeout`, applied both to the orchestrator's outer bound and to the provider transport. OpenRouter's HTTP read timeout now honours the effective value instead of a hard-coded 120s (120s remains the default when nothing is configured).
+  - `settings.max_turns` is passed to `debate_init` for standard `run_debate` with `max_rounds = ceil(max_turns / 3)`, so the tier's `max_turns` is the effective ceiling (previously capped at 12 by the default `max_rounds=4`).
+  - Consensus refinements stop when the room's turn budget is spent: the debate closes with status `exhaustion` instead of raising and PAUSING (which made `resume_debate` hit the same cap indefinitely).
+  - Fallback logs and `ProviderFallbackError` messages carry only role, provider/model, failure category and error class names — never raw provider messages, which can echo credentials.
+
 ## [0.5.0] - 2026-09-26
 
 ### Added
