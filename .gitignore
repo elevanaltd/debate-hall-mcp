@@ -19,7 +19,7 @@
 # Working State (symlinked to .hestai-state/, shared across worktrees)
 .hestai/state
 .hestai/state/
-.hestai-state/
+.hestai-state
 .hestai/state/sessions/**/*.jsonl
 
 # Raw debate transcripts (OCTAVE compressed versions are committed)
