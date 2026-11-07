@@ -214,6 +214,25 @@ class TestRoleTurnFallback:
         record = _turn_events(thread_id, state_dir, "Wind")[0].payload["fallback"]
         assert record["error_type"] == "CliProviderError"
 
+    @pytest.mark.anyio
+    async def test_missing_cli_binary_invokes_fallback(self, state_dir: Path) -> None:
+        """Issue #239: CliProvider encountering FileNotFoundError raises CliProviderError and triggers fallback."""
+        from debate_hall_mcp.providers.cli import CliProvider
+
+        thread_id = "2026-09-26-fallback-missing-cli"
+        factory = RoutingFactory()
+        factory.primary["Wind"] = CliProvider(cli_name="claude")
+
+        orchestrator = DebateOrchestrator(_tier_config(), state_dir, provider_factory=factory)
+        with patch(
+            "asyncio.create_subprocess_exec", side_effect=FileNotFoundError("Executable not found")
+        ):
+            result = await orchestrator.run(topic="Missing CLI binary", thread_id=thread_id)
+
+        assert result.status == "synthesis"
+        record = _turn_events(thread_id, state_dir, "Wind")[0].payload["fallback"]
+        assert record["error_type"] == "CliProviderError"
+
 
 # ---------------------------------------------------------------------------
 # (b) Consensus votes: primary API error -> fallback

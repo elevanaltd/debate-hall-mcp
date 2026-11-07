@@ -166,11 +166,16 @@ class CliProvider:
         cmd = self._build_command(system_prompt, user_prompt, model)
 
         # Execute CLI command
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as e:
+            raise CliProviderError(f"CLI executable '{cmd[0]}' not found") from e
+        except PermissionError as e:
+            raise CliProviderError(f"CLI executable '{cmd[0]}' is not executable") from e
 
         # Timeout for graceful shutdown after SIGTERM
         graceful_timeout = 5
