@@ -559,3 +559,67 @@ class TestCliProviderProcessLookupError:
 
             # kill() was attempted in finally block
             mock_process.kill.assert_called()
+
+
+class TestCliProviderSpawnErrors:
+    """Test handling when CLI executable fails to spawn."""
+
+    @pytest.mark.asyncio
+    async def test_missing_binary_raises_cli_provider_error(self) -> None:
+        """Missing CLI executable should raise CliProviderError (issue #239)."""
+        from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
+
+        provider = CliProvider(cli_name="claude")
+
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=FileNotFoundError(2, "No such file or directory"),
+            ),
+            pytest.raises(CliProviderError, match=r"CLI executable 'claude' not found"),
+        ):
+            await provider.complete(
+                system_prompt="System",
+                user_prompt="User",
+            )
+
+    @pytest.mark.asyncio
+    async def test_unexecutable_binary_raises_cli_provider_error(self) -> None:
+        """CLI executable without execute permissions should raise CliProviderError."""
+        from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
+
+        provider = CliProvider(cli_name="claude")
+
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=PermissionError(13, "Permission denied"),
+            ),
+            pytest.raises(CliProviderError, match=r"CLI executable 'claude' is not executable"),
+        ):
+            await provider.complete(
+                system_prompt="System",
+                user_prompt="User",
+            )
+
+    @pytest.mark.asyncio
+    async def test_invalid_executable_format_raises_cli_provider_error(self) -> None:
+        """An executable with an invalid format (ENOEXEC) should raise CliProviderError."""
+        from debate_hall_mcp.providers.cli import CliProvider, CliProviderError
+
+        provider = CliProvider(cli_name="claude")
+
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=OSError(8, "Exec format error"),
+            ),
+            pytest.raises(
+                CliProviderError,
+                match=r"CLI executable 'claude' could not be started: Exec format error",
+            ),
+        ):
+            await provider.complete(
+                system_prompt="System",
+                user_prompt="User",
+            )
