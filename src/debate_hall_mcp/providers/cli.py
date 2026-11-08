@@ -176,6 +176,11 @@ class CliProvider:
             raise CliProviderError(f"CLI executable '{cmd[0]}' not found") from e
         except PermissionError as e:
             raise CliProviderError(f"CLI executable '{cmd[0]}' is not executable") from e
+        except OSError as e:
+            # e.g. ENOEXEC: the file is executable but not a valid binary or script
+            raise CliProviderError(
+                f"CLI executable '{cmd[0]}' could not be started: {e.strerror or e}"
+            ) from e
 
         # Timeout for graceful shutdown after SIGTERM
         graceful_timeout = 5
